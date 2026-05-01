@@ -2,331 +2,336 @@
 
 > 分析范围：`unitree_sdk2_python/` 子目录。当前工作区还包含 `unitree_mujoco/`、`unitree_rl_mjlab/` 等旁路项目，但本文件按用户指定只展开 `unitree_sdk2_python`。
 
-## 1. 全目录相对路径
+## 1. 全量仓库索引表（目录与逐文件作用）
 
-```text
-unitree_sdk2_python/
-unitree_sdk2_python/example/
-unitree_sdk2_python/example/b2/
-unitree_sdk2_python/example/b2/camera/
-unitree_sdk2_python/example/b2/high_level/
-unitree_sdk2_python/example/b2/low_level/
-unitree_sdk2_python/example/b2w/
-unitree_sdk2_python/example/b2w/camera/
-unitree_sdk2_python/example/b2w/high_level/
-unitree_sdk2_python/example/b2w/low_level/
-unitree_sdk2_python/example/g1/
-unitree_sdk2_python/example/g1/audio/
-unitree_sdk2_python/example/g1/high_level/
-unitree_sdk2_python/example/g1/low_level/
-unitree_sdk2_python/example/go2/
-unitree_sdk2_python/example/go2/front_camera/
-unitree_sdk2_python/example/go2/high_level/
-unitree_sdk2_python/example/go2/low_level/
-unitree_sdk2_python/example/go2w/
-unitree_sdk2_python/example/go2w/high_level/
-unitree_sdk2_python/example/go2w/low_level/
-unitree_sdk2_python/example/h1/
-unitree_sdk2_python/example/h1/high_level/
-unitree_sdk2_python/example/h1/low_level/
-unitree_sdk2_python/example/h1_2/
-unitree_sdk2_python/example/h1_2/low_level/
-unitree_sdk2_python/example/h2/
-unitree_sdk2_python/example/h2/high_level/
-unitree_sdk2_python/example/h2/low_level/
-unitree_sdk2_python/example/helloworld/
-unitree_sdk2_python/example/motionSwitcher/
-unitree_sdk2_python/example/obstacles_avoid/
-unitree_sdk2_python/example/vui_client/
-unitree_sdk2_python/example/wireless_controller/
-unitree_sdk2_python/unitree_sdk2py/
-unitree_sdk2_python/unitree_sdk2py/b2/
-unitree_sdk2_python/unitree_sdk2py/b2/back_video/
-unitree_sdk2_python/unitree_sdk2py/b2/front_video/
-unitree_sdk2_python/unitree_sdk2py/b2/robot_state/
-unitree_sdk2_python/unitree_sdk2py/b2/sport/
-unitree_sdk2_python/unitree_sdk2py/b2/vui/
-unitree_sdk2_python/unitree_sdk2py/comm/
-unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/
-unitree_sdk2_python/unitree_sdk2py/core/
-unitree_sdk2_python/unitree_sdk2py/g1/
-unitree_sdk2_python/unitree_sdk2py/g1/arm/
-unitree_sdk2_python/unitree_sdk2py/g1/audio/
-unitree_sdk2_python/unitree_sdk2py/g1/loco/
-unitree_sdk2_python/unitree_sdk2py/go2/
-unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/
-unitree_sdk2_python/unitree_sdk2py/go2/robot_state/
-unitree_sdk2_python/unitree_sdk2py/go2/sport/
-unitree_sdk2_python/unitree_sdk2py/go2/video/
-unitree_sdk2_python/unitree_sdk2py/go2/vui/
-unitree_sdk2_python/unitree_sdk2py/h1/
-unitree_sdk2_python/unitree_sdk2py/h1/loco/
-unitree_sdk2_python/unitree_sdk2py/h2/
-unitree_sdk2_python/unitree_sdk2py/h2/loco/
-unitree_sdk2_python/unitree_sdk2py/idl/
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants/
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/
-unitree_sdk2_python/unitree_sdk2py/rpc/
-unitree_sdk2_python/unitree_sdk2py/test/
-unitree_sdk2_python/unitree_sdk2py/test/client/
-unitree_sdk2_python/unitree_sdk2py/test/crc/
-unitree_sdk2_python/unitree_sdk2py/test/helloworld/
-unitree_sdk2_python/unitree_sdk2py/test/lowlevel/
-unitree_sdk2_python/unitree_sdk2py/test/rpc/
-unitree_sdk2_python/unitree_sdk2py/utils/
-unitree_sdk2_python/unitree_sdk2py/utils/lib/
-unitree_sdk2_python/.gitignore
-unitree_sdk2_python/LICENSE
-unitree_sdk2_python/README zh.md
-unitree_sdk2_python/README.md
-unitree_sdk2_python/example/b2/camera/camera_opencv.py
-unitree_sdk2_python/example/b2/camera/capture_image.py
-unitree_sdk2_python/example/b2/high_level/b2_sport_client.py
-unitree_sdk2_python/example/b2/low_level/b2_stand_example.py
-unitree_sdk2_python/example/b2/low_level/unitree_legged_const.py
-unitree_sdk2_python/example/b2w/camera/camera_opencv.py
-unitree_sdk2_python/example/b2w/camera/capture_image.py
-unitree_sdk2_python/example/b2w/high_level/b2w_sport_client.py
-unitree_sdk2_python/example/b2w/low_level/b2w_stand_example.py
-unitree_sdk2_python/example/b2w/low_level/unitree_legged_const.py
-unitree_sdk2_python/example/g1/audio/g1_audio_client_example.py
-unitree_sdk2_python/example/g1/audio/g1_audio_client_play_wav.py
-unitree_sdk2_python/example/g1/audio/test.wav
-unitree_sdk2_python/example/g1/audio/wav.py
-unitree_sdk2_python/example/g1/high_level/g1_arm5_sdk_dds_example.py
-unitree_sdk2_python/example/g1/high_level/g1_arm7_sdk_dds_example.py
-unitree_sdk2_python/example/g1/high_level/g1_arm_action_example.py
-unitree_sdk2_python/example/g1/high_level/g1_loco_client_example.py
-unitree_sdk2_python/example/g1/low_level/g1_low_level_example.py
-unitree_sdk2_python/example/g1/readme.md
-unitree_sdk2_python/example/go2/front_camera/camera_opencv.py
-unitree_sdk2_python/example/go2/front_camera/capture_image.py
-unitree_sdk2_python/example/go2/high_level/go2_sport_client.py
-unitree_sdk2_python/example/go2/high_level/go2_utlidar_switch.py
-unitree_sdk2_python/example/go2/low_level/go2_stand_example.py
-unitree_sdk2_python/example/go2/low_level/unitree_legged_const.py
-unitree_sdk2_python/example/go2w/high_level/go2w_sport_client.py
-unitree_sdk2_python/example/go2w/low_level/go2w_stand_example.py
-unitree_sdk2_python/example/go2w/low_level/unitree_legged_const.py
-unitree_sdk2_python/example/h1/high_level/h1_loco_client_example.py
-unitree_sdk2_python/example/h1/low_level/h1_low_level_example.py
-unitree_sdk2_python/example/h1/low_level/unitree_legged_const.py
-unitree_sdk2_python/example/h1_2/low_level/h1_2_low_level_example.py
-unitree_sdk2_python/example/h2/high_level/h2_loco_client_example.py
-unitree_sdk2_python/example/h2/low_level/h2_ankle_swing_example.py
-unitree_sdk2_python/example/helloworld/publisher.py
-unitree_sdk2_python/example/helloworld/subscriber.py
-unitree_sdk2_python/example/helloworld/user_data.py
-unitree_sdk2_python/example/motionSwitcher/motion_switcher_example.py
-unitree_sdk2_python/example/obstacles_avoid/obstacles_avoid_move.py
-unitree_sdk2_python/example/obstacles_avoid/obstacles_avoid_switch.py
-unitree_sdk2_python/example/vui_client/vui_client_example.py
-unitree_sdk2_python/example/wireless_controller/wireless_controller.py
-unitree_sdk2_python/pyproject.toml
-unitree_sdk2_python/setup.py
-unitree_sdk2_python/unitree_sdk2py/__init__.py
-unitree_sdk2_python/unitree_sdk2py/b2/back_video/back_video_api.py
-unitree_sdk2_python/unitree_sdk2py/b2/back_video/back_video_client.py
-unitree_sdk2_python/unitree_sdk2py/b2/front_video/front_video_api.py
-unitree_sdk2_python/unitree_sdk2py/b2/front_video/front_video_client.py
-unitree_sdk2_python/unitree_sdk2py/b2/robot_state/robot_state_api.py
-unitree_sdk2_python/unitree_sdk2py/b2/robot_state/robot_state_client.py
-unitree_sdk2_python/unitree_sdk2py/b2/sport/sport_api.py
-unitree_sdk2_python/unitree_sdk2py/b2/sport/sport_client.py
-unitree_sdk2_python/unitree_sdk2py/b2/vui/vui_api.py
-unitree_sdk2_python/unitree_sdk2py/b2/vui/vui_client.py
-unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/__init__.py
-unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/motion_switcher_api.py
-unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/motion_switcher_client.py
-unitree_sdk2_python/unitree_sdk2py/core/__init__.py
-unitree_sdk2_python/unitree_sdk2py/core/channel.py
-unitree_sdk2_python/unitree_sdk2py/core/channel_config.py
-unitree_sdk2_python/unitree_sdk2py/core/channel_name.py
-unitree_sdk2_python/unitree_sdk2py/g1/arm/g1_arm_action_api.py
-unitree_sdk2_python/unitree_sdk2py/g1/arm/g1_arm_action_client.py
-unitree_sdk2_python/unitree_sdk2py/g1/audio/g1_audio_api.py
-unitree_sdk2_python/unitree_sdk2py/g1/audio/g1_audio_client.py
-unitree_sdk2_python/unitree_sdk2py/g1/loco/g1_loco_api.py
-unitree_sdk2_python/unitree_sdk2py/g1/loco/g1_loco_client.py
-unitree_sdk2_python/unitree_sdk2py/go2/__init__.py
-unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/__init__.py
-unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/obstacles_avoid_api.py
-unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/obstacles_avoid_client.py
-unitree_sdk2_python/unitree_sdk2py/go2/robot_state/__init__.py
-unitree_sdk2_python/unitree_sdk2py/go2/robot_state/robot_state_api.py
-unitree_sdk2_python/unitree_sdk2py/go2/robot_state/robot_state_client.py
-unitree_sdk2_python/unitree_sdk2py/go2/sport/__init__.py
-unitree_sdk2_python/unitree_sdk2py/go2/sport/sport_api.py
-unitree_sdk2_python/unitree_sdk2py/go2/sport/sport_client.py
-unitree_sdk2_python/unitree_sdk2py/go2/video/__init__.py
-unitree_sdk2_python/unitree_sdk2py/go2/video/video_api.py
-unitree_sdk2_python/unitree_sdk2py/go2/video/video_client.py
-unitree_sdk2_python/unitree_sdk2py/go2/vui/__init__.py
-unitree_sdk2_python/unitree_sdk2py/go2/vui/vui_api.py
-unitree_sdk2_python/unitree_sdk2py/go2/vui/vui_client.py
-unitree_sdk2_python/unitree_sdk2py/h1/loco/h1_loco_api.py
-unitree_sdk2_python/unitree_sdk2py/h1/loco/h1_loco_client.py
-unitree_sdk2_python/unitree_sdk2py/h2/loco/h2_loco_api.py
-unitree_sdk2_python/unitree_sdk2py/h2/loco/h2_loco_client.py
-unitree_sdk2_python/unitree_sdk2py/idl/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/dds_/_Time_.py
-unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/default.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Point32_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PointStamped_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Point_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Pose2D_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PoseStamped_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PoseWithCovarianceStamped_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PoseWithCovariance_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Pose_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_QuaternionStamped_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Quaternion_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_TwistStamped_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_TwistWithCovarianceStamped_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_TwistWithCovariance_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Twist_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Vector3_.py
-unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/_MapMetaData_.py
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/_OccupancyGrid_.py
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/_Odometry_.py
-unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants/_PointField_.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/_PointCloud2_.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/_PointField_.py
-unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/_Header_.py
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/_String_.py
-unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestHeader_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestIdentity_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestLease_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestPolicy_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_Request_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_ResponseHeader_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_ResponseStatus_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_Response_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_AudioData_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_BmsCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_BmsState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Error_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Go2FrontVideoData_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_HeightMap_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_IMUState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_InterfaceConfig_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_LidarState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_LowCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_LowState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorCmds_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorStates_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_PathPoint_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Req_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Res_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_SportModeState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_TimeSpec_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_UwbState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_UwbSwitch_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_WirelessController_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/.idlpy_manifest
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/.idlpy_manifest
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/__init__.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/.idlpy_manifest
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_BmsCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_BmsState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_HandCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_HandState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_IMUState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_LowCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_LowState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_MainBoardState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_MotorCmd_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_MotorState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_PressSensorState_.py
-unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/__init__.py
-unitree_sdk2_python/unitree_sdk2py/rpc/__init__.py
-unitree_sdk2_python/unitree_sdk2py/rpc/client.py
-unitree_sdk2_python/unitree_sdk2py/rpc/client_base.py
-unitree_sdk2_python/unitree_sdk2py/rpc/client_stub.py
-unitree_sdk2_python/unitree_sdk2py/rpc/internal.py
-unitree_sdk2_python/unitree_sdk2py/rpc/lease_client.py
-unitree_sdk2_python/unitree_sdk2py/rpc/lease_server.py
-unitree_sdk2_python/unitree_sdk2py/rpc/request_future.py
-unitree_sdk2_python/unitree_sdk2py/rpc/server.py
-unitree_sdk2_python/unitree_sdk2py/rpc/server_base.py
-unitree_sdk2_python/unitree_sdk2py/rpc/server_stub.py
-unitree_sdk2_python/unitree_sdk2py/test/client/obstacles_avoid_client_example.py
-unitree_sdk2_python/unitree_sdk2py/test/client/robot_service_client_example.py
-unitree_sdk2_python/unitree_sdk2py/test/client/sport_client_example.py
-unitree_sdk2_python/unitree_sdk2py/test/client/video_client_example.py
-unitree_sdk2_python/unitree_sdk2py/test/client/vui_client_example.py
-unitree_sdk2_python/unitree_sdk2py/test/crc/test_crc.py
-unitree_sdk2_python/unitree_sdk2py/test/helloworld/helloworld.py
-unitree_sdk2_python/unitree_sdk2py/test/helloworld/publisher.py
-unitree_sdk2_python/unitree_sdk2py/test/helloworld/subscriber.py
-unitree_sdk2_python/unitree_sdk2py/test/lowlevel/lowlevel_control.py
-unitree_sdk2_python/unitree_sdk2py/test/lowlevel/read_lowstate.py
-unitree_sdk2_python/unitree_sdk2py/test/lowlevel/sub_lowstate.py
-unitree_sdk2_python/unitree_sdk2py/test/lowlevel/unitree_go2_const.py
-unitree_sdk2_python/unitree_sdk2py/test/rpc/test_api.py
-unitree_sdk2_python/unitree_sdk2py/test/rpc/test_client_example.py
-unitree_sdk2_python/unitree_sdk2py/test/rpc/test_server_example.py
-unitree_sdk2_python/unitree_sdk2py/utils/__init__.py
-unitree_sdk2_python/unitree_sdk2py/utils/bqueue.py
-unitree_sdk2_python/unitree_sdk2py/utils/clib_lookup.py
-unitree_sdk2_python/unitree_sdk2py/utils/crc.py
-unitree_sdk2_python/unitree_sdk2py/utils/future.py
-unitree_sdk2_python/unitree_sdk2py/utils/hz_sample.py
-unitree_sdk2_python/unitree_sdk2py/utils/joystick.py
-unitree_sdk2_python/unitree_sdk2py/utils/lib/crc_aarch64.so
-unitree_sdk2_python/unitree_sdk2py/utils/lib/crc_amd64.so
-unitree_sdk2_python/unitree_sdk2py/utils/singleton.py
-unitree_sdk2_python/unitree_sdk2py/utils/thread.py
-unitree_sdk2_python/unitree_sdk2py/utils/timerfd.py
-```
+> 本节为 `unitree_sdk2_python/` 的全量索引，包含目录节点和每一个文件。说明依据文件路径、文件类型以及源码/配置/模型内容生成；源码文件会列出其实际定义的类、函数、API 常量或运行职责。
+
+- 目录数：93
+- 文件数：228
+
+| 序号 | 路径 | 类型 | 大小 | 作用说明 |
+|---:|---|---|---:|---|
+| 1 | `unitree_sdk2_python` | 目录 | - | 目录节点，包含 92 个子目录、228 个文件，用于组织 unitree_sdk2_python 相关代码或资源。 |
+| 2 | `unitree_sdk2_python/example` | 目录 | - | 目录节点，包含 32 个子目录、43 个文件，用于组织 example 相关代码或资源。 |
+| 3 | `unitree_sdk2_python/example/b2` | 目录 | - | 目录节点，包含 3 个子目录、5 个文件，用于组织 example/b2 相关代码或资源。 |
+| 4 | `unitree_sdk2_python/example/b2/camera` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/b2/camera 相关代码或资源。 |
+| 5 | `unitree_sdk2_python/example/b2/high_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/b2/high_level 相关代码或资源。 |
+| 6 | `unitree_sdk2_python/example/b2/low_level` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/b2/low_level 相关代码或资源。 |
+| 7 | `unitree_sdk2_python/example/b2w` | 目录 | - | 目录节点，包含 3 个子目录、5 个文件，用于组织 example/b2w 相关代码或资源。 |
+| 8 | `unitree_sdk2_python/example/b2w/camera` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/b2w/camera 相关代码或资源。 |
+| 9 | `unitree_sdk2_python/example/b2w/high_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/b2w/high_level 相关代码或资源。 |
+| 10 | `unitree_sdk2_python/example/b2w/low_level` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/b2w/low_level 相关代码或资源。 |
+| 11 | `unitree_sdk2_python/example/g1` | 目录 | - | 目录节点，包含 3 个子目录、10 个文件，用于组织 example/g1 相关代码或资源。 |
+| 12 | `unitree_sdk2_python/example/g1/audio` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 example/g1/audio 相关代码或资源。 |
+| 13 | `unitree_sdk2_python/example/g1/high_level` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 example/g1/high_level 相关代码或资源。 |
+| 14 | `unitree_sdk2_python/example/g1/low_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/g1/low_level 相关代码或资源。 |
+| 15 | `unitree_sdk2_python/example/go2` | 目录 | - | 目录节点，包含 3 个子目录、6 个文件，用于组织 example/go2 相关代码或资源。 |
+| 16 | `unitree_sdk2_python/example/go2/front_camera` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/go2/front_camera 相关代码或资源。 |
+| 17 | `unitree_sdk2_python/example/go2/high_level` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/go2/high_level 相关代码或资源。 |
+| 18 | `unitree_sdk2_python/example/go2/low_level` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/go2/low_level 相关代码或资源。 |
+| 19 | `unitree_sdk2_python/example/go2w` | 目录 | - | 目录节点，包含 2 个子目录、3 个文件，用于组织 example/go2w 相关代码或资源。 |
+| 20 | `unitree_sdk2_python/example/go2w/high_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/go2w/high_level 相关代码或资源。 |
+| 21 | `unitree_sdk2_python/example/go2w/low_level` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/go2w/low_level 相关代码或资源。 |
+| 22 | `unitree_sdk2_python/example/h1` | 目录 | - | 目录节点，包含 2 个子目录、3 个文件，用于组织 example/h1 相关代码或资源。 |
+| 23 | `unitree_sdk2_python/example/h1/high_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/h1/high_level 相关代码或资源。 |
+| 24 | `unitree_sdk2_python/example/h1/low_level` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/h1/low_level 相关代码或资源。 |
+| 25 | `unitree_sdk2_python/example/h1_2` | 目录 | - | 目录节点，包含 1 个子目录、1 个文件，用于组织 example/h1_2 相关代码或资源。 |
+| 26 | `unitree_sdk2_python/example/h1_2/low_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/h1_2/low_level 相关代码或资源。 |
+| 27 | `unitree_sdk2_python/example/h2` | 目录 | - | 目录节点，包含 2 个子目录、2 个文件，用于组织 example/h2 相关代码或资源。 |
+| 28 | `unitree_sdk2_python/example/h2/high_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/h2/high_level 相关代码或资源。 |
+| 29 | `unitree_sdk2_python/example/h2/low_level` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/h2/low_level 相关代码或资源。 |
+| 30 | `unitree_sdk2_python/example/helloworld` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 example/helloworld 相关代码或资源。 |
+| 31 | `unitree_sdk2_python/example/motionSwitcher` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/motionSwitcher 相关代码或资源。 |
+| 32 | `unitree_sdk2_python/example/obstacles_avoid` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/obstacles_avoid 相关代码或资源。 |
+| 33 | `unitree_sdk2_python/example/vui_client` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/vui_client 相关代码或资源。 |
+| 34 | `unitree_sdk2_python/example/wireless_controller` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/wireless_controller 相关代码或资源。 |
+| 35 | `unitree_sdk2_python/unitree_sdk2py` | 目录 | - | 目录节点，包含 58 个子目录、179 个文件，用于组织 unitree_sdk2py 相关代码或资源。 |
+| 36 | `unitree_sdk2_python/unitree_sdk2py/b2` | 目录 | - | 目录节点，包含 5 个子目录、10 个文件，用于组织 unitree_sdk2py/b2 相关代码或资源。 |
+| 37 | `unitree_sdk2_python/unitree_sdk2py/b2/back_video` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/b2/back_video 相关代码或资源。 |
+| 38 | `unitree_sdk2_python/unitree_sdk2py/b2/front_video` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/b2/front_video 相关代码或资源。 |
+| 39 | `unitree_sdk2_python/unitree_sdk2py/b2/robot_state` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/b2/robot_state 相关代码或资源。 |
+| 40 | `unitree_sdk2_python/unitree_sdk2py/b2/sport` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/b2/sport 相关代码或资源。 |
+| 41 | `unitree_sdk2_python/unitree_sdk2py/b2/vui` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/b2/vui 相关代码或资源。 |
+| 42 | `unitree_sdk2_python/unitree_sdk2py/comm` | 目录 | - | 目录节点，包含 1 个子目录、3 个文件，用于组织 unitree_sdk2py/comm 相关代码或资源。 |
+| 43 | `unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/comm/motion_switcher 相关代码或资源。 |
+| 44 | `unitree_sdk2_python/unitree_sdk2py/core` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 unitree_sdk2py/core 相关代码或资源。 |
+| 45 | `unitree_sdk2_python/unitree_sdk2py/g1` | 目录 | - | 目录节点，包含 3 个子目录、6 个文件，用于组织 unitree_sdk2py/g1 相关代码或资源。 |
+| 46 | `unitree_sdk2_python/unitree_sdk2py/g1/arm` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/g1/arm 相关代码或资源。 |
+| 47 | `unitree_sdk2_python/unitree_sdk2py/g1/audio` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/g1/audio 相关代码或资源。 |
+| 48 | `unitree_sdk2_python/unitree_sdk2py/g1/loco` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/g1/loco 相关代码或资源。 |
+| 49 | `unitree_sdk2_python/unitree_sdk2py/go2` | 目录 | - | 目录节点，包含 5 个子目录、16 个文件，用于组织 unitree_sdk2py/go2 相关代码或资源。 |
+| 50 | `unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/go2/obstacles_avoid 相关代码或资源。 |
+| 51 | `unitree_sdk2_python/unitree_sdk2py/go2/robot_state` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/go2/robot_state 相关代码或资源。 |
+| 52 | `unitree_sdk2_python/unitree_sdk2py/go2/sport` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/go2/sport 相关代码或资源。 |
+| 53 | `unitree_sdk2_python/unitree_sdk2py/go2/video` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/go2/video 相关代码或资源。 |
+| 54 | `unitree_sdk2_python/unitree_sdk2py/go2/vui` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/go2/vui 相关代码或资源。 |
+| 55 | `unitree_sdk2_python/unitree_sdk2py/h1` | 目录 | - | 目录节点，包含 1 个子目录、2 个文件，用于组织 unitree_sdk2py/h1 相关代码或资源。 |
+| 56 | `unitree_sdk2_python/unitree_sdk2py/h1/loco` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/h1/loco 相关代码或资源。 |
+| 57 | `unitree_sdk2_python/unitree_sdk2py/h2` | 目录 | - | 目录节点，包含 1 个子目录、2 个文件，用于组织 unitree_sdk2py/h2 相关代码或资源。 |
+| 58 | `unitree_sdk2_python/unitree_sdk2py/h2/loco` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/h2/loco 相关代码或资源。 |
+| 59 | `unitree_sdk2_python/unitree_sdk2py/idl` | 目录 | - | 目录节点，包含 25 个子目录、96 个文件，用于组织 unitree_sdk2py/idl 相关代码或资源。 |
+| 60 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces` | 目录 | - | 目录节点，包含 2 个子目录、4 个文件，用于组织 unitree_sdk2py/idl/builtin_interfaces 相关代码或资源。 |
+| 61 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg` | 目录 | - | 目录节点，包含 1 个子目录、3 个文件，用于组织 unitree_sdk2py/idl/builtin_interfaces/msg 相关代码或资源。 |
+| 62 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/idl/builtin_interfaces/msg/dds_ 相关代码或资源。 |
+| 63 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs` | 目录 | - | 目录节点，包含 2 个子目录、18 个文件，用于组织 unitree_sdk2py/idl/geometry_msgs 相关代码或资源。 |
+| 64 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg` | 目录 | - | 目录节点，包含 1 个子目录、17 个文件，用于组织 unitree_sdk2py/idl/geometry_msgs/msg 相关代码或资源。 |
+| 65 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、16 个文件，用于组织 unitree_sdk2py/idl/geometry_msgs/msg/dds_ 相关代码或资源。 |
+| 66 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs` | 目录 | - | 目录节点，包含 2 个子目录、6 个文件，用于组织 unitree_sdk2py/idl/nav_msgs 相关代码或资源。 |
+| 67 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg` | 目录 | - | 目录节点，包含 1 个子目录、5 个文件，用于组织 unitree_sdk2py/idl/nav_msgs/msg 相关代码或资源。 |
+| 68 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 unitree_sdk2py/idl/nav_msgs/msg/dds_ 相关代码或资源。 |
+| 69 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs` | 目录 | - | 目录节点，包含 3 个子目录、7 个文件，用于组织 unitree_sdk2py/idl/sensor_msgs 相关代码或资源。 |
+| 70 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg` | 目录 | - | 目录节点，包含 2 个子目录、6 个文件，用于组织 unitree_sdk2py/idl/sensor_msgs/msg 相关代码或资源。 |
+| 71 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_` | 目录 | - | 目录节点，包含 1 个子目录、5 个文件，用于组织 unitree_sdk2py/idl/sensor_msgs/msg/dds_ 相关代码或资源。 |
+| 72 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants 相关代码或资源。 |
+| 73 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs` | 目录 | - | 目录节点，包含 2 个子目录、5 个文件，用于组织 unitree_sdk2py/idl/std_msgs 相关代码或资源。 |
+| 74 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg` | 目录 | - | 目录节点，包含 1 个子目录、4 个文件，用于组织 unitree_sdk2py/idl/std_msgs/msg 相关代码或资源。 |
+| 75 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/idl/std_msgs/msg/dds_ 相关代码或资源。 |
+| 76 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api` | 目录 | - | 目录节点，包含 2 个子目录、11 个文件，用于组织 unitree_sdk2py/idl/unitree_api 相关代码或资源。 |
+| 77 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg` | 目录 | - | 目录节点，包含 1 个子目录、10 个文件，用于组织 unitree_sdk2py/idl/unitree_api/msg 相关代码或资源。 |
+| 78 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、9 个文件，用于组织 unitree_sdk2py/idl/unitree_api/msg/dds_ 相关代码或资源。 |
+| 79 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go` | 目录 | - | 目录节点，包含 2 个子目录、26 个文件，用于组织 unitree_sdk2py/idl/unitree_go 相关代码或资源。 |
+| 80 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg` | 目录 | - | 目录节点，包含 1 个子目录、25 个文件，用于组织 unitree_sdk2py/idl/unitree_go/msg 相关代码或资源。 |
+| 81 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、24 个文件，用于组织 unitree_sdk2py/idl/unitree_go/msg/dds_ 相关代码或资源。 |
+| 82 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg` | 目录 | - | 目录节点，包含 2 个子目录、17 个文件，用于组织 unitree_sdk2py/idl/unitree_hg 相关代码或资源。 |
+| 83 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg` | 目录 | - | 目录节点，包含 1 个子目录、15 个文件，用于组织 unitree_sdk2py/idl/unitree_hg/msg 相关代码或资源。 |
+| 84 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_` | 目录 | - | 目录节点，包含 0 个子目录、13 个文件，用于组织 unitree_sdk2py/idl/unitree_hg/msg/dds_ 相关代码或资源。 |
+| 85 | `unitree_sdk2_python/unitree_sdk2py/rpc` | 目录 | - | 目录节点，包含 0 个子目录、11 个文件，用于组织 unitree_sdk2py/rpc 相关代码或资源。 |
+| 86 | `unitree_sdk2_python/unitree_sdk2py/test` | 目录 | - | 目录节点，包含 5 个子目录、16 个文件，用于组织 unitree_sdk2py/test 相关代码或资源。 |
+| 87 | `unitree_sdk2_python/unitree_sdk2py/test/client` | 目录 | - | 目录节点，包含 0 个子目录、5 个文件，用于组织 unitree_sdk2py/test/client 相关代码或资源。 |
+| 88 | `unitree_sdk2_python/unitree_sdk2py/test/crc` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 unitree_sdk2py/test/crc 相关代码或资源。 |
+| 89 | `unitree_sdk2_python/unitree_sdk2py/test/helloworld` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/test/helloworld 相关代码或资源。 |
+| 90 | `unitree_sdk2_python/unitree_sdk2py/test/lowlevel` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 unitree_sdk2py/test/lowlevel 相关代码或资源。 |
+| 91 | `unitree_sdk2_python/unitree_sdk2py/test/rpc` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 unitree_sdk2py/test/rpc 相关代码或资源。 |
+| 92 | `unitree_sdk2_python/unitree_sdk2py/utils` | 目录 | - | 目录节点，包含 1 个子目录、12 个文件，用于组织 unitree_sdk2py/utils 相关代码或资源。 |
+| 93 | `unitree_sdk2_python/unitree_sdk2py/utils/lib` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 unitree_sdk2py/utils/lib 相关代码或资源。 |
+| 94 | `unitree_sdk2_python/.gitignore` | 项目文件 | 296 B | Git 忽略规则，排除构建产物、缓存、日志、二进制临时文件或本地环境文件。 |
+| 95 | `unitree_sdk2_python/LICENSE` | 文本/许可文件 | 1.5 KB | 许可文本，声明本仓库或第三方组件的授权条款。 |
+| 96 | `unitree_sdk2_python/README zh.md` | Markdown文档 | 4.6 KB | Markdown 文档《unitree_sdk2_python》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 97 | `unitree_sdk2_python/README.md` | Markdown文档 | 5.4 KB | Markdown 文档《unitree_sdk2_python》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 98 | `unitree_sdk2_python/example/b2/camera/camera_opencv.py` | Python源码 | 1.6 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 display_image，用于实机或仿真快速验证。 |
+| 99 | `unitree_sdk2_python/example/b2/camera/capture_image.py` | Python源码 | 1.5 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 100 | `unitree_sdk2_python/example/b2/high_level/b2_sport_client.py` | Python源码 | 3.5 KB | 实现 TestOption, UserInterface 客户端，继承/使用 RPC Client 注册 API，并把 convert_to_int、terminal_handle 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 101 | `unitree_sdk2_python/example/b2/low_level/b2_stand_example.py` | Python源码 | 6.2 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 102 | `unitree_sdk2_python/example/b2/low_level/unitree_legged_const.py` | Python源码 | 345 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 103 | `unitree_sdk2_python/example/b2w/camera/camera_opencv.py` | Python源码 | 1.6 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 display_image，用于实机或仿真快速验证。 |
+| 104 | `unitree_sdk2_python/example/b2w/camera/capture_image.py` | Python源码 | 1.5 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 105 | `unitree_sdk2_python/example/b2w/high_level/b2w_sport_client.py` | Python源码 | 3.1 KB | 实现 TestOption, UserInterface 客户端，继承/使用 RPC Client 注册 API，并把 convert_to_int、terminal_handle 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 106 | `unitree_sdk2_python/example/b2w/low_level/b2w_stand_example.py` | Python源码 | 7.2 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 107 | `unitree_sdk2_python/example/b2w/low_level/unitree_legged_const.py` | Python源码 | 485 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 108 | `unitree_sdk2_python/example/g1/audio/g1_audio_client_example.py` | Python源码 | 1.3 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 109 | `unitree_sdk2_python/example/g1/audio/g1_audio_client_play_wav.py` | Python源码 | 1.1 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 main，用于实机或仿真快速验证。 |
+| 110 | `unitree_sdk2_python/example/g1/audio/test.wav` | 音频资源 | 129.1 KB | 音频样例文件，供 G1 audio client 示例读取并发送播放。 |
+| 111 | `unitree_sdk2_python/example/g1/audio/wav.py` | Python源码 | 6.2 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 read_wav, write_wave, play_pcm_stream，用于实机或仿真快速验证。 |
+| 112 | `unitree_sdk2_python/example/g1/high_level/g1_arm5_sdk_dds_example.py` | Python源码 | 6.7 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 113 | `unitree_sdk2_python/example/g1/high_level/g1_arm7_sdk_dds_example.py` | Python源码 | 6.8 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 114 | `unitree_sdk2_python/example/g1/high_level/g1_arm_action_example.py` | Python源码 | 5.3 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 115 | `unitree_sdk2_python/example/g1/high_level/g1_loco_client_example.py` | Python源码 | 3.9 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 116 | `unitree_sdk2_python/example/g1/low_level/g1_low_level_example.py` | Python源码 | 7.2 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 117 | `unitree_sdk2_python/example/g1/readme.md` | Markdown文档 | 172 B | Markdown 文档，记录该目录的使用方法、接口说明、安装步骤或许可信息。 |
+| 118 | `unitree_sdk2_python/example/go2/front_camera/camera_opencv.py` | Python源码 | 1.1 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 119 | `unitree_sdk2_python/example/go2/front_camera/capture_image.py` | Python源码 | 736 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 120 | `unitree_sdk2_python/example/go2/high_level/go2_sport_client.py` | Python源码 | 5.0 KB | 实现 TestOption, UserInterface 客户端，继承/使用 RPC Client 注册 API，并把 convert_to_int、terminal_handle 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 121 | `unitree_sdk2_python/example/go2/high_level/go2_utlidar_switch.py` | Python源码 | 1.1 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 122 | `unitree_sdk2_python/example/go2/low_level/go2_stand_example.py` | Python源码 | 6.4 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 123 | `unitree_sdk2_python/example/go2/low_level/unitree_legged_const.py` | Python源码 | 345 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 124 | `unitree_sdk2_python/example/go2w/high_level/go2w_sport_client.py` | Python源码 | 3.1 KB | 实现 TestOption, UserInterface 客户端，继承/使用 RPC Client 注册 API，并把 convert_to_int、terminal_handle 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 125 | `unitree_sdk2_python/example/go2w/low_level/go2w_stand_example.py` | Python源码 | 7.2 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 126 | `unitree_sdk2_python/example/go2w/low_level/unitree_legged_const.py` | Python源码 | 485 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 127 | `unitree_sdk2_python/example/h1/high_level/h1_loco_client_example.py` | Python源码 | 2.9 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 128 | `unitree_sdk2_python/example/h1/low_level/h1_low_level_example.py` | Python源码 | 5.2 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 129 | `unitree_sdk2_python/example/h1/low_level/unitree_legged_const.py` | Python源码 | 90 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 130 | `unitree_sdk2_python/example/h1_2/low_level/h1_2_low_level_example.py` | Python源码 | 7.5 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 131 | `unitree_sdk2_python/example/h2/high_level/h2_loco_client_example.py` | Python源码 | 3.3 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 132 | `unitree_sdk2_python/example/h2/low_level/h2_ankle_swing_example.py` | Python源码 | 6.0 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 133 | `unitree_sdk2_python/example/helloworld/publisher.py` | Python源码 | 689 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 134 | `unitree_sdk2_python/example/helloworld/subscriber.py` | Python源码 | 526 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 135 | `unitree_sdk2_python/example/helloworld/user_data.py` | Python源码 | 251 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 136 | `unitree_sdk2_python/example/motionSwitcher/motion_switcher_example.py` | Python源码 | 922 B | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 137 | `unitree_sdk2_python/example/obstacles_avoid/obstacles_avoid_move.py` | Python源码 | 1.0 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 138 | `unitree_sdk2_python/example/obstacles_avoid/obstacles_avoid_switch.py` | Python源码 | 2.8 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 139 | `unitree_sdk2_python/example/vui_client/vui_client_example.py` | Python源码 | 1.9 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 140 | `unitree_sdk2_python/example/wireless_controller/wireless_controller.py` | Python源码 | 3.8 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 141 | `unitree_sdk2_python/pyproject.toml` | TOML配置 | 89 B | Python 项目构建配置，声明构建后端、工具配置或包元数据。 |
+| 142 | `unitree_sdk2_python/setup.py` | Python源码 | 711 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 143 | `unitree_sdk2_python/unitree_sdk2py/__init__.py` | Python源码 | 128 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 144 | `unitree_sdk2_python/unitree_sdk2py/b2/back_video/back_video_api.py` | Python源码 | 209 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 1 个 API ID。 |
+| 145 | `unitree_sdk2_python/unitree_sdk2py/b2/back_video/back_video_client.py` | Python源码 | 540 B | 实现 BackVideoClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、GetImageSample 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 146 | `unitree_sdk2_python/unitree_sdk2py/b2/front_video/front_video_api.py` | Python源码 | 213 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 1 个 API ID。 |
+| 147 | `unitree_sdk2_python/unitree_sdk2py/b2/front_video/front_video_client.py` | Python源码 | 546 B | 实现 FrontVideoClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、GetImageSample 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 148 | `unitree_sdk2_python/unitree_sdk2py/b2/robot_state/robot_state_api.py` | Python源码 | 371 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 3 个 API ID。 |
+| 149 | `unitree_sdk2_python/unitree_sdk2py/b2/robot_state/robot_state_client.py` | Python源码 | 2.1 KB | 实现 ServiceState, RobotStateClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、ServiceList、ServiceSwitch、SetReportFreq 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 150 | `unitree_sdk2_python/unitree_sdk2py/b2/sport/sport_api.py` | Python源码 | 1.2 KB | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 21 个 API ID。 |
+| 151 | `unitree_sdk2_python/unitree_sdk2py/b2/sport/sport_client.py` | Python源码 | 6.5 KB | 实现 PathPoint, SportClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、Damp、BalanceStand、StopMove、StandUp、StandDown 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 152 | `unitree_sdk2_python/unitree_sdk2py/b2/vui/vui_api.py` | Python源码 | 303 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 6 个 API ID。 |
+| 153 | `unitree_sdk2_python/unitree_sdk2py/b2/vui/vui_client.py` | Python源码 | 2.1 KB | 实现 VuiClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、SetSwitch、GetSwitch、SetVolume、GetVolume、SetBrightness 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 154 | `unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 155 | `unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/motion_switcher_api.py` | Python源码 | 538 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 5 个 API ID。 |
+| 156 | `unitree_sdk2_python/unitree_sdk2py/comm/motion_switcher/motion_switcher_client.py` | Python源码 | 1.4 KB | 实现 MotionSwitcherClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、CheckMode、SelectMode、ReleaseMode 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 157 | `unitree_sdk2_python/unitree_sdk2py/core/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 158 | `unitree_sdk2_python/unitree_sdk2py/core/channel.py` | Python源码 | 9.6 KB | DDS 通信核心，定义 Channel、ChannelFactory、ChannelPublisher、ChannelSubscriber，封装 CycloneDDS Domain/Participant/Topic、Publisher/Subscriber、回调队列和超时读写。 |
+| 159 | `unitree_sdk2_python/unitree_sdk2py/core/channel_config.py` | Python源码 | 861 B | DDS 通信核心，定义 ，封装 CycloneDDS Domain/Participant/Topic、Publisher/Subscriber、回调队列和超时读写。 |
+| 160 | `unitree_sdk2_python/unitree_sdk2py/core/channel_name.py` | Python源码 | 646 B | DDS 通信核心，定义 ChannelType，封装 CycloneDDS Domain/Participant/Topic、Publisher/Subscriber、回调队列和超时读写。 |
+| 161 | `unitree_sdk2_python/unitree_sdk2py/g1/arm/g1_arm_action_api.py` | Python源码 | 254 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 2 个 API ID。 |
+| 162 | `unitree_sdk2_python/unitree_sdk2py/g1/arm/g1_arm_action_client.py` | Python源码 | 1.3 KB | 实现 G1ArmActionClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、ExecuteAction、GetActionList 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 163 | `unitree_sdk2_python/unitree_sdk2py/g1/audio/g1_audio_api.py` | Python源码 | 398 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 7 个 API ID。 |
+| 164 | `unitree_sdk2_python/unitree_sdk2py/g1/audio/g1_audio_client.py` | Python源码 | 2.2 KB | 实现 AudioClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、TtsMaker、GetVolume、SetVolume、LedControl、PlayStream 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 165 | `unitree_sdk2_python/unitree_sdk2py/g1/loco/g1_loco_api.py` | Python源码 | 639 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 12 个 API ID。 |
+| 166 | `unitree_sdk2_python/unitree_sdk2py/g1/loco/g1_loco_client.py` | Python源码 | 3.7 KB | 实现 LocoClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、SetFsmId、SetBalanceMode、SetStandHeight、SetVelocity、SetTaskId 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 167 | `unitree_sdk2_python/unitree_sdk2py/go2/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 168 | `unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 169 | `unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/obstacles_avoid_api.py` | Python源码 | 337 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 4 个 API ID。 |
+| 170 | `unitree_sdk2_python/unitree_sdk2py/go2/obstacles_avoid/obstacles_avoid_client.py` | Python源码 | 2.3 KB | 实现 ObstaclesAvoidClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、SwitchSet、SwitchGet、Move、UseRemoteCommandFromApi、MoveToAbsolutePosition 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 171 | `unitree_sdk2_python/unitree_sdk2py/go2/robot_state/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 172 | `unitree_sdk2_python/unitree_sdk2py/go2/robot_state/robot_state_api.py` | Python源码 | 371 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 3 个 API ID。 |
+| 173 | `unitree_sdk2_python/unitree_sdk2py/go2/robot_state/robot_state_client.py` | Python源码 | 2.1 KB | 实现 ServiceState, RobotStateClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、ServiceList、ServiceSwitch、SetReportFreq 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 174 | `unitree_sdk2_python/unitree_sdk2py/go2/sport/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 175 | `unitree_sdk2_python/unitree_sdk2py/go2/sport/sport_api.py` | Python源码 | 1.4 KB | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 39 个 API ID。 |
+| 176 | `unitree_sdk2_python/unitree_sdk2py/go2/sport/sport_client.py` | Python源码 | 10.7 KB | 实现 PathPoint, SportClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、Damp、BalanceStand、StopMove、StandUp、StandDown 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 177 | `unitree_sdk2_python/unitree_sdk2py/go2/video/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 178 | `unitree_sdk2_python/unitree_sdk2py/go2/video/video_api.py` | Python源码 | 171 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 1 个 API ID。 |
+| 179 | `unitree_sdk2_python/unitree_sdk2py/go2/video/video_client.py` | Python源码 | 482 B | 实现 VideoClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、GetImageSample 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 180 | `unitree_sdk2_python/unitree_sdk2py/go2/vui/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 181 | `unitree_sdk2_python/unitree_sdk2py/go2/vui/vui_api.py` | Python源码 | 303 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 6 个 API ID。 |
+| 182 | `unitree_sdk2_python/unitree_sdk2py/go2/vui/vui_client.py` | Python源码 | 2.1 KB | 实现 VuiClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、SetSwitch、GetSwitch、SetVolume、GetVolume、SetBrightness 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 183 | `unitree_sdk2_python/unitree_sdk2py/h1/loco/h1_loco_api.py` | Python源码 | 600 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 11 个 API ID。 |
+| 184 | `unitree_sdk2_python/unitree_sdk2py/h1/loco/h1_loco_client.py` | Python源码 | 2.4 KB | 实现 LocoClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、SetFsmId、SetStandHeight、SetVelocity、Damp、Start 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 185 | `unitree_sdk2_python/unitree_sdk2py/h2/loco/h2_loco_api.py` | Python源码 | 826 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 17 个 API ID。 |
+| 186 | `unitree_sdk2_python/unitree_sdk2py/h2/loco/h2_loco_client.py` | Python源码 | 7.4 KB | 实现 LocoClient 客户端，继承/使用 RPC Client 注册 API，并把 Init、SetFsmId、SetBalanceMode、SetSwingHeight、SetStandHeight、SetVelocity 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 187 | `unitree_sdk2_python/unitree_sdk2py/idl/__init__.py` | Python源码 | 271 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 188 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/__init__.py` | Python源码 | 167 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 189 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/__init__.py` | Python源码 | 173 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 190 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/dds_/_Time_.py` | Python源码 | 625 B | CycloneDDS IDL 生成的 Time_ 消息结构，声明 sec、nanosec 字段，供 DDS topic 序列化/反序列化使用。 |
+| 191 | `unitree_sdk2_python/unitree_sdk2py/idl/builtin_interfaces/msg/dds_/__init__.py` | Python源码 | 186 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 192 | `unitree_sdk2_python/unitree_sdk2py/idl/default.py` | Python源码 | 10.3 KB | 集中构造 IDL 消息默认值对象，为 LowCmd/LowState/SportModeState 等 DDS 消息填充数组长度和嵌套结构初值。 |
+| 193 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/__init__.py` | Python源码 | 162 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 194 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/__init__.py` | Python源码 | 168 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 195 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Point32_.py` | Python源码 | 635 B | CycloneDDS IDL 生成的 Point32_ 消息结构，声明 x、y、z 字段，供 DDS topic 序列化/反序列化使用。 |
+| 196 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PointStamped_.py` | Python源码 | 760 B | CycloneDDS IDL 生成的 PointStamped_ 消息结构，声明 header、point 字段，供 DDS topic 序列化/反序列化使用。 |
+| 197 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Point_.py` | Python源码 | 629 B | CycloneDDS IDL 生成的 Point_ 消息结构，声明 x、y、z 字段，供 DDS topic 序列化/反序列化使用。 |
+| 198 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Pose2D_.py` | Python源码 | 636 B | CycloneDDS IDL 生成的 Pose2D_ 消息结构，声明 x、y、theta 字段，供 DDS topic 序列化/反序列化使用。 |
+| 199 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PoseStamped_.py` | Python源码 | 756 B | CycloneDDS IDL 生成的 PoseStamped_ 消息结构，声明 header、pose 字段，供 DDS topic 序列化/反序列化使用。 |
+| 200 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PoseWithCovarianceStamped_.py` | Python源码 | 812 B | CycloneDDS IDL 生成的 PoseWithCovarianceStamped_ 消息结构，声明 header、pose 字段，供 DDS topic 序列化/反序列化使用。 |
+| 201 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_PoseWithCovariance_.py` | Python源码 | 712 B | CycloneDDS IDL 生成的 PoseWithCovariance_ 消息结构，声明 pose、covariance 字段，供 DDS topic 序列化/反序列化使用。 |
+| 202 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Pose_.py` | Python源码 | 701 B | CycloneDDS IDL 生成的 Pose_ 消息结构，声明 position、orientation 字段，供 DDS topic 序列化/反序列化使用。 |
+| 203 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_QuaternionStamped_.py` | Python源码 | 786 B | CycloneDDS IDL 生成的 QuaternionStamped_ 消息结构，声明 header、quaternion 字段，供 DDS topic 序列化/反序列化使用。 |
+| 204 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Quaternion_.py` | Python源码 | 665 B | CycloneDDS IDL 生成的 Quaternion_ 消息结构，声明 x、y、z、w 字段，供 DDS topic 序列化/反序列化使用。 |
+| 205 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_TwistStamped_.py` | Python源码 | 761 B | CycloneDDS IDL 生成的 TwistStamped_ 消息结构，声明 header、twist 字段，供 DDS topic 序列化/反序列化使用。 |
+| 206 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_TwistWithCovarianceStamped_.py` | Python源码 | 817 B | CycloneDDS IDL 生成的 TwistWithCovarianceStamped_ 消息结构，声明 header、twist 字段，供 DDS topic 序列化/反序列化使用。 |
+| 207 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_TwistWithCovariance_.py` | Python源码 | 717 B | CycloneDDS IDL 生成的 TwistWithCovariance_ 消息结构，声明 twist、covariance 字段，供 DDS topic 序列化/反序列化使用。 |
+| 208 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Twist_.py` | Python源码 | 697 B | CycloneDDS IDL 生成的 Twist_ 消息结构，声明 linear、angular 字段，供 DDS topic 序列化/反序列化使用。 |
+| 209 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/_Vector3_.py` | Python源码 | 635 B | CycloneDDS IDL 生成的 Vector3_ 消息结构，声明 x、y、z 字段，供 DDS topic 序列化/反序列化使用。 |
+| 210 | `unitree_sdk2_python/unitree_sdk2py/idl/geometry_msgs/msg/dds_/__init__.py` | Python源码 | 1.0 KB | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 211 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/__init__.py` | Python源码 | 157 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 212 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/__init__.py` | Python源码 | 163 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 213 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/_MapMetaData_.py` | Python源码 | 882 B | CycloneDDS IDL 生成的 MapMetaData_ 消息结构，声明 map_load_time、resolution、width、height、origin 字段，供 DDS topic 序列化/反序列化使用。 |
+| 214 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/_OccupancyGrid_.py` | Python源码 | 788 B | CycloneDDS IDL 生成的 OccupancyGrid_ 消息结构，声明 header、info、data 字段，供 DDS topic 序列化/反序列化使用。 |
+| 215 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/_Odometry_.py` | Python源码 | 882 B | CycloneDDS IDL 生成的 Odometry_ 消息结构，声明 header、child_frame_id、pose、twist 字段，供 DDS topic 序列化/反序列化使用。 |
+| 216 | `unitree_sdk2_python/unitree_sdk2py/idl/nav_msgs/msg/dds_/__init__.py` | Python源码 | 306 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 217 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/__init__.py` | Python源码 | 160 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 218 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/__init__.py` | Python源码 | 166 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 219 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants/_PointField_.py` | Python源码 | 550 B | CycloneDDS IDL 生成的 _PointField_ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 220 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/PointField_Constants/__init__.py` | Python源码 | 344 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 221 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/_PointCloud2_.py` | Python源码 | 957 B | CycloneDDS IDL 生成的 PointCloud2_ 消息结构，声明 header、height、width、fields、is_bigendian、point_step、row_step、data、is_dense 字段，供 DDS topic 序列化/反序列化使用。 |
+| 222 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/_PointField_.py` | Python源码 | 664 B | CycloneDDS IDL 生成的 PointField_ 消息结构，声明 name、offset、datatype、count 字段，供 DDS topic 序列化/反序列化使用。 |
+| 223 | `unitree_sdk2_python/unitree_sdk2py/idl/sensor_msgs/msg/dds_/__init__.py` | Python源码 | 312 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 224 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/__init__.py` | Python源码 | 157 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 225 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/__init__.py` | Python源码 | 163 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 226 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/_Header_.py` | Python源码 | 701 B | CycloneDDS IDL 生成的 Header_ 消息结构，声明 stamp、frame_id 字段，供 DDS topic 序列化/反序列化使用。 |
+| 227 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/_String_.py` | Python源码 | 568 B | CycloneDDS IDL 生成的 String_ 消息结构，声明 data 字段，供 DDS topic 序列化/反序列化使用。 |
+| 228 | `unitree_sdk2_python/unitree_sdk2py/idl/std_msgs/msg/dds_/__init__.py` | Python源码 | 223 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 229 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/__init__.py` | Python源码 | 160 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 230 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/__init__.py` | Python源码 | 166 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 231 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestHeader_.py` | Python源码 | 793 B | CycloneDDS IDL 生成的 RequestHeader_ 消息结构，声明 identity、lease、policy 字段，供 DDS topic 序列化/反序列化使用。 |
+| 232 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestIdentity_.py` | Python源码 | 634 B | CycloneDDS IDL 生成的 RequestIdentity_ 消息结构，声明 id、api_id 字段，供 DDS topic 序列化/反序列化使用。 |
+| 233 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestLease_.py` | Python源码 | 601 B | CycloneDDS IDL 生成的 RequestLease_ 消息结构，声明 id 字段，供 DDS topic 序列化/反序列化使用。 |
+| 234 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_RequestPolicy_.py` | Python源码 | 628 B | CycloneDDS IDL 生成的 RequestPolicy_ 消息结构，声明 priority、noreply 字段，供 DDS topic 序列化/反序列化使用。 |
+| 235 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_Request_.py` | Python源码 | 693 B | CycloneDDS IDL 生成的 Request_ 消息结构，声明 header、parameter、binary 字段，供 DDS topic 序列化/反序列化使用。 |
+| 236 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_ResponseHeader_.py` | Python源码 | 730 B | CycloneDDS IDL 生成的 ResponseHeader_ 消息结构，声明 identity、status 字段，供 DDS topic 序列化/反序列化使用。 |
+| 237 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_ResponseStatus_.py` | Python源码 | 609 B | CycloneDDS IDL 生成的 ResponseStatus_ 消息结构，声明 code 字段，供 DDS topic 序列化/反序列化使用。 |
+| 238 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/_Response_.py` | Python源码 | 692 B | CycloneDDS IDL 生成的 Response_ 消息结构，声明 header、data、binary 字段，供 DDS topic 序列化/反序列化使用。 |
+| 239 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_api/msg/dds_/__init__.py` | Python源码 | 616 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 240 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/__init__.py` | Python源码 | 159 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 241 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/__init__.py` | Python源码 | 165 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 242 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_AudioData_.py` | Python源码 | 636 B | CycloneDDS IDL 生成的 AudioData_ 消息结构，声明 time_frame、data 字段，供 DDS topic 序列化/反序列化使用。 |
+| 243 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_BmsCmd_.py` | Python源码 | 622 B | CycloneDDS IDL 生成的 BmsCmd_ 消息结构，声明 off、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 244 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_BmsState_.py` | Python源码 | 844 B | CycloneDDS IDL 生成的 BmsState_ 消息结构，声明 version_high、version_low、status、soc、current、cycle、bq_ntc、mcu_ntc、cell_vol 字段，供 DDS topic 序列化/反序列化使用。 |
+| 245 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Error_.py` | Python源码 | 606 B | CycloneDDS IDL 生成的 Error_ 消息结构，声明 source、state 字段，供 DDS topic 序列化/反序列化使用。 |
+| 246 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Go2FrontVideoData_.py` | Python源码 | 751 B | CycloneDDS IDL 生成的 Go2FrontVideoData_ 消息结构，声明 time_frame、video720p、video360p、video180p 字段，供 DDS topic 序列化/反序列化使用。 |
+| 247 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_HeightMap_.py` | Python源码 | 773 B | CycloneDDS IDL 生成的 HeightMap_ 消息结构，声明 stamp、frame_id、resolution、width、height、origin、data 字段，供 DDS topic 序列化/反序列化使用。 |
+| 248 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_IMUState_.py` | Python源码 | 774 B | CycloneDDS IDL 生成的 IMUState_ 消息结构，声明 quaternion、gyroscope、accelerometer、rpy、temperature 字段，供 DDS topic 序列化/反序列化使用。 |
+| 249 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_InterfaceConfig_.py` | Python源码 | 673 B | CycloneDDS IDL 生成的 InterfaceConfig_ 消息结构，声明 mode、value、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 250 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_LidarState_.py` | Python源码 | 1.1 KB | CycloneDDS IDL 生成的 LidarState_ 消息结构，声明 stamp、firmware_version、software_version、sdk_version、sys_rotation_speed、com_rotation_speed、error_state、cloud_frequency、cloud_packet_loss_rate、cloud_size 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 251 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_LowCmd_.py` | Python源码 | 1.1 KB | CycloneDDS IDL 生成的 LowCmd_ 消息结构，声明 head、level_flag、frame_reserve、sn、version、bandwidth、motor_cmd、bms_cmd、wireless_remote、led 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 252 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_LowState_.py` | Python源码 | 1.4 KB | CycloneDDS IDL 生成的 LowState_ 消息结构，声明 head、level_flag、frame_reserve、sn、version、bandwidth、imu_state、motor_state、bms_state、foot_force 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 253 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorCmd_.py` | Python源码 | 740 B | CycloneDDS IDL 生成的 MotorCmd_ 消息结构，声明 mode、q、dq、tau、kp、kd、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 254 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorCmds_.py` | Python源码 | 626 B | CycloneDDS IDL 生成的 MotorCmds_ 消息结构，声明 cmds 字段，供 DDS topic 序列化/反序列化使用。 |
+| 255 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorState_.py` | Python源码 | 859 B | CycloneDDS IDL 生成的 MotorState_ 消息结构，声明 mode、q、dq、ddq、tau_est、q_raw、dq_raw、ddq_raw、temperature、lost 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 256 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_MotorStates_.py` | Python源码 | 636 B | CycloneDDS IDL 生成的 MotorStates_ 消息结构，声明 states 字段，供 DDS topic 序列化/反序列化使用。 |
+| 257 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_PathPoint_.py` | Python源码 | 734 B | CycloneDDS IDL 生成的 PathPoint_ 消息结构，声明 t_from_start、x、y、yaw、vx、vy、vyaw 字段，供 DDS topic 序列化/反序列化使用。 |
+| 258 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Req_.py` | Python源码 | 579 B | CycloneDDS IDL 生成的 Req_ 消息结构，声明 uuid、body 字段，供 DDS topic 序列化/反序列化使用。 |
+| 259 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_Res_.py` | Python源码 | 617 B | CycloneDDS IDL 生成的 Res_ 消息结构，声明 uuid、data、body 字段，供 DDS topic 序列化/反序列化使用。 |
+| 260 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_SportModeState_.py` | Python源码 | 1.3 KB | CycloneDDS IDL 生成的 SportModeState_ 消息结构，声明 stamp、error_code、imu_state、mode、progress、gait_type、foot_raise_height、position、body_height、velocity 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 261 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_TimeSpec_.py` | Python源码 | 613 B | CycloneDDS IDL 生成的 TimeSpec_ 消息结构，声明 sec、nanosec 字段，供 DDS topic 序列化/反序列化使用。 |
+| 262 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_UwbState_.py` | Python源码 | 1.1 KB | CycloneDDS IDL 生成的 UwbState_ 消息结构，声明 version、channel、joy_mode、orientation_est、pitch_est、distance_est、yaw_est、tag_roll、tag_pitch、tag_yaw 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 263 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_UwbSwitch_.py` | Python源码 | 594 B | CycloneDDS IDL 生成的 UwbSwitch_ 消息结构，声明 enabled 字段，供 DDS topic 序列化/反序列化使用。 |
+| 264 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/_WirelessController_.py` | Python源码 | 707 B | CycloneDDS IDL 生成的 WirelessController_ 消息结构，声明 lx、ly、rx、ry、keys 字段，供 DDS topic 序列化/反序列化使用。 |
+| 265 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_go/msg/dds_/__init__.py` | Python源码 | 1.3 KB | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 266 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/.idlpy_manifest` | 项目文件 | 187 B | 项目资源或配置文件，被对应示例、构建、仿真、训练或部署流程读取。 |
+| 267 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/__init__.py` | Python源码 | 159 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 268 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/.idlpy_manifest` | 项目文件 | 198 B | 项目资源或配置文件，被对应示例、构建、仿真、训练或部署流程读取。 |
+| 269 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/__init__.py` | Python源码 | 165 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 270 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/.idlpy_manifest` | 项目文件 | 265 B | 项目资源或配置文件，被对应示例、构建、仿真、训练或部署流程读取。 |
+| 271 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_BmsCmd_.py` | Python源码 | 623 B | CycloneDDS IDL 生成的 BmsCmd_ 消息结构，声明 cmd、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 272 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_BmsState_.py` | Python源码 | 992 B | CycloneDDS IDL 生成的 BmsState_ 消息结构，声明 version_high、version_low、fn、cell_vol、bmsvoltage、current、soc、soh、temperature、cycle 等字段，供 DDS topic 序列化/反序列化使用。 |
+| 273 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_HandCmd_.py` | Python源码 | 687 B | CycloneDDS IDL 生成的 HandCmd_ 消息结构，声明 motor_cmd、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 274 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_HandState_.py` | Python源码 | 1012 B | CycloneDDS IDL 生成的 HandState_ 消息结构，声明 motor_state、press_sensor_state、imu_state、power_v、power_a、system_v、device_v、error、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 275 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_IMUState_.py` | Python源码 | 774 B | CycloneDDS IDL 生成的 IMUState_ 消息结构，声明 quaternion、gyroscope、accelerometer、rpy、temperature 字段，供 DDS topic 序列化/反序列化使用。 |
+| 276 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_LowCmd_.py` | Python源码 | 762 B | CycloneDDS IDL 生成的 LowCmd_ 消息结构，声明 mode_pr、mode_machine、motor_cmd、reserve、crc 字段，供 DDS topic 序列化/反序列化使用。 |
+| 277 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_LowState_.py` | Python源码 | 953 B | CycloneDDS IDL 生成的 LowState_ 消息结构，声明 version、mode_pr、mode_machine、tick、imu_state、motor_state、wireless_remote、reserve、crc 字段，供 DDS topic 序列化/反序列化使用。 |
+| 278 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_MainBoardState_.py` | Python源码 | 754 B | CycloneDDS IDL 生成的 MainBoardState_ 消息结构，声明 fan_state、temperature、value、state 字段，供 DDS topic 序列化/反序列化使用。 |
+| 279 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_MotorCmd_.py` | Python源码 | 724 B | CycloneDDS IDL 生成的 MotorCmd_ 消息结构，声明 mode、q、dq、tau、kp、kd、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 280 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_MotorState_.py` | Python源码 | 867 B | CycloneDDS IDL 生成的 MotorState_ 消息结构，声明 mode、q、dq、ddq、tau_est、temperature、vol、sensor、motorstate、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 281 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/_PressSensorState_.py` | Python源码 | 732 B | CycloneDDS IDL 生成的 PressSensorState_ 消息结构，声明 pressure、temperature、lost、reserve 字段，供 DDS topic 序列化/反序列化使用。 |
+| 282 | `unitree_sdk2_python/unitree_sdk2py/idl/unitree_hg/msg/dds_/__init__.py` | Python源码 | 696 B | CycloneDDS IDL 生成的 __init__ 消息结构，声明 IDL字段，供 DDS topic 序列化/反序列化使用。 |
+| 283 | `unitree_sdk2_python/unitree_sdk2py/rpc/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 284 | `unitree_sdk2_python/unitree_sdk2py/rpc/client.py` | Python源码 | 3.9 KB | RPC 框架源码，定义 Client，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 285 | `unitree_sdk2_python/unitree_sdk2py/rpc/client_base.py` | Python源码 | 5.0 KB | RPC 框架源码，定义 ClientBase，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 286 | `unitree_sdk2_python/unitree_sdk2py/rpc/client_stub.py` | Python源码 | 2.3 KB | RPC 框架源码，定义 ClientStub，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 287 | `unitree_sdk2_python/unitree_sdk2py/rpc/internal.py` | Python源码 | 743 B | RPC 框架源码，定义 请求/响应处理逻辑，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 288 | `unitree_sdk2_python/unitree_sdk2py/rpc/lease_client.py` | Python源码 | 2.8 KB | 实现 LeaseContext, LeaseClient 客户端，继承/使用 RPC Client 注册 API，并把 Update、Reset、Valid、Init、WaitApplied、GetId、Applied 等高层方法转换为 JSON/二进制 RPC 请求。 |
+| 289 | `unitree_sdk2_python/unitree_sdk2py/rpc/lease_server.py` | Python源码 | 4.1 KB | RPC 框架源码，定义 LeaseCache、LeaseServer，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 290 | `unitree_sdk2_python/unitree_sdk2py/rpc/request_future.py` | Python源码 | 1.1 KB | RPC 框架源码，定义 RequestFuture、RequestFutureQueue，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 291 | `unitree_sdk2_python/unitree_sdk2py/rpc/server.py` | Python源码 | 4.0 KB | RPC 框架源码，定义 Server，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 292 | `unitree_sdk2_python/unitree_sdk2py/rpc/server_base.py` | Python源码 | 991 B | RPC 框架源码，定义 ServerBase，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 293 | `unitree_sdk2_python/unitree_sdk2py/rpc/server_stub.py` | Python源码 | 2.6 KB | RPC 框架源码，定义 ServerStub，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 294 | `unitree_sdk2_python/unitree_sdk2py/test/client/obstacles_avoid_client_example.py` | Python源码 | 2.7 KB | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 295 | `unitree_sdk2_python/unitree_sdk2py/test/client/robot_service_client_example.py` | Python源码 | 1.6 KB | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 296 | `unitree_sdk2_python/unitree_sdk2py/test/client/sport_client_example.py` | Python源码 | 3.1 KB | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 297 | `unitree_sdk2_python/unitree_sdk2py/test/client/video_client_example.py` | Python源码 | 724 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 298 | `unitree_sdk2_python/unitree_sdk2py/test/client/vui_client_example.py` | Python源码 | 1.8 KB | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 299 | `unitree_sdk2_python/unitree_sdk2py/test/crc/test_crc.py` | Python源码 | 715 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 300 | `unitree_sdk2_python/unitree_sdk2py/test/helloworld/helloworld.py` | Python源码 | 148 B | Python 源码，定义 类 HelloWorld。 |
+| 301 | `unitree_sdk2_python/unitree_sdk2py/test/helloworld/publisher.py` | Python源码 | 500 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 302 | `unitree_sdk2_python/unitree_sdk2py/test/helloworld/subscriber.py` | Python源码 | 373 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 303 | `unitree_sdk2_python/unitree_sdk2py/test/lowlevel/lowlevel_control.py` | Python源码 | 1.9 KB | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 304 | `unitree_sdk2_python/unitree_sdk2py/test/lowlevel/read_lowstate.py` | Python源码 | 784 B | Python 源码，定义 函数 LowStateHandler。 |
+| 305 | `unitree_sdk2_python/unitree_sdk2py/test/lowlevel/sub_lowstate.py` | Python源码 | 448 B | Python 源码，定义 函数 LowStateHandler。 |
+| 306 | `unitree_sdk2_python/unitree_sdk2py/test/lowlevel/unitree_go2_const.py` | Python源码 | 345 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 307 | `unitree_sdk2_python/unitree_sdk2py/test/rpc/test_api.py` | Python源码 | 143 B | 定义该服务的 RPC API 编号常量和版本号，供对应 client/server 注册与调用；本文件声明 2 个 API ID。 |
+| 308 | `unitree_sdk2_python/unitree_sdk2py/test/rpc/test_client_example.py` | Python源码 | 1.5 KB | RPC 框架源码，定义 TestClient，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 309 | `unitree_sdk2_python/unitree_sdk2py/test/rpc/test_server_example.py` | Python源码 | 1017 B | RPC 框架源码，定义 TestServer，负责请求封装、future 等待、租约、server/client stub 或错误码处理。 |
+| 310 | `unitree_sdk2_python/unitree_sdk2py/utils/__init__.py` | Python源码 | 0 B | 包初始化文件，控制该目录作为 Python package 导入；若包含导入语句，则对外聚合子模块符号。 |
+| 311 | `unitree_sdk2_python/unitree_sdk2py/utils/bqueue.py` | Python源码 | 1.6 KB | 工具模块，提供 BQueue；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 312 | `unitree_sdk2_python/unitree_sdk2py/utils/clib_lookup.py` | Python源码 | 386 B | 工具模块，提供 CLIBCheckError、CLIBLookup；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 313 | `unitree_sdk2_python/unitree_sdk2py/utils/crc.py` | Python源码 | 8.4 KB | 工具模块，提供 CRC；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 314 | `unitree_sdk2_python/unitree_sdk2py/utils/future.py` | Python源码 | 2.9 KB | 工具模块，提供 FutureState、FutureResult、Future；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 315 | `unitree_sdk2_python/unitree_sdk2py/utils/hz_sample.py` | Python源码 | 643 B | 工具模块，提供 HZSample；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 316 | `unitree_sdk2_python/unitree_sdk2py/utils/joystick.py` | Python源码 | 8.0 KB | 工具模块，提供 Button、Axis、Joystick、PyGameJoystick；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 317 | `unitree_sdk2_python/unitree_sdk2py/utils/lib/crc_aarch64.so` | 二进制/模型产物 | 7.7 KB | Linux 共享库，提供 MuJoCo、ONNX Runtime、CRC 或插件运行时能力。 |
+| 318 | `unitree_sdk2_python/unitree_sdk2py/utils/lib/crc_amd64.so` | 二进制/模型产物 | 14.8 KB | Linux 共享库，提供 MuJoCo、ONNX Runtime、CRC 或插件运行时能力。 |
+| 319 | `unitree_sdk2_python/unitree_sdk2py/utils/singleton.py` | Python源码 | 247 B | 工具模块，提供 Singleton；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 320 | `unitree_sdk2_python/unitree_sdk2py/utils/thread.py` | Python源码 | 2.6 KB | 工具模块，提供 Thread、RecurrentThread；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
+| 321 | `unitree_sdk2_python/unitree_sdk2py/utils/timerfd.py` | Python源码 | 1.3 KB | 工具模块，提供 timespec、itimerspec；被通道、RPC、CRC、线程调度、手柄解析等基础设施复用。 |
 
 ## 2. 总览
 
@@ -898,3 +903,101 @@ unitree_sdk2_python/unitree_sdk2py/utils/timerfd.py
 | 真实机器人安全 | 低层控制会直接发电机命令，必须确认机器人型号、关节索引、服务模式、急停和支撑条件；README 也提示低层控制前关闭高层运动服务。 |
 | 依赖缺口 | `utils/joystick.py` 使用 `pygame`，但 `setup.py` 只声明 cyclonedds/numpy/opencv-python；需要运行 pygame 手柄工具时需另装 pygame。 |
 | 代码质量风险 | 发现两个静态层面的疑点：`client_base.py` 的 `request_binary` 未定义；`request_future.py` 的 `Remove` 使用了 `id` 而不是 `requestId`。本文只做分析，没有修改源码。 |
+
+## 12. 流程图与框架图
+
+### 12.1 Python SDK2 总体分层框架
+
+```mermaid
+flowchart TB
+  App[用户脚本 / example] --> Client["机器人功能 Client<br/>Sport/Loco/Arm/Audio/Video/VUI"]
+  App --> Channel[ChannelPublisher / ChannelSubscriber]
+  Client --> RPC[RPC ClientBase / ClientStub / RequestFuture]
+  RPC --> Api[API ID 常量与 JSON/二进制参数]
+  RPC --> DDS[DDS Topic: Request / Response / Lease]
+  Channel --> DDS
+  DDS --> Cyclone[CycloneDDS DomainParticipant / Topic / Reader / Writer]
+  Cyclone --> Robot[Unitree 机器人服务或仿真桥接器]
+  IDL[unitree_sdk2py.idl.* 消息类] --> Channel
+  IDL --> RPC
+  Utils[utils: CRC / thread / singleton / queue / joystick] --> Channel
+  Utils --> RPC
+```
+
+### 12.2 DDS Topic 读写流程
+
+```mermaid
+sequenceDiagram
+  participant User as 用户代码
+  participant Factory as ChannelFactory
+  participant Pub as ChannelPublisher
+  participant Sub as ChannelSubscriber
+  participant DDS as CycloneDDS
+  participant Handler as 回调/业务处理
+  User->>Factory: Init(domain_id, networkInterface)
+  Factory->>DDS: 创建 Domain 与 DomainParticipant
+  User->>Pub: Init(topic, IDL type)
+  Pub->>DDS: 创建 DataWriter
+  User->>Sub: Init(handler, queueLen)
+  Sub->>DDS: 创建 DataReader + Listener
+  User->>Pub: Write(sample, timeout)
+  Pub->>DDS: 等待 matched 后写入样本
+  DDS-->>Sub: on_data_available
+  Sub->>Sub: take(1) 并过滤 InvalidSample
+  alt queueLen > 0
+    Sub->>Handler: 后台队列线程串行处理样本
+  else 直接回调
+    Sub->>Handler: 同步调用 handler(sample)
+  end
+```
+
+### 12.3 RPC 调用与租约流程
+
+```mermaid
+flowchart LR
+  C[功能 Client 方法] --> Check[检查 API 是否注册]
+  Check -->|普通内部 API| Base[_CallBase]
+  Check -->|业务 API| Lease{启用租约?}
+  Lease -->|是| LeaseClient[LeaseClient 获取 leaseId / WaitApplied]
+  Lease -->|否| Base
+  LeaseClient --> Base
+  Base --> Stub[ClientStub 构造 Request]
+  Stub --> ReqTopic[DDS Request Topic]
+  ReqTopic --> Server[机器人端 RPC Server]
+  Server --> RespTopic[DDS Response Topic]
+  RespTopic --> Future[RequestFuture 匹配 sequence/apiId]
+  Future --> C
+```
+
+### 12.4 高层功能客户端工作流
+
+```mermaid
+flowchart TB
+  Start[示例脚本启动] --> Init[ChannelFactoryInitialize]
+  Init --> Create[创建 Sport/Loco/Audio/Video/VUI Client]
+  Create --> Reg[客户端注册 *_api.py 中的 API ID]
+  Reg --> SetTimeout[设置超时 / 等待服务]
+  SetTimeout --> Cmd{命令类型}
+  Cmd --> Move["运动/姿态命令<br/>Move/StandUp/Damp/Balance"]
+  Cmd --> Audio["音频命令<br/>TTS/播放/音量"]
+  Cmd --> Video["视频/图像命令<br/>GetImageSample"]
+  Cmd --> State["状态查询<br/>service list / robot state"]
+  Move --> RPC
+  Audio --> RPC
+  Video --> RPC
+  State --> RPC
+  RPC[RPC 请求-响应] --> Result[返回 code/data 或错误码]
+```
+
+### 12.5 IDL 消息生成物使用关系
+
+```mermaid
+flowchart LR
+  IDLFiles[*.idl 生成文件] --> Msg[dataclass + IdlStruct]
+  Msg --> Default[default.py 默认消息工厂]
+  Default --> LowCmd[LowCmd / LowState / SportModeState]
+  LowCmd --> Examples[低层控制示例]
+  LowCmd --> Bridge[MuJoCo/机器人 DDS 桥]
+  Msg --> Channel[Channel Topic 类型]
+  Channel --> DDS[CycloneDDS 序列化]
+```

@@ -4,401 +4,435 @@
 
 `unitree_mujoco` 是一个把 Unitree SDK2 DDS 通信接口接到 MuJoCo 物理仿真的仓库。它的目标不是训练框架，而是让使用 `unitree_sdk2`、`unitree_sdk2_python` 或 `unitree_ros2` 写出来的低层控制程序，可以直接控制仿真中的 Unitree 机器人，从而做 sim to real 验证。
 
-## 全量仓库相对位置索引
+## 1. 全量仓库索引表（目录与逐文件作用）
 
-下面路径均相对 `unitree_mujoco/`：
+> 本节为 `unitree_mujoco/` 的全量索引，包含目录节点和每一个文件。说明依据文件路径、文件类型以及源码/配置/模型内容生成；源码文件会列出其实际定义的类、函数、API 常量或运行职责。
 
-```text
-.gitignore
-LICENSE
-doc/fun.dio
-doc/func.png
-doc/terrain.png
-example/cpp/CMakeLists.txt
-example/cpp/stand_go2.cpp
-example/python/stand_go2.py
-example/ros2/CMakeLists.txt
-example/ros2/include/motor_crc.h
-example/ros2/package.xml
-example/ros2/src/motor_crc.cpp
-example/ros2/src/stand_go2.cpp
-readme.md
-readme_zh.md
-simulate/CMakeLists.txt
-simulate/config.yaml
-simulate/src/joystick/LICENSE-2.0.txt
-simulate/src/joystick/joystick.cc
-simulate/src/joystick/joystick.h
-simulate/src/joystick/jstest.cc
-simulate/src/joystick/readme.md
-simulate/src/lodepng/LICENSE
-simulate/src/lodepng/README.md
-simulate/src/lodepng/lodepng.cpp
-simulate/src/lodepng/lodepng.h
-simulate/src/main.cc
-simulate/src/param.h
-simulate/src/physics_joystick.h
-simulate/src/unitree_sdk2_bridge.h
-simulate_python/config.py
-simulate_python/test/gamepad_test.py
-simulate_python/test/test_unitree_sdk2.py
-simulate_python/unitree_mujoco.py
-simulate_python/unitree_sdk2py_bridge.py
-terrain_tool/readme.md
-terrain_tool/readme_zh.md
-terrain_tool/scene.xml
-terrain_tool/terrain_generator.py
-terrain_tool/unitree_robot.jpeg
-unitree_robots/b2/B2.png
-unitree_robots/b2/assets/FL_calf.obj
-unitree_robots/b2/assets/FL_foot.obj
-unitree_robots/b2/assets/FL_hip.obj
-unitree_robots/b2/assets/FL_thigh.obj
-unitree_robots/b2/assets/FL_thigh_protect.obj
-unitree_robots/b2/assets/FR_calf.obj
-unitree_robots/b2/assets/FR_foot.obj
-unitree_robots/b2/assets/FR_hip.obj
-unitree_robots/b2/assets/FR_thigh.obj
-unitree_robots/b2/assets/FR_thigh_protect.obj
-unitree_robots/b2/assets/RL_calf.obj
-unitree_robots/b2/assets/RL_foot.obj
-unitree_robots/b2/assets/RL_hip.obj
-unitree_robots/b2/assets/RL_thigh.obj
-unitree_robots/b2/assets/RL_thigh_protect.obj
-unitree_robots/b2/assets/RR_calf.obj
-unitree_robots/b2/assets/RR_foot.obj
-unitree_robots/b2/assets/RR_hip.obj
-unitree_robots/b2/assets/RR_thigh.obj
-unitree_robots/b2/assets/RR_thigh_protect.obj
-unitree_robots/b2/assets/base_link.obj
-unitree_robots/b2/assets/f_dc_link.obj
-unitree_robots/b2/assets/f_oc_link.obj
-unitree_robots/b2/assets/fake_head_Link.STL
-unitree_robots/b2/assets/fake_imu_link.STL
-unitree_robots/b2/assets/fake_tail_link.STL
-unitree_robots/b2/assets/logo_left.obj
-unitree_robots/b2/assets/logo_right.obj
-unitree_robots/b2/assets/r_dc_link.obj
-unitree_robots/b2/assets/r_oc_link.obj
-unitree_robots/b2/assets/unitree_ladar.obj
-unitree_robots/b2/b2.xml
-unitree_robots/b2/height_field.png
-unitree_robots/b2/scene.xml
-unitree_robots/b2/scene_terrain.xml
-unitree_robots/b2/unitree_hfield.png
-unitree_robots/b2w/B2w.png
-unitree_robots/b2w/assets/FL_calf.STL
-unitree_robots/b2w/assets/FL_foot.obj
-unitree_robots/b2w/assets/FL_hip.obj
-unitree_robots/b2w/assets/FL_thigh.obj
-unitree_robots/b2w/assets/FL_thigh_protect.obj
-unitree_robots/b2w/assets/FL_wheel.STL
-unitree_robots/b2w/assets/FR_calf.STL
-unitree_robots/b2w/assets/FR_foot.obj
-unitree_robots/b2w/assets/FR_hip.obj
-unitree_robots/b2w/assets/FR_thigh.obj
-unitree_robots/b2w/assets/FR_thigh_protect.obj
-unitree_robots/b2w/assets/FR_wheel.STL
-unitree_robots/b2w/assets/RL_calf.STL
-unitree_robots/b2w/assets/RL_foot.obj
-unitree_robots/b2w/assets/RL_hip.obj
-unitree_robots/b2w/assets/RL_thigh.obj
-unitree_robots/b2w/assets/RL_thigh_protect.obj
-unitree_robots/b2w/assets/RL_wheel.STL
-unitree_robots/b2w/assets/RR_calf.STL
-unitree_robots/b2w/assets/RR_foot.obj
-unitree_robots/b2w/assets/RR_hip.obj
-unitree_robots/b2w/assets/RR_thigh.obj
-unitree_robots/b2w/assets/RR_thigh_protect.obj
-unitree_robots/b2w/assets/RR_wheel.STL
-unitree_robots/b2w/assets/base_link.obj
-unitree_robots/b2w/assets/f_dc_link.obj
-unitree_robots/b2w/assets/f_oc_link.obj
-unitree_robots/b2w/assets/fake_head_Link.STL
-unitree_robots/b2w/assets/fake_imu_link.STL
-unitree_robots/b2w/assets/fake_tail_link.STL
-unitree_robots/b2w/assets/logo_left.obj
-unitree_robots/b2w/assets/logo_right.obj
-unitree_robots/b2w/assets/r_dc_link.obj
-unitree_robots/b2w/assets/r_oc_link.obj
-unitree_robots/b2w/assets/unitree_ladar.obj
-unitree_robots/b2w/b2w.xml
-unitree_robots/b2w/height_field.png
-unitree_robots/b2w/scene.xml
-unitree_robots/b2w/scene_terrain.xml
-unitree_robots/b2w/unitree_hfield.png
-unitree_robots/g1/g1_23dof.xml
-unitree_robots/g1/g1_29dof.xml
-unitree_robots/g1/g1_joint_index_dds.md
-unitree_robots/g1/height_field.png
-unitree_robots/g1/images/g1_23dof.png
-unitree_robots/g1/images/g1_29dof.png
-unitree_robots/g1/images/g1_29dof_with_hand.png
-unitree_robots/g1/images/g1_dual_arm.png
-unitree_robots/g1/meshes/head_link.STL
-unitree_robots/g1/meshes/left_ankle_pitch_link.STL
-unitree_robots/g1/meshes/left_ankle_roll_link.STL
-unitree_robots/g1/meshes/left_elbow_link.STL
-unitree_robots/g1/meshes/left_hand_index_0_link.STL
-unitree_robots/g1/meshes/left_hand_index_1_link.STL
-unitree_robots/g1/meshes/left_hand_middle_0_link.STL
-unitree_robots/g1/meshes/left_hand_middle_1_link.STL
-unitree_robots/g1/meshes/left_hand_palm_link.STL
-unitree_robots/g1/meshes/left_hand_thumb_0_link.STL
-unitree_robots/g1/meshes/left_hand_thumb_1_link.STL
-unitree_robots/g1/meshes/left_hand_thumb_2_link.STL
-unitree_robots/g1/meshes/left_hip_pitch_link.STL
-unitree_robots/g1/meshes/left_hip_roll_link.STL
-unitree_robots/g1/meshes/left_hip_yaw_link.STL
-unitree_robots/g1/meshes/left_knee_link.STL
-unitree_robots/g1/meshes/left_rubber_hand.STL
-unitree_robots/g1/meshes/left_shoulder_pitch_link.STL
-unitree_robots/g1/meshes/left_shoulder_roll_link.STL
-unitree_robots/g1/meshes/left_shoulder_yaw_link.STL
-unitree_robots/g1/meshes/left_wrist_pitch_link.STL
-unitree_robots/g1/meshes/left_wrist_roll_link.STL
-unitree_robots/g1/meshes/left_wrist_roll_rubber_hand.STL
-unitree_robots/g1/meshes/left_wrist_yaw_link.STL
-unitree_robots/g1/meshes/logo_link.STL
-unitree_robots/g1/meshes/pelvis.STL
-unitree_robots/g1/meshes/pelvis_contour_link.STL
-unitree_robots/g1/meshes/right_ankle_pitch_link.STL
-unitree_robots/g1/meshes/right_ankle_roll_link.STL
-unitree_robots/g1/meshes/right_elbow_link.STL
-unitree_robots/g1/meshes/right_hand_index_0_link.STL
-unitree_robots/g1/meshes/right_hand_index_1_link.STL
-unitree_robots/g1/meshes/right_hand_middle_0_link.STL
-unitree_robots/g1/meshes/right_hand_middle_1_link.STL
-unitree_robots/g1/meshes/right_hand_palm_link.STL
-unitree_robots/g1/meshes/right_hand_thumb_0_link.STL
-unitree_robots/g1/meshes/right_hand_thumb_1_link.STL
-unitree_robots/g1/meshes/right_hand_thumb_2_link.STL
-unitree_robots/g1/meshes/right_hip_pitch_link.STL
-unitree_robots/g1/meshes/right_hip_roll_link.STL
-unitree_robots/g1/meshes/right_hip_yaw_link.STL
-unitree_robots/g1/meshes/right_knee_link.STL
-unitree_robots/g1/meshes/right_rubber_hand.STL
-unitree_robots/g1/meshes/right_shoulder_pitch_link.STL
-unitree_robots/g1/meshes/right_shoulder_roll_link.STL
-unitree_robots/g1/meshes/right_shoulder_yaw_link.STL
-unitree_robots/g1/meshes/right_wrist_pitch_link.STL
-unitree_robots/g1/meshes/right_wrist_roll_link.STL
-unitree_robots/g1/meshes/right_wrist_roll_rubber_hand.STL
-unitree_robots/g1/meshes/right_wrist_yaw_link.STL
-unitree_robots/g1/meshes/torso_constraint_L_link.STL
-unitree_robots/g1/meshes/torso_constraint_L_rod_link.STL
-unitree_robots/g1/meshes/torso_constraint_R_link.STL
-unitree_robots/g1/meshes/torso_constraint_R_rod_link.STL
-unitree_robots/g1/meshes/torso_link.STL
-unitree_robots/g1/meshes/waist_constraint_L.STL
-unitree_robots/g1/meshes/waist_constraint_R.STL
-unitree_robots/g1/meshes/waist_roll_link.STL
-unitree_robots/g1/meshes/waist_support_link.STL
-unitree_robots/g1/meshes/waist_yaw_link.STL
-unitree_robots/g1/scene.xml
-unitree_robots/g1/scene_23dof.xml
-unitree_robots/g1/scene_29dof.xml
-unitree_robots/g1/unitree_hfield.png
-unitree_robots/go2/Go2.png
-unitree_robots/go2/assets/base_0.obj
-unitree_robots/go2/assets/base_1.obj
-unitree_robots/go2/assets/base_2.obj
-unitree_robots/go2/assets/base_3.obj
-unitree_robots/go2/assets/base_4.obj
-unitree_robots/go2/assets/calf_0.obj
-unitree_robots/go2/assets/calf_1.obj
-unitree_robots/go2/assets/calf_mirror_0.obj
-unitree_robots/go2/assets/calf_mirror_1.obj
-unitree_robots/go2/assets/foot.obj
-unitree_robots/go2/assets/hip_0.obj
-unitree_robots/go2/assets/hip_1.obj
-unitree_robots/go2/assets/thigh_0.obj
-unitree_robots/go2/assets/thigh_1.obj
-unitree_robots/go2/assets/thigh_mirror_0.obj
-unitree_robots/go2/assets/thigh_mirror_1.obj
-unitree_robots/go2/go2.xml
-unitree_robots/go2/height_field.png
-unitree_robots/go2/scene.xml
-unitree_robots/go2/scene_terrain.xml
-unitree_robots/go2/unitree_hfield.png
-unitree_robots/go2w/assets/base_0.obj
-unitree_robots/go2w/assets/base_1.obj
-unitree_robots/go2w/assets/base_2.obj
-unitree_robots/go2w/assets/base_3.obj
-unitree_robots/go2w/assets/base_4.obj
-unitree_robots/go2w/assets/calf.stl
-unitree_robots/go2w/assets/calf_0.obj
-unitree_robots/go2w/assets/calf_1.obj
-unitree_robots/go2w/assets/calf_mirror.stl
-unitree_robots/go2w/assets/calf_mirror_0.obj
-unitree_robots/go2w/assets/calf_mirror_1.obj
-unitree_robots/go2w/assets/foot.obj
-unitree_robots/go2w/assets/hip_0.obj
-unitree_robots/go2w/assets/hip_1.obj
-unitree_robots/go2w/assets/terrain.stl
-unitree_robots/go2w/assets/thigh_0.obj
-unitree_robots/go2w/assets/thigh_1.obj
-unitree_robots/go2w/assets/thigh_mirror_0.obj
-unitree_robots/go2w/assets/thigh_mirror_1.obj
-unitree_robots/go2w/assets/untitled.stl
-unitree_robots/go2w/assets/wheel.stl
-unitree_robots/go2w/assets/wheel1.stl
-unitree_robots/go2w/go2w.xml
-unitree_robots/go2w/height_field.png
-unitree_robots/go2w/scene.xml
-unitree_robots/go2w/scene_terrain.xml
-unitree_robots/go2w/unitree_hfield.png
-unitree_robots/h1/H1.png
-unitree_robots/h1/assets/L_hand_base_link.STL
-unitree_robots/h1/assets/Link11_L.STL
-unitree_robots/h1/assets/Link11_R.STL
-unitree_robots/h1/assets/Link12_L.STL
-unitree_robots/h1/assets/Link12_R.STL
-unitree_robots/h1/assets/Link13_L.STL
-unitree_robots/h1/assets/Link13_R.STL
-unitree_robots/h1/assets/Link14_L.STL
-unitree_robots/h1/assets/Link14_R.STL
-unitree_robots/h1/assets/Link15_L.STL
-unitree_robots/h1/assets/Link15_R.STL
-unitree_robots/h1/assets/Link16_L.STL
-unitree_robots/h1/assets/Link16_R.STL
-unitree_robots/h1/assets/Link17_L.STL
-unitree_robots/h1/assets/Link17_R.STL
-unitree_robots/h1/assets/Link18_L.STL
-unitree_robots/h1/assets/Link18_R.STL
-unitree_robots/h1/assets/Link19_L.STL
-unitree_robots/h1/assets/Link19_R.STL
-unitree_robots/h1/assets/Link20_L.STL
-unitree_robots/h1/assets/Link20_R.STL
-unitree_robots/h1/assets/Link21_L.STL
-unitree_robots/h1/assets/Link21_R.STL
-unitree_robots/h1/assets/Link22_L.STL
-unitree_robots/h1/assets/Link22_R.STL
-unitree_robots/h1/assets/R_hand_base_link.STL
-unitree_robots/h1/assets/left_ankle_link.STL
-unitree_robots/h1/assets/left_elbow_link.STL
-unitree_robots/h1/assets/left_elbow_link_ball_hand.STL
-unitree_robots/h1/assets/left_hand_link.STL
-unitree_robots/h1/assets/left_hip_pitch_link.STL
-unitree_robots/h1/assets/left_hip_roll_link.STL
-unitree_robots/h1/assets/left_hip_yaw_link.STL
-unitree_robots/h1/assets/left_knee_link.STL
-unitree_robots/h1/assets/left_shoulder_pitch_link.STL
-unitree_robots/h1/assets/left_shoulder_roll_link.STL
-unitree_robots/h1/assets/left_shoulder_yaw_link.STL
-unitree_robots/h1/assets/logo_link.STL
-unitree_robots/h1/assets/pelvis.STL
-unitree_robots/h1/assets/right_ankle_link.STL
-unitree_robots/h1/assets/right_elbow_link.STL
-unitree_robots/h1/assets/right_elbow_link_ball_hand.STL
-unitree_robots/h1/assets/right_hand_link.STL
-unitree_robots/h1/assets/right_hip_pitch_link.STL
-unitree_robots/h1/assets/right_hip_roll_link.STL
-unitree_robots/h1/assets/right_hip_yaw_link.STL
-unitree_robots/h1/assets/right_knee_link.STL
-unitree_robots/h1/assets/right_shoulder_pitch_link.STL
-unitree_robots/h1/assets/right_shoulder_roll_link.STL
-unitree_robots/h1/assets/right_shoulder_yaw_link.STL
-unitree_robots/h1/assets/torso_link.STL
-unitree_robots/h1/h1.xml
-unitree_robots/h1/height_field.png
-unitree_robots/h1/scene.xml
-unitree_robots/h1/scene_terrain.xml
-unitree_robots/h1/unitree_hfield.png
-unitree_robots/h1_2/h1_2.png
-unitree_robots/h1_2/h1_2_handless.xml
-unitree_robots/h1_2/meshes/L_hand_base_link.STL
-unitree_robots/h1_2/meshes/L_index_intermediate.STL
-unitree_robots/h1_2/meshes/L_index_proximal.STL
-unitree_robots/h1_2/meshes/L_middle_intermediate.STL
-unitree_robots/h1_2/meshes/L_middle_proximal.STL
-unitree_robots/h1_2/meshes/L_pinky_intermediate.STL
-unitree_robots/h1_2/meshes/L_pinky_proximal.STL
-unitree_robots/h1_2/meshes/L_ring_intermediate.STL
-unitree_robots/h1_2/meshes/L_ring_proximal.STL
-unitree_robots/h1_2/meshes/L_thumb_distal.STL
-unitree_robots/h1_2/meshes/L_thumb_intermediate.STL
-unitree_robots/h1_2/meshes/L_thumb_proximal.STL
-unitree_robots/h1_2/meshes/L_thumb_proximal_base.STL
-unitree_robots/h1_2/meshes/R_hand_base_link.STL
-unitree_robots/h1_2/meshes/R_index_intermediate.STL
-unitree_robots/h1_2/meshes/R_index_proximal.STL
-unitree_robots/h1_2/meshes/R_middle_intermediate.STL
-unitree_robots/h1_2/meshes/R_middle_proximal.STL
-unitree_robots/h1_2/meshes/R_pinky_intermediate.STL
-unitree_robots/h1_2/meshes/R_pinky_proximal.STL
-unitree_robots/h1_2/meshes/R_ring_intermediate.STL
-unitree_robots/h1_2/meshes/R_ring_proximal.STL
-unitree_robots/h1_2/meshes/R_thumb_distal.STL
-unitree_robots/h1_2/meshes/R_thumb_intermediate.STL
-unitree_robots/h1_2/meshes/R_thumb_proximal.STL
-unitree_robots/h1_2/meshes/R_thumb_proximal_base.STL
-unitree_robots/h1_2/meshes/left_ankle_A_link.STL
-unitree_robots/h1_2/meshes/left_ankle_A_rod_link.STL
-unitree_robots/h1_2/meshes/left_ankle_B_link.STL
-unitree_robots/h1_2/meshes/left_ankle_B_rod_link.STL
-unitree_robots/h1_2/meshes/left_ankle_pitch_link.STL
-unitree_robots/h1_2/meshes/left_ankle_roll_link.STL
-unitree_robots/h1_2/meshes/left_elbow_link.STL
-unitree_robots/h1_2/meshes/left_hand_link.STL
-unitree_robots/h1_2/meshes/left_hip_pitch_link.STL
-unitree_robots/h1_2/meshes/left_hip_roll_link.STL
-unitree_robots/h1_2/meshes/left_hip_yaw_link.STL
-unitree_robots/h1_2/meshes/left_knee_link.STL
-unitree_robots/h1_2/meshes/left_shoulder_pitch_link.STL
-unitree_robots/h1_2/meshes/left_shoulder_roll_link.STL
-unitree_robots/h1_2/meshes/left_shoulder_yaw_link.STL
-unitree_robots/h1_2/meshes/left_wrist_pitch_link.STL
-unitree_robots/h1_2/meshes/left_wrist_roll_link.STL
-unitree_robots/h1_2/meshes/link11_L.STL
-unitree_robots/h1_2/meshes/link11_R.STL
-unitree_robots/h1_2/meshes/link12_L.STL
-unitree_robots/h1_2/meshes/link12_R.STL
-unitree_robots/h1_2/meshes/link13_L.STL
-unitree_robots/h1_2/meshes/link13_R.STL
-unitree_robots/h1_2/meshes/link14_L.STL
-unitree_robots/h1_2/meshes/link14_R.STL
-unitree_robots/h1_2/meshes/link15_L.STL
-unitree_robots/h1_2/meshes/link15_R.STL
-unitree_robots/h1_2/meshes/link16_L.STL
-unitree_robots/h1_2/meshes/link16_R.STL
-unitree_robots/h1_2/meshes/link17_L.STL
-unitree_robots/h1_2/meshes/link17_R.STL
-unitree_robots/h1_2/meshes/link18_L.STL
-unitree_robots/h1_2/meshes/link18_R.STL
-unitree_robots/h1_2/meshes/link19_L.STL
-unitree_robots/h1_2/meshes/link19_R.STL
-unitree_robots/h1_2/meshes/link20_L.STL
-unitree_robots/h1_2/meshes/link20_R.STL
-unitree_robots/h1_2/meshes/link21_L.STL
-unitree_robots/h1_2/meshes/link21_R.STL
-unitree_robots/h1_2/meshes/link22_L.STL
-unitree_robots/h1_2/meshes/link22_R.STL
-unitree_robots/h1_2/meshes/logo_link.STL
-unitree_robots/h1_2/meshes/pelvis.STL
-unitree_robots/h1_2/meshes/right_ankle_A_link.STL
-unitree_robots/h1_2/meshes/right_ankle_A_rod_link.STL
-unitree_robots/h1_2/meshes/right_ankle_B_link.STL
-unitree_robots/h1_2/meshes/right_ankle_B_rod_link.STL
-unitree_robots/h1_2/meshes/right_ankle_link.STL
-unitree_robots/h1_2/meshes/right_ankle_pitch_link.STL
-unitree_robots/h1_2/meshes/right_ankle_roll_link.STL
-unitree_robots/h1_2/meshes/right_elbow_link.STL
-unitree_robots/h1_2/meshes/right_hand_link.STL
-unitree_robots/h1_2/meshes/right_hip_pitch_link.STL
-unitree_robots/h1_2/meshes/right_hip_roll_link.STL
-unitree_robots/h1_2/meshes/right_hip_yaw_link.STL
-unitree_robots/h1_2/meshes/right_knee_link.STL
-unitree_robots/h1_2/meshes/right_pitch_link.STL
-unitree_robots/h1_2/meshes/right_shoulder_pitch_link.STL
-unitree_robots/h1_2/meshes/right_shoulder_roll_link.STL
-unitree_robots/h1_2/meshes/right_shoulder_yaw_link.STL
-unitree_robots/h1_2/meshes/right_wrist_pitch_link.STL
-unitree_robots/h1_2/meshes/right_wrist_roll_link.STL
-unitree_robots/h1_2/meshes/torso_link.STL
-unitree_robots/h1_2/meshes/wrist_yaw_link.STL
-unitree_robots/h1_2/scene.xml
-```
+- 目录数：31
+- 文件数：389
+
+| 序号 | 路径 | 类型 | 大小 | 作用说明 |
+|---:|---|---|---:|---|
+| 1 | `unitree_mujoco` | 目录 | - | 目录节点，包含 30 个子目录、389 个文件，用于组织 unitree_mujoco 相关代码或资源。 |
+| 2 | `unitree_mujoco/doc` | 目录 | - | 目录节点，包含 0 个子目录、3 个文件，用于组织 doc 相关代码或资源。 |
+| 3 | `unitree_mujoco/example` | 目录 | - | 目录节点，包含 5 个子目录、8 个文件，用于组织 example 相关代码或资源。 |
+| 4 | `unitree_mujoco/example/cpp` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/cpp 相关代码或资源。 |
+| 5 | `unitree_mujoco/example/python` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/python 相关代码或资源。 |
+| 6 | `unitree_mujoco/example/ros2` | 目录 | - | 目录节点，包含 2 个子目录、5 个文件，用于组织 example/ros2 相关代码或资源。 |
+| 7 | `unitree_mujoco/example/ros2/include` | 目录 | - | 目录节点，包含 0 个子目录、1 个文件，用于组织 example/ros2/include 相关代码或资源。 |
+| 8 | `unitree_mujoco/example/ros2/src` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 example/ros2/src 相关代码或资源。 |
+| 9 | `unitree_mujoco/simulate` | 目录 | - | 目录节点，包含 3 个子目录、15 个文件，用于组织 simulate 相关代码或资源。 |
+| 10 | `unitree_mujoco/simulate/src` | 目录 | - | 目录节点，包含 2 个子目录、13 个文件，用于组织 simulate/src 相关代码或资源。 |
+| 11 | `unitree_mujoco/simulate/src/joystick` | 目录 | - | 目录节点，包含 0 个子目录、5 个文件，用于组织 simulate/src/joystick 相关代码或资源。 |
+| 12 | `unitree_mujoco/simulate/src/lodepng` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 simulate/src/lodepng 相关代码或资源。 |
+| 13 | `unitree_mujoco/simulate_python` | 目录 | - | 目录节点，包含 1 个子目录、5 个文件，用于组织 simulate_python 相关代码或资源。 |
+| 14 | `unitree_mujoco/simulate_python/test` | 目录 | - | 目录节点，包含 0 个子目录、2 个文件，用于组织 simulate_python/test 相关代码或资源。 |
+| 15 | `unitree_mujoco/terrain_tool` | 目录 | - | 目录节点，包含 0 个子目录、5 个文件，用于组织 terrain_tool 相关代码或资源。 |
+| 16 | `unitree_mujoco/unitree_robots` | 目录 | - | 目录节点，包含 15 个子目录、349 个文件，用于组织 unitree_robots 相关代码或资源。 |
+| 17 | `unitree_mujoco/unitree_robots/b2` | 目录 | - | 目录节点，包含 1 个子目录、37 个文件，用于组织 unitree_robots/b2 相关代码或资源。 |
+| 18 | `unitree_mujoco/unitree_robots/b2/assets` | 目录 | - | 目录节点，包含 0 个子目录、31 个文件，用于组织 unitree_robots/b2/assets 相关代码或资源。 |
+| 19 | `unitree_mujoco/unitree_robots/b2w` | 目录 | - | 目录节点，包含 1 个子目录、41 个文件，用于组织 unitree_robots/b2w 相关代码或资源。 |
+| 20 | `unitree_mujoco/unitree_robots/b2w/assets` | 目录 | - | 目录节点，包含 0 个子目录、35 个文件，用于组织 unitree_robots/b2w/assets 相关代码或资源。 |
+| 21 | `unitree_mujoco/unitree_robots/g1` | 目录 | - | 目录节点，包含 2 个子目录、72 个文件，用于组织 unitree_robots/g1 相关代码或资源。 |
+| 22 | `unitree_mujoco/unitree_robots/g1/images` | 目录 | - | 目录节点，包含 0 个子目录、4 个文件，用于组织 unitree_robots/g1/images 相关代码或资源。 |
+| 23 | `unitree_mujoco/unitree_robots/g1/meshes` | 目录 | - | 目录节点，包含 0 个子目录、60 个文件，用于组织 unitree_robots/g1/meshes 相关代码或资源。 |
+| 24 | `unitree_mujoco/unitree_robots/go2` | 目录 | - | 目录节点，包含 1 个子目录、22 个文件，用于组织 unitree_robots/go2 相关代码或资源。 |
+| 25 | `unitree_mujoco/unitree_robots/go2/assets` | 目录 | - | 目录节点，包含 0 个子目录、16 个文件，用于组织 unitree_robots/go2/assets 相关代码或资源。 |
+| 26 | `unitree_mujoco/unitree_robots/go2w` | 目录 | - | 目录节点，包含 1 个子目录、27 个文件，用于组织 unitree_robots/go2w 相关代码或资源。 |
+| 27 | `unitree_mujoco/unitree_robots/go2w/assets` | 目录 | - | 目录节点，包含 0 个子目录、22 个文件，用于组织 unitree_robots/go2w/assets 相关代码或资源。 |
+| 28 | `unitree_mujoco/unitree_robots/h1` | 目录 | - | 目录节点，包含 1 个子目录、57 个文件，用于组织 unitree_robots/h1 相关代码或资源。 |
+| 29 | `unitree_mujoco/unitree_robots/h1/assets` | 目录 | - | 目录节点，包含 0 个子目录、51 个文件，用于组织 unitree_robots/h1/assets 相关代码或资源。 |
+| 30 | `unitree_mujoco/unitree_robots/h1_2` | 目录 | - | 目录节点，包含 1 个子目录、93 个文件，用于组织 unitree_robots/h1_2 相关代码或资源。 |
+| 31 | `unitree_mujoco/unitree_robots/h1_2/meshes` | 目录 | - | 目录节点，包含 0 个子目录、90 个文件，用于组织 unitree_robots/h1_2/meshes 相关代码或资源。 |
+| 32 | `unitree_mujoco/.gitignore` | 项目文件 | 73 B | Git 忽略规则，排除构建产物、缓存、日志、二进制临时文件或本地环境文件。 |
+| 33 | `unitree_mujoco/LICENSE` | 文本/许可文件 | 1.5 KB | 许可文本，声明本仓库或第三方组件的授权条款。 |
+| 34 | `unitree_mujoco/doc/fun.dio` | 项目文件 | 4.6 KB | 项目资源或配置文件，被对应示例、构建、仿真、训练或部署流程读取。 |
+| 35 | `unitree_mujoco/doc/func.png` | 图像/GIF资源 | 155.0 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 36 | `unitree_mujoco/doc/terrain.png` | 图像/GIF资源 | 1.5 MB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 37 | `unitree_mujoco/example/cpp/CMakeLists.txt` | 构建脚本 | 276 B | CMake 构建入口，声明目标、源文件、include 路径、第三方库和链接依赖。 |
+| 38 | `unitree_mujoco/example/cpp/stand_go2.cpp` | C/C++源码 | 5.0 KB | C/C++ 源码或头文件，主要定义/实现 Custom，参与构建、部署控制、仿真桥接或数据结构声明。 |
+| 39 | `unitree_mujoco/example/python/stand_go2.py` | Python源码 | 2.7 KB | 示例脚本，演示该机器人/功能的 SDK 调用流程；源码主要执行 脚本入口逻辑，用于实机或仿真快速验证。 |
+| 40 | `unitree_mujoco/example/ros2/CMakeLists.txt` | 构建脚本 | 1.3 KB | CMake 构建入口，声明目标、源文件、include 路径、第三方库和链接依赖。 |
+| 41 | `unitree_mujoco/example/ros2/include/motor_crc.h` | C/C++头文件 | 1.9 KB | C/C++ 源码或头文件，主要定义/实现 依赖 stdint.h、array、rclcpp/rclcpp.hpp、unitree_go/msg/low_cmd.hpp，参与构建、部署控制、仿真桥接或数据结构声明。 |
+| 42 | `unitree_mujoco/example/ros2/package.xml` | 模型/场景XML | 612 B | XML 配置/描述文件，根节点 package，用于场景、模型、包元数据或工具配置。 |
+| 43 | `unitree_mujoco/example/ros2/src/motor_crc.cpp` | C/C++源码 | 1.7 KB | C/C++ 源码或头文件，主要定义/实现 get_crc、crc32_core，参与构建、部署控制、仿真桥接或数据结构声明。 |
+| 44 | `unitree_mujoco/example/ros2/src/stand_go2.cpp` | C/C++源码 | 3.8 KB | C/C++ 源码或头文件，主要定义/实现 for、low_level_cmd_sender、rclcpp，参与构建、部署控制、仿真桥接或数据结构声明。 |
+| 45 | `unitree_mujoco/readme.md` | Markdown文档 | 11.6 KB | Markdown 文档《Introduction》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 46 | `unitree_mujoco/readme_zh.md` | Markdown文档 | 10.2 KB | Markdown 文档《介绍》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 47 | `unitree_mujoco/simulate/CMakeLists.txt` | 构建脚本 | 996 B | CMake 构建入口，声明目标、源文件、include 路径、第三方库和链接依赖。 |
+| 48 | `unitree_mujoco/simulate/config.yaml` | YAML配置 | 603 B | 运行配置文件，设置机器人类型、网络接口、模型/场景、手柄、打印调试和控制周期等参数；顶层键包括 robot、robot_scene、domain_id、interface、use_joystick、joystick_type、joystick_device、joystick_bits。 |
+| 49 | `unitree_mujoco/simulate/src/joystick/LICENSE-2.0.txt` | 文本/许可文件 | 11.1 KB | 许可文本，声明本仓库或第三方组件的授权条款。 |
+| 50 | `unitree_mujoco/simulate/src/joystick/joystick.cc` | C/C++源码 | 2.0 KB | Linux 手柄输入封装/测试源码，定义 joystick，从 joystick 设备读取按键和摇杆事件供仿真控制使用。 |
+| 51 | `unitree_mujoco/simulate/src/joystick/joystick.h` | C/C++头文件 | 3.6 KB | Linux 手柄输入封装/测试源码，定义 JoystickEvent、Joystick，从 joystick 设备读取按键和摇杆事件供仿真控制使用。 |
+| 52 | `unitree_mujoco/simulate/src/joystick/jstest.cc` | C/C++源码 | 2.6 KB | Linux 手柄输入封装/测试源码，定义 jstest，从 joystick 设备读取按键和摇杆事件供仿真控制使用。 |
+| 53 | `unitree_mujoco/simulate/src/joystick/readme.md` | Markdown文档 | 104 B | Markdown 文档，记录该目录的使用方法、接口说明、安装步骤或许可信息。 |
+| 54 | `unitree_mujoco/simulate/src/lodepng/LICENSE` | 文本/许可文件 | 886 B | 许可文本，声明本仓库或第三方组件的授权条款。 |
+| 55 | `unitree_mujoco/simulate/src/lodepng/README.md` | Markdown文档 | 2.2 KB | Markdown 文档《Documentation》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 56 | `unitree_mujoco/simulate/src/lodepng/lodepng.cpp` | C/C++源码 | 304.6 KB | 第三方 lodepng PNG 编解码源码/头文件，用于读取或写入地形、贴图等 PNG 资源。 |
+| 57 | `unitree_mujoco/simulate/src/lodepng/lodepng.h` | C/C++头文件 | 105.3 KB | 第三方 lodepng PNG 编解码源码/头文件，用于读取或写入地形、贴图等 PNG 资源。 |
+| 58 | `unitree_mujoco/simulate/src/main.cc` | C/C++源码 | 19.3 KB | 程序入口源码，读取配置/参数、初始化通信或仿真对象、创建状态机/桥接器，并启动主循环或 RecurrentThread。 |
+| 59 | `unitree_mujoco/simulate/src/param.h` | C/C++头文件 | 2.3 KB | C/C++ 源码或头文件，主要定义/实现 SimulationConfig，参与构建、部署控制、仿真桥接或数据结构声明。 |
+| 60 | `unitree_mujoco/simulate/src/physics_joystick.h` | C/C++头文件 | 2.3 KB | Linux 手柄输入封装/测试源码，定义 XBoxJoystick、SwitchJoystick，从 joystick 设备读取按键和摇杆事件供仿真控制使用。 |
+| 61 | `unitree_mujoco/simulate/src/unitree_sdk2_bridge.h` | C/C++头文件 | 12.9 KB | Unitree SDK2 与 MuJoCo 的核心桥接层：订阅 rt/lowcmd，把 PD+tau 写入 mj_data->ctrl，并发布 lowstate、sportmodestate、wirelesscontroller。 |
+| 62 | `unitree_mujoco/simulate_python/config.py` | Python源码 | 644 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 63 | `unitree_mujoco/simulate_python/test/gamepad_test.py` | Python源码 | 731 B | Python 源码文件，承载该模块的导入、常量或脚本入口逻辑。 |
+| 64 | `unitree_mujoco/simulate_python/test/test_unitree_sdk2.py` | Python源码 | 2.0 KB | Python 源码，定义 函数 HighStateHandler、LowStateHandler。 |
+| 65 | `unitree_mujoco/simulate_python/unitree_mujoco.py` | Python源码 | 2.2 KB | Python 源码，定义 函数 SimulationThread、PhysicsViewerThread。 |
+| 66 | `unitree_mujoco/simulate_python/unitree_sdk2py_bridge.py` | Python源码 | 15.9 KB | Python 源码，定义 类 UnitreeSdk2Bridge、ElasticBand。 |
+| 67 | `unitree_mujoco/terrain_tool/readme.md` | Markdown文档 | 4.0 KB | Markdown 文档《Terrain Generation Tool》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 68 | `unitree_mujoco/terrain_tool/readme_zh.md` | Markdown文档 | 3.7 KB | Markdown 文档《地形生成工具》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 69 | `unitree_mujoco/terrain_tool/scene.xml` | 模型/场景XML | 883 B | XML 配置/描述文件，根节点 mujoco，用于场景、模型、包元数据或工具配置。 |
+| 70 | `unitree_mujoco/terrain_tool/terrain_generator.py` | Python源码 | 10.4 KB | Python 源码，定义 类 TerrainGenerator；函数 euler_to_quat、euler_to_rot、rot2d、rot3d、list_to_str。 |
+| 71 | `unitree_mujoco/terrain_tool/unitree_robot.jpeg` | 图像/GIF资源 | 6.1 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 72 | `unitree_mujoco/unitree_robots/b2/B2.png` | 图像/GIF资源 | 650.1 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 73 | `unitree_mujoco/unitree_robots/b2/assets/FL_calf.obj` | 三维网格资源 | 657.2 KB | 三维网格资源，表示 FL_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 74 | `unitree_mujoco/unitree_robots/b2/assets/FL_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 FL_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 75 | `unitree_mujoco/unitree_robots/b2/assets/FL_hip.obj` | 三维网格资源 | 164.8 KB | 三维网格资源，表示 FL_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 76 | `unitree_mujoco/unitree_robots/b2/assets/FL_thigh.obj` | 三维网格资源 | 641.4 KB | 三维网格资源，表示 FL_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 77 | `unitree_mujoco/unitree_robots/b2/assets/FL_thigh_protect.obj` | 三维网格资源 | 397.8 KB | 三维网格资源，表示 FL_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 78 | `unitree_mujoco/unitree_robots/b2/assets/FR_calf.obj` | 三维网格资源 | 657.2 KB | 三维网格资源，表示 FR_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 79 | `unitree_mujoco/unitree_robots/b2/assets/FR_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 FR_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 80 | `unitree_mujoco/unitree_robots/b2/assets/FR_hip.obj` | 三维网格资源 | 164.3 KB | 三维网格资源，表示 FR_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 81 | `unitree_mujoco/unitree_robots/b2/assets/FR_thigh.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 FR_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 82 | `unitree_mujoco/unitree_robots/b2/assets/FR_thigh_protect.obj` | 三维网格资源 | 398.5 KB | 三维网格资源，表示 FR_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 83 | `unitree_mujoco/unitree_robots/b2/assets/RL_calf.obj` | 三维网格资源 | 657.2 KB | 三维网格资源，表示 RL_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 84 | `unitree_mujoco/unitree_robots/b2/assets/RL_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 RL_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 85 | `unitree_mujoco/unitree_robots/b2/assets/RL_hip.obj` | 三维网格资源 | 161.4 KB | 三维网格资源，表示 RL_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 86 | `unitree_mujoco/unitree_robots/b2/assets/RL_thigh.obj` | 三维网格资源 | 641.4 KB | 三维网格资源，表示 RL_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 87 | `unitree_mujoco/unitree_robots/b2/assets/RL_thigh_protect.obj` | 三维网格资源 | 397.8 KB | 三维网格资源，表示 RL_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 88 | `unitree_mujoco/unitree_robots/b2/assets/RR_calf.obj` | 三维网格资源 | 657.2 KB | 三维网格资源，表示 RR_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 89 | `unitree_mujoco/unitree_robots/b2/assets/RR_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 RR_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 90 | `unitree_mujoco/unitree_robots/b2/assets/RR_hip.obj` | 三维网格资源 | 161.5 KB | 三维网格资源，表示 RR_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 91 | `unitree_mujoco/unitree_robots/b2/assets/RR_thigh.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 RR_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 92 | `unitree_mujoco/unitree_robots/b2/assets/RR_thigh_protect.obj` | 三维网格资源 | 398.5 KB | 三维网格资源，表示 RR_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 93 | `unitree_mujoco/unitree_robots/b2/assets/base_link.obj` | 三维网格资源 | 16.0 MB | 三维网格资源，表示 base_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 94 | `unitree_mujoco/unitree_robots/b2/assets/f_dc_link.obj` | 三维网格资源 | 2.9 KB | 三维网格资源，表示 f_dc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 95 | `unitree_mujoco/unitree_robots/b2/assets/f_oc_link.obj` | 三维网格资源 | 7.5 KB | 三维网格资源，表示 f_oc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 96 | `unitree_mujoco/unitree_robots/b2/assets/fake_head_Link.STL` | 三维网格资源 | 114.9 KB | 三维网格资源，表示 fake_head_Link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 97 | `unitree_mujoco/unitree_robots/b2/assets/fake_imu_link.STL` | 三维网格资源 | 114.9 KB | 三维网格资源，表示 fake_imu_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 98 | `unitree_mujoco/unitree_robots/b2/assets/fake_tail_link.STL` | 三维网格资源 | 114.9 KB | 三维网格资源，表示 fake_tail_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 99 | `unitree_mujoco/unitree_robots/b2/assets/logo_left.obj` | 三维网格资源 | 265.7 KB | 三维网格资源，表示 logo_left 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 100 | `unitree_mujoco/unitree_robots/b2/assets/logo_right.obj` | 三维网格资源 | 266.6 KB | 三维网格资源，表示 logo_right 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 101 | `unitree_mujoco/unitree_robots/b2/assets/r_dc_link.obj` | 三维网格资源 | 2.9 KB | 三维网格资源，表示 r_dc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 102 | `unitree_mujoco/unitree_robots/b2/assets/r_oc_link.obj` | 三维网格资源 | 7.6 KB | 三维网格资源，表示 r_oc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 103 | `unitree_mujoco/unitree_robots/b2/assets/unitree_ladar.obj` | 三维网格资源 | 9.0 KB | 三维网格资源，表示 unitree_ladar 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 104 | `unitree_mujoco/unitree_robots/b2/b2.xml` | 模型/场景XML | 18.4 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 13 个 body、12 个 actuator、5 个传感器/传感器组，供仿真加载。 |
+| 105 | `unitree_mujoco/unitree_robots/b2/height_field.png` | 图像/GIF资源 | 4.8 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 106 | `unitree_mujoco/unitree_robots/b2/scene.xml` | 模型/场景XML | 1.6 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 107 | `unitree_mujoco/unitree_robots/b2/scene_terrain.xml` | 模型/场景XML | 20.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 108 | `unitree_mujoco/unitree_robots/b2/unitree_hfield.png` | 图像/GIF资源 | 13.9 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 109 | `unitree_mujoco/unitree_robots/b2w/B2w.png` | 图像/GIF资源 | 669.8 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 110 | `unitree_mujoco/unitree_robots/b2w/assets/FL_calf.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 FL_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 111 | `unitree_mujoco/unitree_robots/b2w/assets/FL_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 FL_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 112 | `unitree_mujoco/unitree_robots/b2w/assets/FL_hip.obj` | 三维网格资源 | 164.8 KB | 三维网格资源，表示 FL_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 113 | `unitree_mujoco/unitree_robots/b2w/assets/FL_thigh.obj` | 三维网格资源 | 641.4 KB | 三维网格资源，表示 FL_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 114 | `unitree_mujoco/unitree_robots/b2w/assets/FL_thigh_protect.obj` | 三维网格资源 | 397.8 KB | 三维网格资源，表示 FL_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 115 | `unitree_mujoco/unitree_robots/b2w/assets/FL_wheel.STL` | 三维网格资源 | 257.8 KB | 三维网格资源，表示 FL_wheel 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 116 | `unitree_mujoco/unitree_robots/b2w/assets/FR_calf.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 FR_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 117 | `unitree_mujoco/unitree_robots/b2w/assets/FR_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 FR_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 118 | `unitree_mujoco/unitree_robots/b2w/assets/FR_hip.obj` | 三维网格资源 | 164.3 KB | 三维网格资源，表示 FR_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 119 | `unitree_mujoco/unitree_robots/b2w/assets/FR_thigh.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 FR_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 120 | `unitree_mujoco/unitree_robots/b2w/assets/FR_thigh_protect.obj` | 三维网格资源 | 398.5 KB | 三维网格资源，表示 FR_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 121 | `unitree_mujoco/unitree_robots/b2w/assets/FR_wheel.STL` | 三维网格资源 | 257.8 KB | 三维网格资源，表示 FR_wheel 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 122 | `unitree_mujoco/unitree_robots/b2w/assets/RL_calf.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 RL_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 123 | `unitree_mujoco/unitree_robots/b2w/assets/RL_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 RL_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 124 | `unitree_mujoco/unitree_robots/b2w/assets/RL_hip.obj` | 三维网格资源 | 161.4 KB | 三维网格资源，表示 RL_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 125 | `unitree_mujoco/unitree_robots/b2w/assets/RL_thigh.obj` | 三维网格资源 | 641.4 KB | 三维网格资源，表示 RL_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 126 | `unitree_mujoco/unitree_robots/b2w/assets/RL_thigh_protect.obj` | 三维网格资源 | 397.8 KB | 三维网格资源，表示 RL_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 127 | `unitree_mujoco/unitree_robots/b2w/assets/RL_wheel.STL` | 三维网格资源 | 257.8 KB | 三维网格资源，表示 RL_wheel 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 128 | `unitree_mujoco/unitree_robots/b2w/assets/RR_calf.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 RR_calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 129 | `unitree_mujoco/unitree_robots/b2w/assets/RR_foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 RR_foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 130 | `unitree_mujoco/unitree_robots/b2w/assets/RR_hip.obj` | 三维网格资源 | 161.5 KB | 三维网格资源，表示 RR_hip 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 131 | `unitree_mujoco/unitree_robots/b2w/assets/RR_thigh.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 RR_thigh 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 132 | `unitree_mujoco/unitree_robots/b2w/assets/RR_thigh_protect.obj` | 三维网格资源 | 398.5 KB | 三维网格资源，表示 RR_thigh_protect 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 133 | `unitree_mujoco/unitree_robots/b2w/assets/RR_wheel.STL` | 三维网格资源 | 257.8 KB | 三维网格资源，表示 RR_wheel 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 134 | `unitree_mujoco/unitree_robots/b2w/assets/base_link.obj` | 三维网格资源 | 16.0 MB | 三维网格资源，表示 base_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 135 | `unitree_mujoco/unitree_robots/b2w/assets/f_dc_link.obj` | 三维网格资源 | 2.9 KB | 三维网格资源，表示 f_dc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 136 | `unitree_mujoco/unitree_robots/b2w/assets/f_oc_link.obj` | 三维网格资源 | 7.5 KB | 三维网格资源，表示 f_oc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 137 | `unitree_mujoco/unitree_robots/b2w/assets/fake_head_Link.STL` | 三维网格资源 | 114.9 KB | 三维网格资源，表示 fake_head_Link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 138 | `unitree_mujoco/unitree_robots/b2w/assets/fake_imu_link.STL` | 三维网格资源 | 114.9 KB | 三维网格资源，表示 fake_imu_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 139 | `unitree_mujoco/unitree_robots/b2w/assets/fake_tail_link.STL` | 三维网格资源 | 114.9 KB | 三维网格资源，表示 fake_tail_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 140 | `unitree_mujoco/unitree_robots/b2w/assets/logo_left.obj` | 三维网格资源 | 265.7 KB | 三维网格资源，表示 logo_left 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 141 | `unitree_mujoco/unitree_robots/b2w/assets/logo_right.obj` | 三维网格资源 | 266.6 KB | 三维网格资源，表示 logo_right 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 142 | `unitree_mujoco/unitree_robots/b2w/assets/r_dc_link.obj` | 三维网格资源 | 2.9 KB | 三维网格资源，表示 r_dc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 143 | `unitree_mujoco/unitree_robots/b2w/assets/r_oc_link.obj` | 三维网格资源 | 7.6 KB | 三维网格资源，表示 r_oc_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 144 | `unitree_mujoco/unitree_robots/b2w/assets/unitree_ladar.obj` | 三维网格资源 | 9.0 KB | 三维网格资源，表示 unitree_ladar 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 145 | `unitree_mujoco/unitree_robots/b2w/b2w.xml` | 模型/场景XML | 21.6 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 17 个 body、16 个 actuator、5 个传感器/传感器组，供仿真加载。 |
+| 146 | `unitree_mujoco/unitree_robots/b2w/height_field.png` | 图像/GIF资源 | 4.8 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 147 | `unitree_mujoco/unitree_robots/b2w/scene.xml` | 模型/场景XML | 1.6 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 148 | `unitree_mujoco/unitree_robots/b2w/scene_terrain.xml` | 模型/场景XML | 20.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 149 | `unitree_mujoco/unitree_robots/b2w/unitree_hfield.png` | 图像/GIF资源 | 13.9 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 150 | `unitree_mujoco/unitree_robots/g1/g1_23dof.xml` | 模型/场景XML | 31.0 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 30 个 body、29 个 actuator、8 个传感器/传感器组，供仿真加载。 |
+| 151 | `unitree_mujoco/unitree_robots/g1/g1_29dof.xml` | 模型/场景XML | 35.3 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 30 个 body、29 个 actuator、8 个传感器/传感器组，供仿真加载。 |
+| 152 | `unitree_mujoco/unitree_robots/g1/g1_joint_index_dds.md` | Markdown文档 | 9.0 KB | Markdown 文档《电机顺序》，记录安装、使用、模型说明、接口约定或第三方组件说明。 |
+| 153 | `unitree_mujoco/unitree_robots/g1/height_field.png` | 图像/GIF资源 | 4.8 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 154 | `unitree_mujoco/unitree_robots/g1/images/g1_23dof.png` | 图像/GIF资源 | 911.8 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 155 | `unitree_mujoco/unitree_robots/g1/images/g1_29dof.png` | 图像/GIF资源 | 920.2 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 156 | `unitree_mujoco/unitree_robots/g1/images/g1_29dof_with_hand.png` | 图像/GIF资源 | 921.8 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 157 | `unitree_mujoco/unitree_robots/g1/images/g1_dual_arm.png` | 图像/GIF资源 | 827.2 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 158 | `unitree_mujoco/unitree_robots/g1/meshes/head_link.STL` | 三维网格资源 | 329.7 KB | 三维网格资源，表示 head_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 159 | `unitree_mujoco/unitree_robots/g1/meshes/left_ankle_pitch_link.STL` | 三维网格资源 | 69.5 KB | 三维网格资源，表示 left_ankle_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 160 | `unitree_mujoco/unitree_robots/g1/meshes/left_ankle_roll_link.STL` | 三维网格资源 | 638.1 KB | 三维网格资源，表示 left_ankle_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 161 | `unitree_mujoco/unitree_robots/g1/meshes/left_elbow_link.STL` | 三维网格资源 | 86.7 KB | 三维网格资源，表示 left_elbow_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 162 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_index_0_link.STL` | 三维网格资源 | 185.4 KB | 三维网格资源，表示 left_hand_index_0_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 163 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_index_1_link.STL` | 三维网格资源 | 750.7 KB | 三维网格资源，表示 left_hand_index_1_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 164 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_middle_0_link.STL` | 三维网格资源 | 185.4 KB | 三维网格资源，表示 left_hand_middle_0_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 165 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_middle_1_link.STL` | 三维网格资源 | 750.7 KB | 三维网格资源，表示 left_hand_middle_1_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 166 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_palm_link.STL` | 三维网格资源 | 543.1 KB | 三维网格资源，表示 left_hand_palm_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 167 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_thumb_0_link.STL` | 三维网格资源 | 69.7 KB | 三维网格资源，表示 left_hand_thumb_0_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 168 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_thumb_1_link.STL` | 三维网格资源 | 185.4 KB | 三维网格资源，表示 left_hand_thumb_1_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 169 | `unitree_mujoco/unitree_robots/g1/meshes/left_hand_thumb_2_link.STL` | 三维网格资源 | 750.7 KB | 三维网格资源，表示 left_hand_thumb_2_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 170 | `unitree_mujoco/unitree_robots/g1/meshes/left_hip_pitch_link.STL` | 三维网格资源 | 177.4 KB | 三维网格资源，表示 left_hip_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 171 | `unitree_mujoco/unitree_robots/g1/meshes/left_hip_roll_link.STL` | 三维网格资源 | 187.7 KB | 三维网格资源，表示 left_hip_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 172 | `unitree_mujoco/unitree_robots/g1/meshes/left_hip_yaw_link.STL` | 三维网格资源 | 289.3 KB | 三维网格资源，表示 left_hip_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 173 | `unitree_mujoco/unitree_robots/g1/meshes/left_knee_link.STL` | 三维网格资源 | 834.8 KB | 三维网格资源，表示 left_knee_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 174 | `unitree_mujoco/unitree_robots/g1/meshes/left_rubber_hand.STL` | 三维网格资源 | 2.2 MB | 三维网格资源，表示 left_rubber_hand 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 175 | `unitree_mujoco/unitree_robots/g1/meshes/left_shoulder_pitch_link.STL` | 三维网格资源 | 172.6 KB | 三维网格资源，表示 left_shoulder_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 176 | `unitree_mujoco/unitree_robots/g1/meshes/left_shoulder_roll_link.STL` | 三维网格资源 | 390.9 KB | 三维网格资源，表示 left_shoulder_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 177 | `unitree_mujoco/unitree_robots/g1/meshes/left_shoulder_yaw_link.STL` | 三维网格资源 | 243.3 KB | 三维网格资源，表示 left_shoulder_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 178 | `unitree_mujoco/unitree_robots/g1/meshes/left_wrist_pitch_link.STL` | 三维网格资源 | 84.0 KB | 三维网格资源，表示 left_wrist_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 179 | `unitree_mujoco/unitree_robots/g1/meshes/left_wrist_roll_link.STL` | 三维网格资源 | 347.8 KB | 三维网格资源，表示 left_wrist_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 180 | `unitree_mujoco/unitree_robots/g1/meshes/left_wrist_roll_rubber_hand.STL` | 三维网格资源 | 3.3 MB | 三维网格资源，表示 left_wrist_roll_rubber_hand 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 181 | `unitree_mujoco/unitree_robots/g1/meshes/left_wrist_yaw_link.STL` | 三维网格资源 | 311.2 KB | 三维网格资源，表示 left_wrist_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 182 | `unitree_mujoco/unitree_robots/g1/meshes/logo_link.STL` | 三维网格资源 | 237.7 KB | 三维网格资源，表示 logo_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 183 | `unitree_mujoco/unitree_robots/g1/meshes/pelvis.STL` | 三维网格资源 | 1.0 MB | 三维网格资源，表示 pelvis 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 184 | `unitree_mujoco/unitree_robots/g1/meshes/pelvis_contour_link.STL` | 三维网格资源 | 1.7 MB | 三维网格资源，表示 pelvis_contour_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 185 | `unitree_mujoco/unitree_robots/g1/meshes/right_ankle_pitch_link.STL` | 三维网格资源 | 69.5 KB | 三维网格资源，表示 right_ankle_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 186 | `unitree_mujoco/unitree_robots/g1/meshes/right_ankle_roll_link.STL` | 三维网格资源 | 638.5 KB | 三维网格资源，表示 right_ankle_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 187 | `unitree_mujoco/unitree_robots/g1/meshes/right_elbow_link.STL` | 三维网格资源 | 86.7 KB | 三维网格资源，表示 right_elbow_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 188 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_index_0_link.STL` | 三维网格资源 | 185.4 KB | 三维网格资源，表示 right_hand_index_0_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 189 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_index_1_link.STL` | 三维网格资源 | 750.7 KB | 三维网格资源，表示 right_hand_index_1_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 190 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_middle_0_link.STL` | 三维网格资源 | 185.4 KB | 三维网格资源，表示 right_hand_middle_0_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 191 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_middle_1_link.STL` | 三维网格资源 | 750.7 KB | 三维网格资源，表示 right_hand_middle_1_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 192 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_palm_link.STL` | 三维网格资源 | 543.1 KB | 三维网格资源，表示 right_hand_palm_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 193 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_thumb_0_link.STL` | 三维网格资源 | 69.7 KB | 三维网格资源，表示 right_hand_thumb_0_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 194 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_thumb_1_link.STL` | 三维网格资源 | 185.4 KB | 三维网格资源，表示 right_hand_thumb_1_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 195 | `unitree_mujoco/unitree_robots/g1/meshes/right_hand_thumb_2_link.STL` | 三维网格资源 | 750.7 KB | 三维网格资源，表示 right_hand_thumb_2_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 196 | `unitree_mujoco/unitree_robots/g1/meshes/right_hip_pitch_link.STL` | 三维网格资源 | 177.0 KB | 三维网格资源，表示 right_hip_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 197 | `unitree_mujoco/unitree_robots/g1/meshes/right_hip_roll_link.STL` | 三维网格资源 | 188.2 KB | 三维网格资源，表示 right_hip_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 198 | `unitree_mujoco/unitree_robots/g1/meshes/right_hip_yaw_link.STL` | 三维网格资源 | 289.3 KB | 三维网格资源，表示 right_hip_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 199 | `unitree_mujoco/unitree_robots/g1/meshes/right_knee_link.STL` | 三维网格资源 | 832.3 KB | 三维网格资源，表示 right_knee_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 200 | `unitree_mujoco/unitree_robots/g1/meshes/right_rubber_hand.STL` | 三维网格资源 | 2.1 MB | 三维网格资源，表示 right_rubber_hand 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 201 | `unitree_mujoco/unitree_robots/g1/meshes/right_shoulder_pitch_link.STL` | 三维网格资源 | 172.6 KB | 三维网格资源，表示 right_shoulder_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 202 | `unitree_mujoco/unitree_robots/g1/meshes/right_shoulder_roll_link.STL` | 三维网格资源 | 392.5 KB | 三维网格资源，表示 right_shoulder_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 203 | `unitree_mujoco/unitree_robots/g1/meshes/right_shoulder_yaw_link.STL` | 三维网格资源 | 244.1 KB | 三维网格资源，表示 right_shoulder_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 204 | `unitree_mujoco/unitree_robots/g1/meshes/right_wrist_pitch_link.STL` | 三维网格资源 | 77.7 KB | 三维网格资源，表示 right_wrist_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 205 | `unitree_mujoco/unitree_robots/g1/meshes/right_wrist_roll_link.STL` | 三维网格资源 | 347.7 KB | 三维网格资源，表示 right_wrist_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 206 | `unitree_mujoco/unitree_robots/g1/meshes/right_wrist_roll_rubber_hand.STL` | 三维网格资源 | 3.3 MB | 三维网格资源，表示 right_wrist_roll_rubber_hand 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 207 | `unitree_mujoco/unitree_robots/g1/meshes/right_wrist_yaw_link.STL` | 三维网格资源 | 333.5 KB | 三维网格资源，表示 right_wrist_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 208 | `unitree_mujoco/unitree_robots/g1/meshes/torso_constraint_L_link.STL` | 三维网格资源 | 198.8 KB | 三维网格资源，表示 torso_constraint_L_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 209 | `unitree_mujoco/unitree_robots/g1/meshes/torso_constraint_L_rod_link.STL` | 三维网格资源 | 73.1 KB | 三维网格资源，表示 torso_constraint_L_rod_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 210 | `unitree_mujoco/unitree_robots/g1/meshes/torso_constraint_R_link.STL` | 三维网格资源 | 198.8 KB | 三维网格资源，表示 torso_constraint_R_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 211 | `unitree_mujoco/unitree_robots/g1/meshes/torso_constraint_R_rod_link.STL` | 三维网格资源 | 73.1 KB | 三维网格资源，表示 torso_constraint_R_rod_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 212 | `unitree_mujoco/unitree_robots/g1/meshes/torso_link.STL` | 三维网格资源 | 2.1 MB | 三维网格资源，表示 torso_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 213 | `unitree_mujoco/unitree_robots/g1/meshes/waist_constraint_L.STL` | 三维网格资源 | 112.0 KB | 三维网格资源，表示 waist_constraint_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 214 | `unitree_mujoco/unitree_robots/g1/meshes/waist_constraint_R.STL` | 三维网格资源 | 112.0 KB | 三维网格资源，表示 waist_constraint_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 215 | `unitree_mujoco/unitree_robots/g1/meshes/waist_roll_link.STL` | 三维网格资源 | 23.6 KB | 三维网格资源，表示 waist_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 216 | `unitree_mujoco/unitree_robots/g1/meshes/waist_support_link.STL` | 三维网格资源 | 147.0 KB | 三维网格资源，表示 waist_support_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 217 | `unitree_mujoco/unitree_robots/g1/meshes/waist_yaw_link.STL` | 三维网格资源 | 328.4 KB | 三维网格资源，表示 waist_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 218 | `unitree_mujoco/unitree_robots/g1/scene.xml` | 模型/场景XML | 20.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 xml，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 219 | `unitree_mujoco/unitree_robots/g1/scene_23dof.xml` | 模型/场景XML | 872 B | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 220 | `unitree_mujoco/unitree_robots/g1/scene_29dof.xml` | 模型/场景XML | 872 B | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 221 | `unitree_mujoco/unitree_robots/g1/unitree_hfield.png` | 图像/GIF资源 | 13.9 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 222 | `unitree_mujoco/unitree_robots/go2/Go2.png` | 图像/GIF资源 | 610.7 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 223 | `unitree_mujoco/unitree_robots/go2/assets/base_0.obj` | 三维网格资源 | 1.3 MB | 三维网格资源，表示 base_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 224 | `unitree_mujoco/unitree_robots/go2/assets/base_1.obj` | 三维网格资源 | 792.8 KB | 三维网格资源，表示 base_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 225 | `unitree_mujoco/unitree_robots/go2/assets/base_2.obj` | 三维网格资源 | 287.2 KB | 三维网格资源，表示 base_2 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 226 | `unitree_mujoco/unitree_robots/go2/assets/base_3.obj` | 三维网格资源 | 370.2 KB | 三维网格资源，表示 base_3 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 227 | `unitree_mujoco/unitree_robots/go2/assets/base_4.obj` | 三维网格资源 | 7.4 MB | 三维网格资源，表示 base_4 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 228 | `unitree_mujoco/unitree_robots/go2/assets/calf_0.obj` | 三维网格资源 | 856.6 KB | 三维网格资源，表示 calf_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 229 | `unitree_mujoco/unitree_robots/go2/assets/calf_1.obj` | 三维网格资源 | 319.2 KB | 三维网格资源，表示 calf_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 230 | `unitree_mujoco/unitree_robots/go2/assets/calf_mirror_0.obj` | 三维网格资源 | 856.0 KB | 三维网格资源，表示 calf_mirror_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 231 | `unitree_mujoco/unitree_robots/go2/assets/calf_mirror_1.obj` | 三维网格资源 | 319.6 KB | 三维网格资源，表示 calf_mirror_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 232 | `unitree_mujoco/unitree_robots/go2/assets/foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 233 | `unitree_mujoco/unitree_robots/go2/assets/hip_0.obj` | 三维网格资源 | 2.7 MB | 三维网格资源，表示 hip_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 234 | `unitree_mujoco/unitree_robots/go2/assets/hip_1.obj` | 三维网格资源 | 2.6 MB | 三维网格资源，表示 hip_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 235 | `unitree_mujoco/unitree_robots/go2/assets/thigh_0.obj` | 三维网格资源 | 2.7 MB | 三维网格资源，表示 thigh_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 236 | `unitree_mujoco/unitree_robots/go2/assets/thigh_1.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 thigh_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 237 | `unitree_mujoco/unitree_robots/go2/assets/thigh_mirror_0.obj` | 三维网格资源 | 2.7 MB | 三维网格资源，表示 thigh_mirror_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 238 | `unitree_mujoco/unitree_robots/go2/assets/thigh_mirror_1.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 thigh_mirror_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 239 | `unitree_mujoco/unitree_robots/go2/go2.xml` | 模型/场景XML | 14.5 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 17 个 body、14 个 actuator、5 个传感器/传感器组，供仿真加载。 |
+| 240 | `unitree_mujoco/unitree_robots/go2/height_field.png` | 图像/GIF资源 | 4.8 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 241 | `unitree_mujoco/unitree_robots/go2/scene.xml` | 模型/场景XML | 1.4 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 242 | `unitree_mujoco/unitree_robots/go2/scene_terrain.xml` | 模型/场景XML | 20.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 243 | `unitree_mujoco/unitree_robots/go2/unitree_hfield.png` | 图像/GIF资源 | 13.9 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 244 | `unitree_mujoco/unitree_robots/go2w/assets/base_0.obj` | 三维网格资源 | 1.3 MB | 三维网格资源，表示 base_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 245 | `unitree_mujoco/unitree_robots/go2w/assets/base_1.obj` | 三维网格资源 | 792.8 KB | 三维网格资源，表示 base_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 246 | `unitree_mujoco/unitree_robots/go2w/assets/base_2.obj` | 三维网格资源 | 287.2 KB | 三维网格资源，表示 base_2 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 247 | `unitree_mujoco/unitree_robots/go2w/assets/base_3.obj` | 三维网格资源 | 370.2 KB | 三维网格资源，表示 base_3 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 248 | `unitree_mujoco/unitree_robots/go2w/assets/base_4.obj` | 三维网格资源 | 7.4 MB | 三维网格资源，表示 base_4 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 249 | `unitree_mujoco/unitree_robots/go2w/assets/calf.stl` | 三维网格资源 | 2.1 MB | 三维网格资源，表示 calf 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 250 | `unitree_mujoco/unitree_robots/go2w/assets/calf_0.obj` | 三维网格资源 | 856.6 KB | 三维网格资源，表示 calf_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 251 | `unitree_mujoco/unitree_robots/go2w/assets/calf_1.obj` | 三维网格资源 | 319.2 KB | 三维网格资源，表示 calf_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 252 | `unitree_mujoco/unitree_robots/go2w/assets/calf_mirror.stl` | 三维网格资源 | 1.6 MB | 三维网格资源，表示 calf_mirror 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 253 | `unitree_mujoco/unitree_robots/go2w/assets/calf_mirror_0.obj` | 三维网格资源 | 856.0 KB | 三维网格资源，表示 calf_mirror_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 254 | `unitree_mujoco/unitree_robots/go2w/assets/calf_mirror_1.obj` | 三维网格资源 | 319.6 KB | 三维网格资源，表示 calf_mirror_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 255 | `unitree_mujoco/unitree_robots/go2w/assets/foot.obj` | 三维网格资源 | 1.1 MB | 三维网格资源，表示 foot 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 256 | `unitree_mujoco/unitree_robots/go2w/assets/hip_0.obj` | 三维网格资源 | 2.7 MB | 三维网格资源，表示 hip_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 257 | `unitree_mujoco/unitree_robots/go2w/assets/hip_1.obj` | 三维网格资源 | 2.6 MB | 三维网格资源，表示 hip_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 258 | `unitree_mujoco/unitree_robots/go2w/assets/terrain.stl` | 三维网格资源 | 37.2 KB | 三维网格资源，表示 terrain 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 259 | `unitree_mujoco/unitree_robots/go2w/assets/thigh_0.obj` | 三维网格资源 | 2.7 MB | 三维网格资源，表示 thigh_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 260 | `unitree_mujoco/unitree_robots/go2w/assets/thigh_1.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 thigh_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 261 | `unitree_mujoco/unitree_robots/go2w/assets/thigh_mirror_0.obj` | 三维网格资源 | 2.7 MB | 三维网格资源，表示 thigh_mirror_0 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 262 | `unitree_mujoco/unitree_robots/go2w/assets/thigh_mirror_1.obj` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 thigh_mirror_1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 263 | `unitree_mujoco/unitree_robots/go2w/assets/untitled.stl` | 三维网格资源 | 37.2 KB | 三维网格资源，表示 untitled 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 264 | `unitree_mujoco/unitree_robots/go2w/assets/wheel.stl` | 三维网格资源 | 885.3 KB | 三维网格资源，表示 wheel 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 265 | `unitree_mujoco/unitree_robots/go2w/assets/wheel1.stl` | 三维网格资源 | 257.8 KB | 三维网格资源，表示 wheel1 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 266 | `unitree_mujoco/unitree_robots/go2w/go2w.xml` | 模型/场景XML | 16.5 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 17 个 body、18 个 actuator、5 个传感器/传感器组，供仿真加载。 |
+| 267 | `unitree_mujoco/unitree_robots/go2w/height_field.png` | 图像/GIF资源 | 4.8 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 268 | `unitree_mujoco/unitree_robots/go2w/scene.xml` | 模型/场景XML | 1.4 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 269 | `unitree_mujoco/unitree_robots/go2w/scene_terrain.xml` | 模型/场景XML | 20.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 270 | `unitree_mujoco/unitree_robots/go2w/unitree_hfield.png` | 图像/GIF资源 | 13.9 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 271 | `unitree_mujoco/unitree_robots/h1/H1.png` | 图像/GIF资源 | 769.9 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 272 | `unitree_mujoco/unitree_robots/h1/assets/L_hand_base_link.STL` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 L_hand_base_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 273 | `unitree_mujoco/unitree_robots/h1/assets/Link11_L.STL` | 三维网格资源 | 45.5 KB | 三维网格资源，表示 Link11_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 274 | `unitree_mujoco/unitree_robots/h1/assets/Link11_R.STL` | 三维网格资源 | 45.8 KB | 三维网格资源，表示 Link11_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 275 | `unitree_mujoco/unitree_robots/h1/assets/Link12_L.STL` | 三维网格资源 | 895.8 KB | 三维网格资源，表示 Link12_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 276 | `unitree_mujoco/unitree_robots/h1/assets/Link12_R.STL` | 三维网格资源 | 900.4 KB | 三维网格资源，表示 Link12_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 277 | `unitree_mujoco/unitree_robots/h1/assets/Link13_L.STL` | 三维网格资源 | 477.1 KB | 三维网格资源，表示 Link13_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 278 | `unitree_mujoco/unitree_robots/h1/assets/Link13_R.STL` | 三维网格资源 | 472.0 KB | 三维网格资源，表示 Link13_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 279 | `unitree_mujoco/unitree_robots/h1/assets/Link14_L.STL` | 三维网格资源 | 151.5 KB | 三维网格资源，表示 Link14_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 280 | `unitree_mujoco/unitree_robots/h1/assets/Link14_R.STL` | 三维网格资源 | 151.9 KB | 三维网格资源，表示 Link14_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 281 | `unitree_mujoco/unitree_robots/h1/assets/Link15_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 Link15_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 282 | `unitree_mujoco/unitree_robots/h1/assets/Link15_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 Link15_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 283 | `unitree_mujoco/unitree_robots/h1/assets/Link16_L.STL` | 三维网格资源 | 321.7 KB | 三维网格资源，表示 Link16_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 284 | `unitree_mujoco/unitree_robots/h1/assets/Link16_R.STL` | 三维网格资源 | 327.6 KB | 三维网格资源，表示 Link16_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 285 | `unitree_mujoco/unitree_robots/h1/assets/Link17_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 Link17_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 286 | `unitree_mujoco/unitree_robots/h1/assets/Link17_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 Link17_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 287 | `unitree_mujoco/unitree_robots/h1/assets/Link18_L.STL` | 三维网格资源 | 178.4 KB | 三维网格资源，表示 Link18_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 288 | `unitree_mujoco/unitree_robots/h1/assets/Link18_R.STL` | 三维网格资源 | 178.7 KB | 三维网格资源，表示 Link18_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 289 | `unitree_mujoco/unitree_robots/h1/assets/Link19_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 Link19_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 290 | `unitree_mujoco/unitree_robots/h1/assets/Link19_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 Link19_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 291 | `unitree_mujoco/unitree_robots/h1/assets/Link20_L.STL` | 三维网格资源 | 321.8 KB | 三维网格资源，表示 Link20_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 292 | `unitree_mujoco/unitree_robots/h1/assets/Link20_R.STL` | 三维网格资源 | 326.9 KB | 三维网格资源，表示 Link20_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 293 | `unitree_mujoco/unitree_robots/h1/assets/Link21_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 Link21_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 294 | `unitree_mujoco/unitree_robots/h1/assets/Link21_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 Link21_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 295 | `unitree_mujoco/unitree_robots/h1/assets/Link22_L.STL` | 三维网格资源 | 403.7 KB | 三维网格资源，表示 Link22_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 296 | `unitree_mujoco/unitree_robots/h1/assets/Link22_R.STL` | 三维网格资源 | 406.7 KB | 三维网格资源，表示 Link22_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 297 | `unitree_mujoco/unitree_robots/h1/assets/R_hand_base_link.STL` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 R_hand_base_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 298 | `unitree_mujoco/unitree_robots/h1/assets/left_ankle_link.STL` | 三维网格资源 | 429.2 KB | 三维网格资源，表示 left_ankle_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 299 | `unitree_mujoco/unitree_robots/h1/assets/left_elbow_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 left_elbow_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 300 | `unitree_mujoco/unitree_robots/h1/assets/left_elbow_link_ball_hand.STL` | 三维网格资源 | 252.6 KB | 三维网格资源，表示 left_elbow_link_ball_hand 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 301 | `unitree_mujoco/unitree_robots/h1/assets/left_hand_link.STL` | 三维网格资源 | 144.2 KB | 三维网格资源，表示 left_hand_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 302 | `unitree_mujoco/unitree_robots/h1/assets/left_hip_pitch_link.STL` | 三维网格资源 | 441.8 KB | 三维网格资源，表示 left_hip_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 303 | `unitree_mujoco/unitree_robots/h1/assets/left_hip_roll_link.STL` | 三维网格资源 | 751.3 KB | 三维网格资源，表示 left_hip_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 304 | `unitree_mujoco/unitree_robots/h1/assets/left_hip_yaw_link.STL` | 三维网格资源 | 865.1 KB | 三维网格资源，表示 left_hip_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 305 | `unitree_mujoco/unitree_robots/h1/assets/left_knee_link.STL` | 三维网格资源 | 644.9 KB | 三维网格资源，表示 left_knee_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 306 | `unitree_mujoco/unitree_robots/h1/assets/left_shoulder_pitch_link.STL` | 三维网格资源 | 769.0 KB | 三维网格资源，表示 left_shoulder_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 307 | `unitree_mujoco/unitree_robots/h1/assets/left_shoulder_roll_link.STL` | 三维网格资源 | 882.2 KB | 三维网格资源，表示 left_shoulder_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 308 | `unitree_mujoco/unitree_robots/h1/assets/left_shoulder_yaw_link.STL` | 三维网格资源 | 629.1 KB | 三维网格资源，表示 left_shoulder_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 309 | `unitree_mujoco/unitree_robots/h1/assets/logo_link.STL` | 三维网格资源 | 142.1 KB | 三维网格资源，表示 logo_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 310 | `unitree_mujoco/unitree_robots/h1/assets/pelvis.STL` | 三维网格资源 | 657.1 KB | 三维网格资源，表示 pelvis 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 311 | `unitree_mujoco/unitree_robots/h1/assets/right_ankle_link.STL` | 三维网格资源 | 429.2 KB | 三维网格资源，表示 right_ankle_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 312 | `unitree_mujoco/unitree_robots/h1/assets/right_elbow_link.STL` | 三维网格资源 | 2.3 MB | 三维网格资源，表示 right_elbow_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 313 | `unitree_mujoco/unitree_robots/h1/assets/right_elbow_link_ball_hand.STL` | 三维网格资源 | 252.5 KB | 三维网格资源，表示 right_elbow_link_ball_hand 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 314 | `unitree_mujoco/unitree_robots/h1/assets/right_hand_link.STL` | 三维网格资源 | 144.2 KB | 三维网格资源，表示 right_hand_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 315 | `unitree_mujoco/unitree_robots/h1/assets/right_hip_pitch_link.STL` | 三维网格资源 | 441.8 KB | 三维网格资源，表示 right_hip_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 316 | `unitree_mujoco/unitree_robots/h1/assets/right_hip_roll_link.STL` | 三维网格资源 | 750.5 KB | 三维网格资源，表示 right_hip_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 317 | `unitree_mujoco/unitree_robots/h1/assets/right_hip_yaw_link.STL` | 三维网格资源 | 863.8 KB | 三维网格资源，表示 right_hip_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 318 | `unitree_mujoco/unitree_robots/h1/assets/right_knee_link.STL` | 三维网格资源 | 646.7 KB | 三维网格资源，表示 right_knee_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 319 | `unitree_mujoco/unitree_robots/h1/assets/right_shoulder_pitch_link.STL` | 三维网格资源 | 770.0 KB | 三维网格资源，表示 right_shoulder_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 320 | `unitree_mujoco/unitree_robots/h1/assets/right_shoulder_roll_link.STL` | 三维网格资源 | 887.0 KB | 三维网格资源，表示 right_shoulder_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 321 | `unitree_mujoco/unitree_robots/h1/assets/right_shoulder_yaw_link.STL` | 三维网格资源 | 631.7 KB | 三维网格资源，表示 right_shoulder_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 322 | `unitree_mujoco/unitree_robots/h1/assets/torso_link.STL` | 三维网格资源 | 2.2 MB | 三维网格资源，表示 torso_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 323 | `unitree_mujoco/unitree_robots/h1/h1.xml` | 模型/场景XML | 17.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 21 个 body、20 个 actuator、5 个传感器/传感器组，供仿真加载。 |
+| 324 | `unitree_mujoco/unitree_robots/h1/height_field.png` | 图像/GIF资源 | 4.8 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 325 | `unitree_mujoco/unitree_robots/h1/scene.xml` | 模型/场景XML | 865 B | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 326 | `unitree_mujoco/unitree_robots/h1/scene_terrain.xml` | 模型/场景XML | 20.8 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
+| 327 | `unitree_mujoco/unitree_robots/h1/unitree_hfield.png` | 图像/GIF资源 | 13.9 KB | 高度场/地形图像资源，被 MuJoCo hfield 或地形工具读取来生成起伏地面。 |
+| 328 | `unitree_mujoco/unitree_robots/h1_2/h1_2.png` | 图像/GIF资源 | 752.7 KB | 机器人、场景、文档或 UI 预览图像资源，被 README、MJCF 材质或文档引用。 |
+| 329 | `unitree_mujoco/unitree_robots/h1_2/h1_2_handless.xml` | 模型/场景XML | 26.7 KB | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 28 个 body、27 个 actuator、5 个传感器/传感器组，供仿真加载。 |
+| 330 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_hand_base_link.STL` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 L_hand_base_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 331 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_index_intermediate.STL` | 三维网格资源 | 321.7 KB | 三维网格资源，表示 L_index_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 332 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_index_proximal.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 L_index_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 333 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_middle_intermediate.STL` | 三维网格资源 | 178.4 KB | 三维网格资源，表示 L_middle_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 334 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_middle_proximal.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 L_middle_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 335 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_pinky_intermediate.STL` | 三维网格资源 | 403.7 KB | 三维网格资源，表示 L_pinky_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 336 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_pinky_proximal.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 L_pinky_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 337 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_ring_intermediate.STL` | 三维网格资源 | 321.8 KB | 三维网格资源，表示 L_ring_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 338 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_ring_proximal.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 L_ring_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 339 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_thumb_distal.STL` | 三维网格资源 | 151.5 KB | 三维网格资源，表示 L_thumb_distal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 340 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_thumb_intermediate.STL` | 三维网格资源 | 477.1 KB | 三维网格资源，表示 L_thumb_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 341 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_thumb_proximal.STL` | 三维网格资源 | 895.8 KB | 三维网格资源，表示 L_thumb_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 342 | `unitree_mujoco/unitree_robots/h1_2/meshes/L_thumb_proximal_base.STL` | 三维网格资源 | 45.5 KB | 三维网格资源，表示 L_thumb_proximal_base 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 343 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_hand_base_link.STL` | 三维网格资源 | 1.4 MB | 三维网格资源，表示 R_hand_base_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 344 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_index_intermediate.STL` | 三维网格资源 | 327.6 KB | 三维网格资源，表示 R_index_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 345 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_index_proximal.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 R_index_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 346 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_middle_intermediate.STL` | 三维网格资源 | 178.7 KB | 三维网格资源，表示 R_middle_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 347 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_middle_proximal.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 R_middle_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 348 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_pinky_intermediate.STL` | 三维网格资源 | 406.7 KB | 三维网格资源，表示 R_pinky_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 349 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_pinky_proximal.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 R_pinky_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 350 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_ring_intermediate.STL` | 三维网格资源 | 326.9 KB | 三维网格资源，表示 R_ring_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 351 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_ring_proximal.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 R_ring_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 352 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_thumb_distal.STL` | 三维网格资源 | 151.9 KB | 三维网格资源，表示 R_thumb_distal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 353 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_thumb_intermediate.STL` | 三维网格资源 | 472.0 KB | 三维网格资源，表示 R_thumb_intermediate 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 354 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_thumb_proximal.STL` | 三维网格资源 | 900.4 KB | 三维网格资源，表示 R_thumb_proximal 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 355 | `unitree_mujoco/unitree_robots/h1_2/meshes/R_thumb_proximal_base.STL` | 三维网格资源 | 45.8 KB | 三维网格资源，表示 R_thumb_proximal_base 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 356 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_ankle_A_link.STL` | 三维网格资源 | 138.7 KB | 三维网格资源，表示 left_ankle_A_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 357 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_ankle_A_rod_link.STL` | 三维网格资源 | 43.4 KB | 三维网格资源，表示 left_ankle_A_rod_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 358 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_ankle_B_link.STL` | 三维网格资源 | 138.7 KB | 三维网格资源，表示 left_ankle_B_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 359 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_ankle_B_rod_link.STL` | 三维网格资源 | 37.0 KB | 三维网格资源，表示 left_ankle_B_rod_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 360 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_ankle_pitch_link.STL` | 三维网格资源 | 33.3 KB | 三维网格资源，表示 left_ankle_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 361 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_ankle_roll_link.STL` | 三维网格资源 | 195.8 KB | 三维网格资源，表示 left_ankle_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 362 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_elbow_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 left_elbow_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 363 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_hand_link.STL` | 三维网格资源 | 144.2 KB | 三维网格资源，表示 left_hand_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 364 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_hip_pitch_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 left_hip_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 365 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_hip_roll_link.STL` | 三维网格资源 | 374.2 KB | 三维网格资源，表示 left_hip_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 366 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_hip_yaw_link.STL` | 三维网格资源 | 815.4 KB | 三维网格资源，表示 left_hip_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 367 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_knee_link.STL` | 三维网格资源 | 207.4 KB | 三维网格资源，表示 left_knee_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 368 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_shoulder_pitch_link.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 left_shoulder_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 369 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_shoulder_roll_link.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 left_shoulder_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 370 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_shoulder_yaw_link.STL` | 三维网格资源 | 2.0 MB | 三维网格资源，表示 left_shoulder_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 371 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_wrist_pitch_link.STL` | 三维网格资源 | 615.4 KB | 三维网格资源，表示 left_wrist_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 372 | `unitree_mujoco/unitree_robots/h1_2/meshes/left_wrist_roll_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 left_wrist_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 373 | `unitree_mujoco/unitree_robots/h1_2/meshes/link11_L.STL` | 三维网格资源 | 45.5 KB | 三维网格资源，表示 link11_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 374 | `unitree_mujoco/unitree_robots/h1_2/meshes/link11_R.STL` | 三维网格资源 | 45.8 KB | 三维网格资源，表示 link11_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 375 | `unitree_mujoco/unitree_robots/h1_2/meshes/link12_L.STL` | 三维网格资源 | 895.8 KB | 三维网格资源，表示 link12_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 376 | `unitree_mujoco/unitree_robots/h1_2/meshes/link12_R.STL` | 三维网格资源 | 900.4 KB | 三维网格资源，表示 link12_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 377 | `unitree_mujoco/unitree_robots/h1_2/meshes/link13_L.STL` | 三维网格资源 | 477.1 KB | 三维网格资源，表示 link13_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 378 | `unitree_mujoco/unitree_robots/h1_2/meshes/link13_R.STL` | 三维网格资源 | 472.0 KB | 三维网格资源，表示 link13_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 379 | `unitree_mujoco/unitree_robots/h1_2/meshes/link14_L.STL` | 三维网格资源 | 151.5 KB | 三维网格资源，表示 link14_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 380 | `unitree_mujoco/unitree_robots/h1_2/meshes/link14_R.STL` | 三维网格资源 | 151.9 KB | 三维网格资源，表示 link14_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 381 | `unitree_mujoco/unitree_robots/h1_2/meshes/link15_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 link15_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 382 | `unitree_mujoco/unitree_robots/h1_2/meshes/link15_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 link15_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 383 | `unitree_mujoco/unitree_robots/h1_2/meshes/link16_L.STL` | 三维网格资源 | 321.7 KB | 三维网格资源，表示 link16_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 384 | `unitree_mujoco/unitree_robots/h1_2/meshes/link16_R.STL` | 三维网格资源 | 327.6 KB | 三维网格资源，表示 link16_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 385 | `unitree_mujoco/unitree_robots/h1_2/meshes/link17_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 link17_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 386 | `unitree_mujoco/unitree_robots/h1_2/meshes/link17_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 link17_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 387 | `unitree_mujoco/unitree_robots/h1_2/meshes/link18_L.STL` | 三维网格资源 | 178.4 KB | 三维网格资源，表示 link18_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 388 | `unitree_mujoco/unitree_robots/h1_2/meshes/link18_R.STL` | 三维网格资源 | 178.7 KB | 三维网格资源，表示 link18_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 389 | `unitree_mujoco/unitree_robots/h1_2/meshes/link19_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 link19_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 390 | `unitree_mujoco/unitree_robots/h1_2/meshes/link19_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 link19_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 391 | `unitree_mujoco/unitree_robots/h1_2/meshes/link20_L.STL` | 三维网格资源 | 321.8 KB | 三维网格资源，表示 link20_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 392 | `unitree_mujoco/unitree_robots/h1_2/meshes/link20_R.STL` | 三维网格资源 | 326.9 KB | 三维网格资源，表示 link20_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 393 | `unitree_mujoco/unitree_robots/h1_2/meshes/link21_L.STL` | 三维网格资源 | 397.6 KB | 三维网格资源，表示 link21_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 394 | `unitree_mujoco/unitree_robots/h1_2/meshes/link21_R.STL` | 三维网格资源 | 402.2 KB | 三维网格资源，表示 link21_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 395 | `unitree_mujoco/unitree_robots/h1_2/meshes/link22_L.STL` | 三维网格资源 | 403.7 KB | 三维网格资源，表示 link22_L 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 396 | `unitree_mujoco/unitree_robots/h1_2/meshes/link22_R.STL` | 三维网格资源 | 406.7 KB | 三维网格资源，表示 link22_R 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 397 | `unitree_mujoco/unitree_robots/h1_2/meshes/logo_link.STL` | 三维网格资源 | 142.1 KB | 三维网格资源，表示 logo_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 398 | `unitree_mujoco/unitree_robots/h1_2/meshes/pelvis.STL` | 三维网格资源 | 657.1 KB | 三维网格资源，表示 pelvis 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 399 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_A_link.STL` | 三维网格资源 | 138.7 KB | 三维网格资源，表示 right_ankle_A_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 400 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_A_rod_link.STL` | 三维网格资源 | 43.4 KB | 三维网格资源，表示 right_ankle_A_rod_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 401 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_B_link.STL` | 三维网格资源 | 138.7 KB | 三维网格资源，表示 right_ankle_B_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 402 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_B_rod_link.STL` | 三维网格资源 | 37.0 KB | 三维网格资源，表示 right_ankle_B_rod_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 403 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_link.STL` | 三维网格资源 | 429.2 KB | 三维网格资源，表示 right_ankle_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 404 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_pitch_link.STL` | 三维网格资源 | 33.3 KB | 三维网格资源，表示 right_ankle_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 405 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_ankle_roll_link.STL` | 三维网格资源 | 195.8 KB | 三维网格资源，表示 right_ankle_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 406 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_elbow_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 right_elbow_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 407 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_hand_link.STL` | 三维网格资源 | 144.2 KB | 三维网格资源，表示 right_hand_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 408 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_hip_pitch_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 right_hip_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 409 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_hip_roll_link.STL` | 三维网格资源 | 377.4 KB | 三维网格资源，表示 right_hip_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 410 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_hip_yaw_link.STL` | 三维网格资源 | 820.7 KB | 三维网格资源，表示 right_hip_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 411 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_knee_link.STL` | 三维网格资源 | 207.4 KB | 三维网格资源，表示 right_knee_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 412 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_pitch_link.STL` | 三维网格资源 | 330.5 KB | 三维网格资源，表示 right_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 413 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_shoulder_pitch_link.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 right_shoulder_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 414 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_shoulder_roll_link.STL` | 三维网格资源 | 1.9 MB | 三维网格资源，表示 right_shoulder_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 415 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_shoulder_yaw_link.STL` | 三维网格资源 | 2.1 MB | 三维网格资源，表示 right_shoulder_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 416 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_wrist_pitch_link.STL` | 三维网格资源 | 615.4 KB | 三维网格资源，表示 right_wrist_pitch_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 417 | `unitree_mujoco/unitree_robots/h1_2/meshes/right_wrist_roll_link.STL` | 三维网格资源 | 1.2 MB | 三维网格资源，表示 right_wrist_roll_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 418 | `unitree_mujoco/unitree_robots/h1_2/meshes/torso_link.STL` | 三维网格资源 | 2.0 MB | 三维网格资源，表示 torso_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 419 | `unitree_mujoco/unitree_robots/h1_2/meshes/wrist_yaw_link.STL` | 三维网格资源 | 52.0 KB | 三维网格资源，表示 wrist_yaw_link 机器人部件的可视化/碰撞几何，被 MJCF XML 的 mesh/geom 引用。 |
+| 420 | `unitree_mujoco/unitree_robots/h1_2/scene.xml` | 模型/场景XML | 883 B | MuJoCo/MJCF 机器人或场景模型，根节点 mujoco，声明约 0 个 body、0 个 actuator、0 个传感器/传感器组，供仿真加载。 |
 
 ## 顶层文件
 
@@ -1336,3 +1370,104 @@ ctrl[i] = tau_cmd
 - 虚拟挂带只在 humanoid 调试时有意义，四足通常不需要启用。
 - `example/ros2/package.xml` 的 license 仍为 TODO。
 
+## 14. 流程图与框架图
+
+### 14.1 仓库总体框架
+
+```mermaid
+flowchart TB
+  Models["unitree_robots<br/>MJCF XML + mesh + texture + hfield"] --> SimCpp[simulate C++ 仿真器]
+  Models --> SimPy[simulate_python Python 仿真器]
+  Config[config.yaml / config.py] --> SimCpp
+  Config --> SimPy
+  Joy[joystick 输入] --> SimCpp
+  SDK2[Unitree SDK2 DDS] <--> BridgeCpp[unitree_sdk2_bridge.h]
+  SDK2 <--> BridgePy[unitree_sdk2py_bridge.py]
+  BridgeCpp <--> SimCpp
+  BridgePy <--> SimPy
+  Examples[example cpp/python/ros2 stand_go2] --> SDK2
+  Terrain[terrain_tool] --> Models
+```
+
+### 14.2 C++ 仿真启动流程
+
+```mermaid
+flowchart TD
+  A[main.cc 启动] --> B[解析命令行和 config.yaml]
+  B --> C[定位可执行目录并加载 MuJoCo 插件]
+  C --> D[加载 scene XML 到 mjModel]
+  D --> E[创建 mjData / viewer simulate 对象]
+  E --> F[根据 robot 类型创建 Go2Bridge 或 G1Bridge]
+  F --> G[初始化 Unitree DDS channel]
+  G --> H[启动 bridge RecurrentThread]
+  H --> I[MuJoCo step/render 循环]
+  I --> J[每步读取 lowcmd 写 ctrl]
+  I --> K[发布 lowstate/highstate/wirelesscontroller]
+  J --> I
+  K --> I
+```
+
+### 14.3 DDS 与 MuJoCo 闭环数据流
+
+```mermaid
+sequenceDiagram
+  participant Ctrl as 外部控制器/示例
+  participant DDS as DDS Topic
+  participant Bridge as UnitreeSDK2Bridge
+  participant MJ as MuJoCo mjData
+  participant Sensor as MJCF sensors
+  Ctrl->>DDS: 发布 rt/lowcmd
+  DDS-->>Bridge: LowCmd 回调/订阅读取
+  Bridge->>MJ: ctrl[i] = tau + kp(q_cmd-q) + kd(dq_cmd-dq)
+  MJ->>MJ: mj_step 积分动力学
+  MJ->>Sensor: 更新关节、IMU、frame、接触传感器
+  Sensor-->>Bridge: sensordata / qpos / qvel
+  Bridge->>DDS: 发布 rt/lowstate
+  Bridge->>DDS: 发布 rt/sportmodestate
+  Bridge->>DDS: 发布 rt/wirelesscontroller
+  DDS-->>Ctrl: 控制器读取状态继续闭环
+```
+
+### 14.4 Python 仿真器流程
+
+```mermaid
+flowchart LR
+  PyMain[unitree_mujoco.py] --> Cfg[读取 config.py]
+  Cfg --> Load[加载 MJCF scene]
+  Load --> Viewer[启动 mujoco viewer]
+  Load --> Bridge[UnitreeSdk2Bridge]
+  Bridge --> PubLow[周期发布 LowState]
+  Bridge --> PubHigh[周期发布 SportModeState]
+  Bridge --> PubJoy[周期发布 WirelessController]
+  Bridge --> SubCmd[订阅 LowCmd]
+  SubCmd --> PD[计算 PD+tau 控制量]
+  PD --> MJ[mj_data.ctrl]
+  Viewer --> Step[mujoco.mj_step]
+  Step --> Bridge
+```
+
+### 14.5 机器人模型资源装配关系
+
+```mermaid
+flowchart TB
+  Scene[scene.xml / scene_terrain.xml] --> RobotXML[机器人主体 XML]
+  Scene --> World[光照 / 相机 / 地面 / hfield]
+  RobotXML --> Meshes["assets 或 meshes<br/>STL/OBJ"]
+  RobotXML --> Actuators[actuator 列表]
+  RobotXML --> Sensors[关节/IMU/frame/contact sensors]
+  Meshes --> Render[MuJoCo 可视化几何]
+  Actuators --> Bridge[SDK2 bridge 按 actuator 顺序写 ctrl]
+  Sensors --> Bridge[bridge 按 sensor 名称和地址发布状态]
+  Height[height_field / unitree_hfield PNG] --> World
+```
+
+### 14.6 地形生成工具流程
+
+```mermaid
+flowchart LR
+  Params[terrain_generator.py 参数] --> Noise[生成高度矩阵/障碍地形]
+  Noise --> PNG[输出高度场 PNG]
+  PNG --> Scene[terrain_tool/scene.xml 或 robot scene_terrain.xml]
+  Scene --> MuJoCo[MuJoCo hfield asset]
+  MuJoCo --> Sim[崎岖地形仿真]
+```

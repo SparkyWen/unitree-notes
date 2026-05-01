@@ -143,21 +143,63 @@ python ~/unitree/unitree-notes/unitree_sdk2_python/example/b2w/high_level/b2w_sp
 
 ### 2.4 G1（人形）— 仿真前先把 `config.py` 里 `ROBOT="g1"` 且 `ENABLE_ELASTIC_BAND=True`
 
+> **G1 低层例子直接 `lo` 跑不通**：上游 `g1_low_level_example.py` 把 domain 强写为 0
+> （即使加 `lo` 也只改网卡，不改 domain），而 `simulate_python/config.py` 用的是
+> `DOMAIN_ID=1`；并且它启动时会调用 `MotionSwitcherClient.CheckMode()`，但仿真的 SDK 桥
+> 只暴露 `rt/lowcmd / rt/lowstate / rt/sportmodestate / rt/wirelesscontroller`，没有
+> motion_switcher 服务，会卡死在 init。所以仿真用本仓库自带的 `g1_sim_demo/`（见下方
+> 「2.4.1 仿真专用：g1_sim_demo」），真机才用上游的 `g1_low_level_example.py`。
+
+#### 2.4.1 仿真专用：`g1_sim_demo`（推荐先跑这个）
+
+已为仿真改造好的低层 demo：去掉 `MotionSwitcherClient`，改用 `domain 1 + lo`，等首帧
+`lowstate` 拿到 `mode_machine` 后再起控制环。三段式动作与上游一致：0–3 s 全身回零位，
+3–6 s PR 模式踝关节正弦摆动（pitch ±30°/roll ±10°，1 Hz），6 s 起切到 AB 模式踝关节
+摆动 + 双手腕 roll ±30° 摆动。终端每秒打印一次 IMU rpy 作为心跳。
+
+```bash
+# 终端 1：启动仿真器（已把 simulate_python/config.py 切到 G1 + 悬挂带 + 关手柄）
+conda activate unitree
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py
+# viewer 弹出后，按 9 启用悬挂带（双足机器人需要它撑住），按 7 落下、8 抬起
+```
+
+```bash
+# 终端 2：跑 sim 友好版 G1 demo
+conda activate unitree
+cd ~/unitree/unitree-notes/g1_sim_demo
+python g1_sim_low_level.py
+# 真机：python g1_sim_low_level.py enp3s0   # 替换为实际网卡名（自动切 domain 0）
+```
+
+故障排查：
+- 终端 2 卡在 `waiting for first /rt/lowstate` → 仿真器没起，或 domain/INTERFACE 与
+  `simulate_python/config.py` 对不上（应为 `DOMAIN_ID=1, INTERFACE="lo"`）。
+- 机器人立刻摔倒 → viewer 里没按 `9` 启用悬挂带。
+- viewer 弹不出 → WSL2 下确认 `$DISPLAY` 已配（WSLg 自动设；SSH 用 `ssh -X`）。
+
+#### 2.4.2 高级例子（loco / 手臂）
+
 ```bash
 cd ~/unitree/unitree-notes/unitree_sdk2_python/example/g1
 
-# 低级控制
-python low_level/g1_low_level_example.py lo
-
-# 高级 loco / 手臂动作
+# 高级 loco / 手臂动作（仿真支持情况依赖 bridge 是否开启对应服务，部分仅真机可用）
 python high_level/g1_loco_client_example.py lo
 python high_level/g1_arm_action_example.py lo
 python high_level/g1_arm5_sdk_dds_example.py lo
 python high_level/g1_arm7_sdk_dds_example.py lo
 
-# 音频（真机使用）
+# 音频（仅真机）
 python audio/g1_audio_client_example.py enp3s0
 python audio/g1_audio_client_play_wav.py enp3s0
+```
+
+#### 2.4.3 真机低层（绕过 sim 改造，用回上游）
+
+```bash
+# 真机才跑这条；走 motion_switcher 释放当前模式后再下发 lowcmd
+python ~/unitree/unitree-notes/unitree_sdk2_python/example/g1/low_level/g1_low_level_example.py enp3s0
 ```
 
 ### 2.5 H1 / H1_2 / H2（人形）

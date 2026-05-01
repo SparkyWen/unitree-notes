@@ -1,0 +1,46 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+env/
+unitree-env/
+
+# --- RL / training artifacts (unitree_rl_mjlab) ---
+logs/
+outputs/
+wandb/
+runs/
+checkpoints/
+MUJOCO_LOG.TXT
+
+# --- C++ build dirs (unitree_mujoco, unitree_rl_mjlab/deploy) ---
+simulate/build/
+deploy/robots/*/build/
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Agent scratch dirs (currently empty placeholders) ---
+.agents/
+.codex/

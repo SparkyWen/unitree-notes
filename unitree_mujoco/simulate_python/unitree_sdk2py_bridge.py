@@ -3,6 +3,7 @@ import numpy as np
 import pygame
 import sys
 import struct
+import threading
 
 from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelPublisher
 
@@ -46,15 +47,22 @@ class UnitreeSdk2Bridge:
 
         self.joystick = None
 
+        # Latest received lowcmd (cached). Torque is recomputed every sim step
+        # from this cache + current q/dq, NOT inside the DDS callback. Doing
+        # PD only on cmd-arrival (~50 Hz) makes torque stale relative to the
+        # 200 Hz integrator and causes Kp-driven oscillation -> instability.
+        self._cmd_lock = threading.Lock()
+        self._latest_cmd = None
+
         # Check sensor
         for i in range(self.dim_motor_sensor, self.mj_model.nsensor):
             name = mujoco.mj_id2name(
                 self.mj_model, mujoco._enums.mjtObj.mjOBJ_SENSOR, i
             )
             if name == "imu_quat":
-                self.have_imu_ = True
+                self.have_imu = True
             if name == "frame_pos":
-                self.have_frame_sensor_ = True
+                self.have_frame_sensor = True
 
         # Unitree sdk2 message
         self.low_state = LowState_default()
@@ -109,18 +117,39 @@ class UnitreeSdk2Bridge:
         }
 
     def LowCmdHandler(self, msg: LowCmd_):
-        if self.mj_data != None:
-            for i in range(self.num_motor):
-                self.mj_data.ctrl[i] = (
-                    msg.motor_cmd[i].tau
-                    + msg.motor_cmd[i].kp
-                    * (msg.motor_cmd[i].q - self.mj_data.sensordata[i])
-                    + msg.motor_cmd[i].kd
-                    * (
-                        msg.motor_cmd[i].dq
-                        - self.mj_data.sensordata[i + self.num_motor]
-                    )
-                )
+        # Cache the cmd; the actual PD evaluation happens at sim rate via
+        # ApplyControl() so the controller sees fresh q / dq every step.
+        n = self.num_motor
+        cmd = np.empty((n, 5), dtype=np.float64)
+        for i in range(n):
+            mc = msg.motor_cmd[i]
+            cmd[i, 0] = mc.tau
+            cmd[i, 1] = mc.kp
+            cmd[i, 2] = mc.q
+            cmd[i, 3] = mc.kd
+            cmd[i, 4] = mc.dq
+        with self._cmd_lock:
+            self._latest_cmd = cmd
+
+    def ApplyControl(self):
+        """Compute joint torques from the latest cached lowcmd and current
+        q/dq. Must be called from the simulation thread (every mj_step) so
+        the PD law is evaluated at full simulator rate."""
+        if self.mj_data is None:
+            return
+        with self._cmd_lock:
+            cmd = self._latest_cmd
+        if cmd is None:
+            return
+        n = self.num_motor
+        sd = self.mj_data.sensordata
+        # tau_total = tau_ff + kp*(q_des - q) + kd*(dq_des - dq)
+        for i in range(n):
+            self.mj_data.ctrl[i] = (
+                cmd[i, 0]
+                + cmd[i, 1] * (cmd[i, 2] - sd[i])
+                + cmd[i, 3] * (cmd[i, 4] - sd[i + n])
+            )
 
     def PublishLowState(self):
         if self.mj_data != None:
@@ -133,7 +162,7 @@ class UnitreeSdk2Bridge:
                     i + 2 * self.num_motor
                 ]
 
-            if self.have_frame_sensor_:
+            if self.have_frame_sensor:
 
                 self.low_state.imu_state.quaternion[0] = self.mj_data.sensordata[
                     self.dim_motor_sensor + 0

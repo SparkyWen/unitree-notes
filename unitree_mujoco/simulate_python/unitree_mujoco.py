@@ -18,6 +18,10 @@ mj_data = mujoco.MjData(mj_model)
 
 if config.ENABLE_ELASTIC_BAND:
     elastic_band = ElasticBand()
+    # Pre-set band length so the robot sits near standing height instead of
+    # being yanked up to z=3. See ELASTIC_BAND_INIT_LENGTH in config.py.
+    if hasattr(config, "ELASTIC_BAND_INIT_LENGTH"):
+        elastic_band.length = float(config.ELASTIC_BAND_INIT_LENGTH)
     if config.ROBOT == "h1" or config.ROBOT == "g1":
         band_attached_link = mj_model.body("torso_link").id
     else:
@@ -50,6 +54,11 @@ def SimulationThread():
         step_start = time.perf_counter()
 
         locker.acquire()
+
+        # Refresh PD torques every step from the latest cached lowcmd. This
+        # has to run at sim rate (200 Hz here), not at cmd-arrival rate
+        # (~50 Hz from the controller), or the closed loop oscillates.
+        unitree.ApplyControl()
 
         if config.ENABLE_ELASTIC_BAND:
             if elastic_band.enable:

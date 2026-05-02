@@ -10,20 +10,33 @@ Architecture
 ------------
 - 50 Hz RL tick: builds 98-D obs from rt/lowstate, runs policy.onnx,
   converts raw_action -> q_target (29-D).
-- When an arm gesture is active, the arm slice (joint indices 15..28)
-  of q_target is overridden by a cosine-blended keyframe target.
-- Legs (0..11) and waist (12..14) are always under the RL policy.
-  The policy still sees the *actual measured* arm state via
-  joint_pos_rel, so it adapts via legs/waist to keep balance even
-  when arms swing.
+- The policy controls all 29 joints by default. Arms are only
+  overridden while an arm gesture is actively playing or queued; as
+  soon as the last keyframe finishes the arm slice (15..28) is handed
+  back to the policy. This matches the canonical C++ deployment
+  (`unitree_rl_mjlab/deploy/robots/g1/src/State_RLBase.cpp`), which
+  writes all 29 joints of the policy output to lowcmd unmodified.
+- Legs (0..11) and waist (12..14) are *always* under the RL policy.
 - Only ONE publisher writes to rt/lowcmd, so no DDS race.
 
-Why only arms can be overridden:
+Why arms must NOT stay locked when idle
+  The policy was trained with `actuator_names=(".*",)`, i.e. arms
+  included. It learns to swing the arms during walking/turning to
+  cancel leg-induced angular momentum. Pinning the arms to default_q
+  full-time breaks that — the body's yaw momentum has nowhere to go,
+  so the torso starts spinning, and the joint_pos_rel / last_action
+  observation pair becomes out-of-distribution (policy commanded a
+  swing, joints didn't move), which drives the legs to flail. That
+  failure mode is exactly "press w/s/a/d -> legs go crazy + robot
+  spins, r doesn't recover", which is why the overlay is gated on a
+  live gesture.
+
+Why only arms can be temporarily overridden:
   Legs are responsible for balance; waist orientation feeds directly
   into the projected_gravity observation, so a commanded waist tilt
   would make the policy think "I'm falling" and drive the wrong
   recovery torques. Arms are mass-light and the policy is robust to
-  arm motion, so this overlay is safe for slow upper-body gestures.
+  short, slow arm overrides, so brief gesture overlays are safe.
 
 Run order
 ---------
@@ -385,14 +398,20 @@ class ComboController:
         self.last_raw_action = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
         self.global_phase = 0.0
 
-        # Boot ramp (measured pose -> default_q).
+        # Boot ramp (measured pose -> default_q). 5 s instead of 3 s gives the
+        # robot time to settle (e.g. when the elastic band is still engaged or
+        # the initial pose is far from default_q). Kp is also ramped from
+        # boot_kp_floor*kp to full kp over the ramp so an aggressive PD pull
+        # can't slingshot the robot before the policy takes over.
         self.boot_q_from: Optional[np.ndarray] = None
         self.boot_t = 0.0
-        self.boot_dur = 3.0
+        self.boot_dur = 5.0
+        self.boot_kp_floor = 0.3
         self.policy_active = False
 
         # Arm gesture state.
-        # arm_rest is the policy's default arm pose; idle target.
+        # arm_rest is the policy's default arm pose; final fall-back target
+        # the gesture queue ramps to before releasing arms back to the policy.
         self.arm_rest = self.cfg.default_q[ARM_START:ARM_END].copy()
         self.arm_q_target = self.arm_rest.copy()       # last fully-blended pose
         self.arm_blend_from: Optional[np.ndarray] = None
@@ -400,6 +419,10 @@ class ComboController:
         self.arm_blend_dur = 0.0
         self.arm_blend_t = 0.0
         self.arm_queue: List[Tuple[float, np.ndarray]] = []
+        # When False the policy commands the arms directly. When True the
+        # arm slice of q_target is replaced by `arm_q_target`. Flips False
+        # automatically once the last queued keyframe finishes.
+        self._arm_override_active = False
         self._arm_lock = threading.Lock()
 
         # Soft Kp scale.
@@ -437,24 +460,36 @@ class ComboController:
             return self._cmd.copy()
 
     def push_arm_action(self, keyframes: List[Tuple[float, np.ndarray]]):
-        """Replace any in-flight gesture with this one. Kicks off the first
-        keyframe immediately, blending from the live arm command target."""
+        """Replace any in-flight gesture with this one. The first keyframe
+        blends from the *live* measured arm pose so engaging the override
+        from a policy-controlled state doesn't snap the arms."""
         with self._arm_lock:
+            # Seed arm_q_target with where the arms actually are right now,
+            # otherwise (if the policy was controlling them and had them
+            # swung mid-gait) the blend would start from a stale value and
+            # cause a position step.
+            self.arm_q_target = self._read_current_arm_q()
             self.arm_queue = [(float(d), p.copy()) for d, p in keyframes]
-            # Force a fresh blend starting from current commanded arm pose.
             self.arm_blend_from = None
             self.arm_blend_to = None
             self.arm_blend_dur = 0.0
             self.arm_blend_t = 0.0
+            self._arm_override_active = True
 
     def release_arms(self):
-        """Cancel any gesture and ramp arms back to policy default."""
+        """If a gesture is in progress, ramp arms back to rest and hand
+        them back to the policy. If arms are already policy-controlled
+        this is a no-op (don't grab arms just to release them)."""
         with self._arm_lock:
+            if not self._arm_override_active and not self.arm_queue:
+                return
+            self.arm_q_target = self._read_current_arm_q()
             self.arm_queue = [(1.0, self.arm_rest.copy())]
             self.arm_blend_from = None
             self.arm_blend_to = None
             self.arm_blend_dur = 0.0
             self.arm_blend_t = 0.0
+            self._arm_override_active = True
 
     def soften(self, target_scale: float = 0.0, duration: float = 1.0):
         steps = int(max(duration, 1e-3) / self.cfg.step_dt)
@@ -477,6 +512,8 @@ class ComboController:
         self.policy_active = False
         self.last_raw_action[:] = 0.0
         self.global_phase = 0.0
+        # Start with reduced Kp; _tick ramps it up to 1.0 over boot_dur.
+        self.kp_scale = self.boot_kp_floor
 
         self._thread = RecurrentThread(
             interval=self.cfg.step_dt, target=self._tick, name="combo_control"
@@ -515,11 +552,15 @@ class ComboController:
             self.boot_t += self.cfg.step_dt
             if self.boot_t >= self.boot_dur:
                 self.policy_active = True
+                self.kp_scale = 1.0
                 print("[combo] policy ready. wsadqe to walk; 1-8 arm gestures; 0 release.")
                 self._publish(self.cfg.default_q)
                 return
             s = 0.5 - 0.5 * np.cos(np.pi * (self.boot_t / self.boot_dur))
             q_des = (1.0 - s) * self.boot_q_from + s * self.cfg.default_q
+            # Ramp Kp from boot_kp_floor -> 1.0 with the same easing so the
+            # robot is pulled toward default_q gently at first.
+            self.kp_scale = self.boot_kp_floor + (1.0 - self.boot_kp_floor) * s
             self._publish(q_des)
             return
 
@@ -529,16 +570,35 @@ class ComboController:
         q_target = raw_action * self.cfg.action_scale + self.cfg.action_offset
         self.last_raw_action[:] = raw_action
 
-        # ---- Arm overlay: advance gesture queue and override q_target[15:29] ----
+        # ---- Arm overlay: only override q_target[15:29] if a gesture is
+        # actively playing. Otherwise the policy keeps full control of the
+        # arms (it learned to swing them for balance during walking).
         arm_q = self._advance_arms()
-        q_target[ARM_START:ARM_END] = arm_q
+        if arm_q is not None:
+            q_target[ARM_START:ARM_END] = arm_q
 
         self._publish(q_target)
 
-    def _advance_arms(self) -> np.ndarray:
-        """Run one tick of the arm keyframe blender. Returns the 14-D arm
-        pose to overlay onto q_target. Holds the last commanded pose when
-        idle (which defaults to arm_rest)."""
+    def _read_current_arm_q(self) -> np.ndarray:
+        """Snapshot the live arm joint positions from rt/lowstate. Used
+        as the starting point for a gesture blend so engaging the override
+        doesn't introduce a position step."""
+        s = self.low_state
+        if s is None:
+            return self.arm_rest.copy()
+        return np.fromiter(
+            (s.motor_state[ARM_START + i].q for i in range(ARM_DIM)),
+            dtype=np.float64, count=ARM_DIM,
+        )
+
+    def _advance_arms(self) -> Optional[np.ndarray]:
+        """Run one tick of the arm keyframe blender.
+
+        Returns the 14-D arm pose to overlay onto q_target while a
+        gesture is active, or None when arms should stay under policy
+        control. The override auto-disengages once the last queued
+        keyframe completes.
+        """
         with self._arm_lock:
             # Need to start a new blend?
             if self.arm_blend_to is None and self.arm_queue:
@@ -557,6 +617,10 @@ class ComboController:
                     self.arm_blend_to = None
                     self.arm_blend_dur = 0.0
                     self.arm_blend_t = 0.0
+                    # Last keyframe done and nothing else queued → release
+                    # arms back to the policy on the next tick.
+                    if not self.arm_queue:
+                        self._arm_override_active = False
                 else:
                     s = 0.5 - 0.5 * np.cos(
                         np.pi * (self.arm_blend_t / self.arm_blend_dur)
@@ -565,6 +629,8 @@ class ComboController:
                         (1.0 - s) * self.arm_blend_from + s * self.arm_blend_to
                     )
 
+            if not self._arm_override_active:
+                return None
             return self.arm_q_target.copy()
 
     def _build_obs(self) -> np.ndarray:
@@ -662,10 +728,10 @@ def format_help(actions: List[ArmAction]) -> str:
     lines.append("  q / e    yaw left / right     (wz +/-0.3 rad/s)")
     lines.append("  r        stop walking         (cmd -> 0,0,0)")
     lines.append("  f        full forward         (vx -> vx_max)")
-    lines.append("Arm gestures (overlay; legs/waist still RL):")
+    lines.append("Arm gestures (briefly overlay; arms otherwise policy-controlled):")
     for a in actions:
         lines.append(f"  {a.key}        {a.name}")
-    lines.append("  0        release arms (back to policy default)")
+    lines.append("  0        release arms (blend to rest, hand back to policy)")
     lines.append("System:")
     lines.append("  space    soft-disable Kp/Kd (robot collapses)")
     lines.append("  ?        print this help")

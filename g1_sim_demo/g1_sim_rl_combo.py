@@ -19,24 +19,44 @@ Architecture
 - Legs (0..11) and waist (12..14) are *always* under the RL policy.
 - Only ONE publisher writes to rt/lowcmd, so no DDS race.
 
-Why arms must NOT stay locked when idle
-  The policy was trained with `actuator_names=(".*",)`, i.e. arms
-  included. It learns to swing the arms during walking/turning to
-  cancel leg-induced angular momentum. Pinning the arms to default_q
-  full-time breaks that — the body's yaw momentum has nowhere to go,
-  so the torso starts spinning, and the joint_pos_rel / last_action
-  observation pair becomes out-of-distribution (policy commanded a
-  swing, joints didn't move), which drives the legs to flail. That
-  failure mode is exactly "press w/s/a/d -> legs go crazy + robot
-  spins, r doesn't recover", which is why the overlay is gated on a
-  live gesture.
+Why arm gestures must stay inside the policy-tolerant envelope
+  See docs/demo-QA5.md for the long version. Short version:
+  the policy was trained with `actuator_names=(".*",)` and per-joint
+  action_scale (shoulder=0.44, elbow=0.44, wrist_pitch/yaw=0.07). With
+  scale=0.44 and a weak default-pose deviation reward, during training
+  the arms typically stay within ~±0.44 rad of default — i.e. the
+  observed `joint_pos_rel[15:29]` distribution is concentrated around 0
+  with magnitude on the order of `action_scale`. If we forcibly drive
+  an arm joint to `default ± 1.6 rad` (e.g. hands_up shoulder_pitch =
+  -1.6 vs default 0.35) the policy sees `joint_pos_rel ≈ -1.95`,
+  ~4.4× the training scale. That input is OOD; an MLP on OOD inputs
+  produces garbage on every output dim — including legs. Robot
+  collapses. Wrist_pitch/yaw are even tighter (action_scale=0.07): a
+  -0.3 rad salute wrist tilt is already ~4× scale.
+
+  Two safety nets are applied to every gesture frame:
+  1. `clamp_arm_to_safe`  -- bounds each arm joint to
+                             default_q[i] ± ARM_GESTURE_K * action_scale[i]
+                             (default K=2.0). Visually-recognizable
+                             gestures still come through; OOD spikes
+                             are clipped at the source.
+  2. `_synthesize_last_action_for_arms` -- when we override arm
+                             q_target, we also rewrite the arm slice of
+                             `last_raw_action` to `(arm_q - offset)/scale`
+                             so the next obs has a self-consistent
+                             (joint_pos_rel, last_action) pair. Without
+                             this, even a small clipped override would
+                             leave the action and the achieved pose
+                             pointing in different directions, which is
+                             still OOD for the policy.
 
 Why only arms can be temporarily overridden:
   Legs are responsible for balance; waist orientation feeds directly
   into the projected_gravity observation, so a commanded waist tilt
   would make the policy think "I'm falling" and drive the wrong
   recovery torques. Arms are mass-light and the policy is robust to
-  short, slow arm overrides, so brief gesture overlays are safe.
+  short, slow arm overrides (within the envelope above), so brief
+  gesture overlays are safe.
 
 Run order
 ---------
@@ -231,13 +251,29 @@ GRAVITY_W = np.array([0.0, 0.0, -1.0], dtype=np.float64)
 
 
 # ---------------------------------------------------------------------------
-# Arm gesture poses. Each function returns a 14-D np.ndarray of joint angles
-# (rad) for arm joints [LeftShoulderPitch .. RightWristYaw]. Values are
-# absolute targets, not deltas. Keep them within G1's safe envelope
-# (|q_shoulder/elbow| <= ~1.6, wrists smaller).
+# Arm gesture poses.
+#
+# Each gesture is built as a *delta from the policy's default arm pose*,
+# scaled by per-joint `action_scale`. Concretely:
+#
+#     arm_pose = arm_rest + k * action_scale[15:29]
+#
+# where `k` is a 14-D unit-ish vector (each entry ~[-2, +2]). This keeps
+# every gesture inside the same envelope the policy saw at training time
+# (joint_pos_rel ≈ k * action_scale, so |joint_pos_rel|/action_scale ≈ |k|).
+#
+# Why not absolute joint angles?
+#   The previous version used absolute targets like shoulder_pitch=-1.6 rad.
+#   With action_scale=0.44, that's ~4.4× outside the training distribution
+#   for that joint, and instantly puts both `joint_pos_rel` and the policy's
+#   internal state OOD. Absolute targets that happen to be inside one
+#   joint's envelope can still wreck another joint with a smaller scale
+#   (e.g. wrist_pitch action_scale=0.07 — a "small" 0.3 rad tilt is 4×
+#   that joint's scale). Encoding poses as scale-multiples removes that
+#   foot-gun: a vector of ±2's is uniformly safe across all 14 arm DOFs.
 # ---------------------------------------------------------------------------
-def _arm_zero() -> np.ndarray:
-    """Hands hanging straight down (g1_sim_keyboard's reference)."""
+def _arm_zero_delta() -> np.ndarray:
+    """Zero-delta = policy's arm_rest."""
     return np.zeros(ARM_DIM, dtype=np.float64)
 
 
@@ -246,81 +282,97 @@ def _slot(j: int) -> int:
     return j - ARM_START
 
 
-def wave_right() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.RightShoulderPitch)] = -0.4
-    p[_slot(J.RightShoulderRoll)]  = -1.2
-    p[_slot(J.RightElbow)]         =  1.4
+# Each gesture below returns a 14-D *delta* in units of action_scale,
+# i.e. final_pose = arm_rest + delta * action_scale[15:29]. Magnitudes
+# are kept |delta| <= 2.0 per joint to stay inside the policy envelope.
+# Sign convention follows the absolute-pose conventions of the legacy
+# g1_sim_keyboard: shoulder_pitch -negative = arm forward/up,
+# shoulder_roll +positive = arm out (left side; mirrored on right),
+# elbow +positive = bent.
+def wave_right_delta() -> np.ndarray:
+    p = _arm_zero_delta()
+    p[_slot(J.RightShoulderPitch)] = -2.0   # -0.88 rad delta -> arm slightly forward
+    p[_slot(J.RightShoulderRoll)]  = -2.0   # -0.88 rad delta -> arm out to the right
+    p[_slot(J.RightElbow)]         =  1.0   #  0.44 rad delta -> elbow bent
     return p
 
 
-def wave_left() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.LeftShoulderPitch)] = -0.4
-    p[_slot(J.LeftShoulderRoll)]  =  1.2
-    p[_slot(J.LeftElbow)]         =  1.4
+def wave_left_delta() -> np.ndarray:
+    p = _arm_zero_delta()
+    p[_slot(J.LeftShoulderPitch)] = -2.0
+    p[_slot(J.LeftShoulderRoll)]  =  2.0
+    p[_slot(J.LeftElbow)]         =  1.0
     return p
 
 
-def hands_up() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.LeftShoulderPitch)]  = -1.6
-    p[_slot(J.RightShoulderPitch)] = -1.6
+def hands_up_delta() -> np.ndarray:
+    """Both arms reach forward / upward as far as the envelope allows."""
+    p = _arm_zero_delta()
+    p[_slot(J.LeftShoulderPitch)]  = -2.0   # default 0.35 + (-2*0.44) = -0.53 rad
+    p[_slot(J.RightShoulderPitch)] = -2.0
+    p[_slot(J.LeftElbow)]          = -1.0   # straighter than default 0.87
+    p[_slot(J.RightElbow)]         = -1.0
     return p
 
 
-def t_pose() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.LeftShoulderRoll)]   =  1.5
-    p[_slot(J.RightShoulderRoll)]  = -1.5
+def t_pose_delta() -> np.ndarray:
+    p = _arm_zero_delta()
+    p[_slot(J.LeftShoulderRoll)]   =  2.0   # default 0.18 + 0.88 = 1.06 rad
+    p[_slot(J.RightShoulderRoll)]  = -2.0   # default -0.18 - 0.88 = -1.06 rad
     return p
 
 
-def salute() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.RightShoulderPitch)] = -0.6
-    p[_slot(J.RightShoulderRoll)]  = -0.4
-    p[_slot(J.RightElbow)]         =  1.55
-    p[_slot(J.RightWristPitch)]    = -0.3
+def salute_delta() -> np.ndarray:
+    p = _arm_zero_delta()
+    p[_slot(J.RightShoulderPitch)] = -1.5
+    p[_slot(J.RightShoulderRoll)]  = -1.0
+    p[_slot(J.RightElbow)]         =  1.5   # bent toward forehead
+    p[_slot(J.RightWristPitch)]    = -2.0   # action_scale 0.07 -> -0.14 rad
     return p
 
 
-def clap() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.LeftShoulderPitch)]  = -0.8
-    p[_slot(J.LeftShoulderRoll)]   =  0.4
-    p[_slot(J.LeftElbow)]          =  1.2
-    p[_slot(J.RightShoulderPitch)] = -0.8
-    p[_slot(J.RightShoulderRoll)]  = -0.4
-    p[_slot(J.RightElbow)]         =  1.2
-    return p
-
-
-def guard() -> np.ndarray:
-    p = _arm_zero()
-    p[_slot(J.LeftShoulderPitch)]  = -0.6
+def clap_delta() -> np.ndarray:
+    p = _arm_zero_delta()
+    p[_slot(J.LeftShoulderPitch)]  = -1.5
     p[_slot(J.LeftShoulderRoll)]   =  0.5
-    p[_slot(J.LeftElbow)]          =  1.4
-    p[_slot(J.RightShoulderPitch)] = -0.6
+    p[_slot(J.LeftElbow)]          =  1.0
+    p[_slot(J.RightShoulderPitch)] = -1.5
     p[_slot(J.RightShoulderRoll)]  = -0.5
-    p[_slot(J.RightElbow)]         =  1.4
+    p[_slot(J.RightElbow)]         =  1.0
     return p
 
 
-def punch_right() -> np.ndarray:
-    p = guard()
-    p[_slot(J.RightShoulderPitch)] = -1.0
-    p[_slot(J.RightShoulderRoll)]  = -0.1
-    p[_slot(J.RightElbow)]         =  0.1
+def guard_delta() -> np.ndarray:
+    p = _arm_zero_delta()
+    p[_slot(J.LeftShoulderPitch)]  = -1.2
+    p[_slot(J.LeftShoulderRoll)]   =  1.0
+    p[_slot(J.LeftElbow)]          =  1.5
+    p[_slot(J.RightShoulderPitch)] = -1.2
+    p[_slot(J.RightShoulderRoll)]  = -1.0
+    p[_slot(J.RightElbow)]         =  1.5
     return p
 
 
-def punch_left() -> np.ndarray:
-    p = guard()
-    p[_slot(J.LeftShoulderPitch)] = -1.0
-    p[_slot(J.LeftShoulderRoll)]  =  0.1
-    p[_slot(J.LeftElbow)]         =  0.1
+def punch_right_delta() -> np.ndarray:
+    p = guard_delta()
+    p[_slot(J.RightShoulderPitch)] = -2.0
+    p[_slot(J.RightShoulderRoll)]  =  0.5     # tuck toward midline a bit
+    p[_slot(J.RightElbow)]         = -1.5     # arm extended
     return p
+
+
+def punch_left_delta() -> np.ndarray:
+    p = guard_delta()
+    p[_slot(J.LeftShoulderPitch)] = -2.0
+    p[_slot(J.LeftShoulderRoll)]  = -0.5
+    p[_slot(J.LeftElbow)]         = -1.5
+    return p
+
+
+def materialize(delta: np.ndarray, arm_rest: np.ndarray,
+                arm_scale: np.ndarray) -> np.ndarray:
+    """Convert a unit-scale delta to an absolute 14-D arm pose."""
+    return arm_rest + delta * arm_scale
 
 
 # ---------------------------------------------------------------------------
@@ -341,35 +393,55 @@ def hold(pose: np.ndarray, t: float) -> Tuple[float, np.ndarray]:
     return (t, pose.copy())
 
 
-def build_arm_actions(arm_rest: np.ndarray) -> List[ArmAction]:
-    """Build the gesture table. arm_rest is policy default arm pose."""
+def build_arm_actions(arm_rest: np.ndarray,
+                      arm_scale: np.ndarray) -> List[ArmAction]:
+    """Build the gesture table. Each pose is `arm_rest + delta*arm_scale`,
+    with delta magnitudes capped at ~2.0 per joint to stay inside the
+    policy's training envelope.
+
+    Durations are deliberately conservative (>=1.0s for big swings) so
+    joint_vel_rel during the blend stays within training distribution.
+    """
+    def m(d: np.ndarray) -> np.ndarray:
+        return materialize(d, arm_rest, arm_scale)
+
+    wave_r  = m(wave_right_delta())
+    wave_l  = m(wave_left_delta())
+    hands_u = m(hands_up_delta())
+    t_p     = m(t_pose_delta())
+    sal     = m(salute_delta())
+    clp     = m(clap_delta())
+    grd     = m(guard_delta())
+    pr      = m(punch_right_delta())
+    pl      = m(punch_left_delta())
+
     return [
         ArmAction("1", "wave right arm",
-                  [(1.2, wave_right()), hold(wave_right(), 0.6),
-                   (1.2, arm_rest)]),
-        ArmAction("2", "wave left arm",
-                  [(1.2, wave_left()), hold(wave_left(), 0.6),
-                   (1.2, arm_rest)]),
-        ArmAction("3", "hands up (cheer)",
-                  [(1.2, hands_up()), hold(hands_up(), 0.8),
-                   (1.2, arm_rest)]),
-        ArmAction("4", "T-pose",
-                  [(1.5, t_pose()), hold(t_pose(), 1.0),
+                  [(1.5, wave_r), hold(wave_r, 0.6),
                    (1.5, arm_rest)]),
+        ArmAction("2", "wave left arm",
+                  [(1.5, wave_l), hold(wave_l, 0.6),
+                   (1.5, arm_rest)]),
+        ArmAction("3", "hands up (cheer)",
+                  [(1.5, hands_u), hold(hands_u, 0.8),
+                   (1.5, arm_rest)]),
+        ArmAction("4", "T-pose",
+                  [(1.8, t_p), hold(t_p, 1.0),
+                   (1.8, arm_rest)]),
         ArmAction("5", "salute",
-                  [(1.0, salute()), hold(salute(), 1.2),
-                   (1.0, arm_rest)]),
+                  [(1.2, sal), hold(sal, 1.2),
+                   (1.2, arm_rest)]),
         ArmAction("6", "clap (twice)",
-                  [(0.9, clap()), (0.4, arm_rest),
-                   (0.4, clap()), (0.9, arm_rest)]),
+                  [(1.1, clp), (0.5, arm_rest),
+                   (0.5, clp), (1.1, arm_rest)]),
         ArmAction("7", "boxer guard",
-                  [(1.0, guard()), hold(guard(), 0.6),
-                   (1.0, arm_rest)]),
+                  [(1.2, grd), hold(grd, 0.6),
+                   (1.2, arm_rest)]),
         ArmAction("8", "punch combo (jab L+R)",
-                  [(0.6, guard()),
-                   (0.25, punch_right()), (0.25, guard()),
-                   (0.25, punch_left()),  (0.25, guard()),
-                   (1.0, arm_rest)]),
+                  [(0.8, grd),
+                   (0.35, pr), (0.30, grd),
+                   (0.35, pl), (0.30, grd),
+                   (1.2, arm_rest)]),
     ]
 
 
@@ -379,9 +451,29 @@ def build_arm_actions(arm_rest: np.ndarray) -> List[ArmAction]:
 class ComboController:
     LOWSTATE_TIMEOUT = 0.2     # seconds; if no lowstate, hold default pose
 
+    # Maximum arm joint deviation from `default` we are willing to command,
+    # measured in units of action_scale. The policy was trained where
+    # `joint_pos_rel ≈ scale * raw_action` and raw_action lives in roughly
+    # [-1, 1], so |joint_pos_rel|/scale on the order of 1.0 is in-distribution
+    # and <=2.0 is a reasonable safety margin (slightly outside but still
+    # close enough that the MLP's output stays sane on legs/waist). Above
+    # ~3.0 the policy starts producing garbage on every dim. See QA5.
+    ARM_GESTURE_K = 2.0
+
+    # Per-tick maximum *change* in commanded arm angle, in units of
+    # action_scale. Even if the gesture target is within the safe envelope,
+    # a too-fast blend produces a `joint_vel_rel` spike that the policy
+    # was never trained on. Cap the rate; the gesture's stated duration is
+    # still respected unless it would violate this cap.
+    ARM_GESTURE_RATE_K_PER_SEC = 4.0
+
     def __init__(self, cfg: DeployCfg, policy: Policy):
         self.cfg = cfg
         self.policy = policy
+
+        # Cache arm slices of the deploy params for the override math.
+        self.arm_offset = self.cfg.action_offset[ARM_START:ARM_END].copy()
+        self.arm_scale = self.cfg.action_scale[ARM_START:ARM_END].copy()
 
         self.low_cmd = unitree_hg_msg_dds__LowCmd_()
         self.low_state: Optional[LowState_] = None
@@ -424,6 +516,9 @@ class ComboController:
         # automatically once the last queued keyframe finishes.
         self._arm_override_active = False
         self._arm_lock = threading.Lock()
+        # Snapshot of the last 14-D arm slice we actually wrote to lowcmd;
+        # used by _rate_limit_arm_step. Seeded lazily in _tick.
+        self._last_arm_q_published: Optional[np.ndarray] = None
 
         # Soft Kp scale.
         self.kp_scale = 1.0
@@ -462,14 +557,25 @@ class ComboController:
     def push_arm_action(self, keyframes: List[Tuple[float, np.ndarray]]):
         """Replace any in-flight gesture with this one. The first keyframe
         blends from the *live* measured arm pose so engaging the override
-        from a policy-controlled state doesn't snap the arms."""
+        from a policy-controlled state doesn't snap the arms.
+
+        Every keyframe target is run through `_clamp_arm_to_safe_envelope`
+        before queueing — defense-in-depth so even hand-built gesture
+        tables that don't go through `materialize()` can't push the policy
+        OOD."""
         with self._arm_lock:
             # Seed arm_q_target with where the arms actually are right now,
             # otherwise (if the policy was controlling them and had them
             # swung mid-gait) the blend would start from a stale value and
-            # cause a position step.
-            self.arm_q_target = self._read_current_arm_q()
-            self.arm_queue = [(float(d), p.copy()) for d, p in keyframes]
+            # cause a position step. Clamp the snapshot too, in case the
+            # policy was already commanding a fairly large arm swing.
+            self.arm_q_target = self._clamp_arm_to_safe_envelope(
+                self._read_current_arm_q()
+            )
+            self.arm_queue = [
+                (float(d), self._clamp_arm_to_safe_envelope(p.copy()))
+                for d, p in keyframes
+            ]
             self.arm_blend_from = None
             self.arm_blend_to = None
             self.arm_blend_dur = 0.0
@@ -479,12 +585,18 @@ class ComboController:
     def release_arms(self):
         """If a gesture is in progress, ramp arms back to rest and hand
         them back to the policy. If arms are already policy-controlled
-        this is a no-op (don't grab arms just to release them)."""
+        this is a no-op (don't grab arms just to release them).
+
+        Uses a 1.5s ramp; with the rate-limit + envelope clamp this
+        produces a well-conditioned final blend regardless of where the
+        arms were when release_arms was called."""
         with self._arm_lock:
             if not self._arm_override_active and not self.arm_queue:
                 return
-            self.arm_q_target = self._read_current_arm_q()
-            self.arm_queue = [(1.0, self.arm_rest.copy())]
+            self.arm_q_target = self._clamp_arm_to_safe_envelope(
+                self._read_current_arm_q()
+            )
+            self.arm_queue = [(1.5, self.arm_rest.copy())]
             self.arm_blend_from = None
             self.arm_blend_to = None
             self.arm_blend_dur = 0.0
@@ -568,6 +680,7 @@ class ComboController:
         obs = self._build_obs()
         raw_action = self.policy(obs)
         q_target = raw_action * self.cfg.action_scale + self.cfg.action_offset
+        # Default: feed back exactly what the policy commanded.
         self.last_raw_action[:] = raw_action
 
         # ---- Arm overlay: only override q_target[15:29] if a gesture is
@@ -575,9 +688,63 @@ class ComboController:
         # arms (it learned to swing them for balance during walking).
         arm_q = self._advance_arms()
         if arm_q is not None:
+            # Belt + suspenders: even though _advance_arms only emits poses
+            # that came through clamp at queue time, also enforce the
+            # envelope here in case a future change wires in another
+            # source. Then rate-limit the per-tick change so a snapped
+            # blend can't cause a joint_vel_rel spike larger than the
+            # training distribution.
+            arm_q = self._clamp_arm_to_safe_envelope(arm_q)
+            arm_q = self._rate_limit_arm_step(arm_q)
             q_target[ARM_START:ARM_END] = arm_q
 
+            # ---- CRITICAL: keep last_raw_action consistent with what we
+            # actually published. The policy's own raw_action[15:29] would
+            # imply a different q_target than the override; feeding that
+            # mismatched action back into next tick's `last_action` obs
+            # decouples joint_pos_rel from last_action, which is the OOD
+            # state the policy was *never* trained against. By rewriting
+            # the arm slice of last_raw_action to the inverse map of the
+            # override, the (joint_pos_rel ≈ scale*last_action) invariant
+            # holds and the obs stays in distribution. See QA5 §3.2.
+            arm_raw = (arm_q - self.arm_offset) / self.arm_scale
+            # Clip to a slightly wider range than [-1, 1] so we don't lie
+            # too hard if a clamp boundary is hit; the policy's own actions
+            # occasionally exceed [-1, 1] in training too.
+            arm_raw = np.clip(arm_raw, -self.ARM_GESTURE_K, self.ARM_GESTURE_K)
+            self.last_raw_action[ARM_START:ARM_END] = arm_raw
+
         self._publish(q_target)
+        # Stash what we just published; rate limiter and restart-from-live
+        # logic both want it.
+        self._last_arm_q_published = q_target[ARM_START:ARM_END].copy()
+
+    def _clamp_arm_to_safe_envelope(self, arm_q: np.ndarray) -> np.ndarray:
+        """Clamp a 14-D arm pose to `default ± K * action_scale` per joint.
+
+        This is the structural safety net that keeps every gesture inside
+        the policy's training distribution regardless of how the gesture
+        was authored. K is `ARM_GESTURE_K` (default 2.0)."""
+        lo = self.arm_offset - self.ARM_GESTURE_K * self.arm_scale
+        hi = self.arm_offset + self.ARM_GESTURE_K * self.arm_scale
+        return np.clip(arm_q, lo, hi)
+
+    def _rate_limit_arm_step(self, arm_q: np.ndarray) -> np.ndarray:
+        """Cap the per-tick arm-joint delta so we never produce a
+        joint_vel_rel larger than `ARM_GESTURE_RATE_K_PER_SEC * scale`.
+
+        The cosine ease-in-out blender already keeps motion smooth, but
+        if user code shortens a duration (say 0.1s for a 2-scale swing),
+        a 50 Hz tick would produce dq ≈ 0.4*scale per tick = 20*scale/sec,
+        well outside the policy's training distribution for arm
+        joint_vel. This guard pins worst case to ~4*scale/sec."""
+        prev = getattr(self, "_last_arm_q_published", None)
+        if prev is None:
+            return arm_q
+        max_step = self.ARM_GESTURE_RATE_K_PER_SEC * self.arm_scale * self.cfg.step_dt
+        delta = arm_q - prev
+        delta = np.clip(delta, -max_step, max_step)
+        return prev + delta
 
     def _read_current_arm_q(self) -> np.ndarray:
         """Snapshot the live arm joint positions from rt/lowstate. Used
@@ -759,7 +926,7 @@ def main():
     print(f"[combo] loaded policy: {POLICY_ONNX}")
 
     ctl = ComboController(cfg, policy)
-    actions = build_arm_actions(ctl.arm_rest)
+    actions = build_arm_actions(ctl.arm_rest, ctl.arm_scale)
     actions_by_key = {a.key: a for a in actions}
 
     ctl.init_dds()

@@ -18,6 +18,22 @@
 
   <worldbody>
     <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>
-    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+    <!--
+      Floor with explicit friction + condim=6 + priority=1.
+      Default MuJoCo friction is "1 0.005 0.0001" (sliding, torsional, rolling)
+      and condim=3 (no torsional friction in the contact). Combined with this
+      MJCF's foot geoms — 4 small spheres of size=0.005 with no friction or
+      priority override — the resulting contact has a tiny patch and zero
+      torsional grip, so when the policy commands a heel-strike the foot
+      can pivot freely around the contact axis. That is the "walking feels
+      slightly slippery / scuffing" symptom in QA5.
+      Setting priority=1 here (and friction sliding=1.5, torsional=0.05,
+      rolling=0.005) makes the floor's friction values dominate the contact
+      pair and gives the contact full friction degrees of freedom. Numbers
+      match the upper end of the friction randomization used during training
+      (`unitree_rl_mjlab/.../scene_g1.xml` defaults plus dom-rand range).
+    -->
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"
+          friction="1.5 0.05 0.005" condim="6" priority="1"/>
   </worldbody>
 </mujoco>

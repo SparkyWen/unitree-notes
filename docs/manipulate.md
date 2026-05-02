@@ -68,7 +68,7 @@ if __name__ == "__main__":
 | 1 | `SimulationThread` (`unitree_mujoco.py:38`) | 200 Hz (`SIMULATE_DT=0.005`) | 调 `mujoco.mj_step()` 推进物理 |
 | 2 | `PhysicsViewerThread` (`unitree_mujoco.py:70`) | 50 Hz (`VIEWER_DT=0.02`) | 调 `viewer.sync()` 刷新画面 |
 | 3 | `lowStateThread` (`unitree_sdk2py_bridge.py:63`) | 200 Hz | 把传感器读数打成 `LowState_` 发到 `rt/lowstate` |
-| 4 | `HighStateThread` (`unitree_sdk2py_bridge.py:71`) | 200 Hz | 把基座位姿打成 `SportModeState_` 发到 `rt/sportmodestate` |
+| 4 | `HighStateThread` (`unitree_sdk2py_bridge.py:71`) | 200 Hz | 把==基座位姿打成 `SportModeState_` 发到 `rt/sportmodestate`== |
 | 5 | `WirelessControllerThread` (`unitree_sdk2py_bridge.py:81`) | 100 Hz | 把手柄按键发到 `rt/wirelesscontroller` |
 
 接收一侧只有 1 个回调:

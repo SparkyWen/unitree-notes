@@ -524,6 +524,718 @@ q, qdot, tau_f, kp, kd
 > **做应用、导航、交互、Agent 控制：优先用高层。**
 >  **做控制算法、强化学习、全身控制、电机实验：才进入低层。**
 
+我会把它理解为“状态反馈层级”的区别来讲：**High State 更像机器人整体运动状态，Low State 更像传感器和电机原始反馈状态**。下面我会结合宇树四足机器人和机械臂的常见字段解释。
+
+Thought for 21s
+
+David，**Low State 和 High State 的区别，本质上不是“数据多/少”的区别，而是“反馈状态的抽象层级不同”。**
+
+一句话：
+
+> **Low State = 机器人底层硬件/关节/电机/传感器反馈。**
+>  **High State = 机器人整体运动状态/步态状态/机体状态反馈。**
+
+也可以这样理解：
+
+```
+Low State  关注：每个电机现在怎么样？
+High State 关注：整台机器人现在在做什么、怎么运动？
+```
+
+------
+
+# 1. 先纠正一个关键点：State 不是 Command
+
+前面我们说过：
+
+```
+HighCmd / SportClient  = 高层命令
+LowCmd                 = 低层命令
+HighState / SportModeState = 高层状态反馈
+LowState               = 低层状态反馈
+```
+
+所以：
+
+| 类型              | 含义                     |
+| ----------------- | ------------------------ |
+| **Cmd / Command** | 你发给机器人的控制命令   |
+| **State**         | 机器人返回给你的当前状态 |
+
+也就是说：
+
+```
+LowCmd  是你发出去的低层电机控制目标
+LowState 是机器人返回来的低层电机/传感器反馈
+
+HighCmd / SportClient 是你发出去的高层运动意图
+HighState / SportModeState 是机器人返回来的整体运动状态
+```
+
+------
+
+# 2. Low State 是什么？
+
+**Low State 是低层状态反馈。**
+
+它主要告诉你：
+
+> 每个关节电机当前的角度、速度、估计力矩、温度，以及 IMU、电池、足底力等底层传感器信息。
+
+在宇树旧版 `unitree_legged_sdk` 的 `LowState` 结构中，官方代码里包含 `IMU imu`、`motorState[20]`、`BmsState bms`、`footForce`、`footForceEst`、`tick`、`wirelessRemote` 等字段，并且注释写的是 `LowState; // low level feedback`。
+
+------
+
+## 2.1 Low State 里面最重要的是 MotorState
+
+在低层状态里，最核心的是：
+
+```
+motorState[i]
+```
+
+每一个 `motorState[i]` 对应一个电机/关节。
+
+典型字段包括：
+
+| 字段                 | 含义             | 解释                   |
+| -------------------- | ---------------- | ---------------------- |
+| `mode`               | 电机当前模式     | 例如伺服、阻尼、过热等 |
+| `q`                  | 当前关节角度     | 单位通常是 rad         |
+| `dq`                 | 当前关节速度     | 单位通常是 rad/s       |
+| `ddq`                | 当前关节加速度   | 单位通常是 rad/s²      |
+| `tauEst` / `tau_est` | 当前估计输出力矩 | 单位通常是 N·m         |
+| `temperature`        | 电机温度         | 用于判断过热风险       |
+| `q_raw` / `dq_raw`   | 原始数据         | 一般是底层保留/调试用  |
+
+旧版 `MotorState` 中，官方代码明确列出了 `q` 当前角度、`dq` 当前速度、`ddq` 当前加速度、`tauEst` 当前估计输出力矩和 `temperature` 当前温度。
+
+------
+
+## 2.2 Low State 更接近“机器人身体的神经末梢”
+
+你可以把 Low State 想象成机器人身体里每个关节的实时反馈：
+
+```
+左前腿髋关节现在多少度？
+左前腿膝关节现在转多快？
+右后腿小腿电机当前力矩多大？
+电机有没有过热？
+IMU 当前姿态是多少？
+足底有没有受力？
+电池电量怎么样？
+```
+
+所以 Low State 适合用来做：
+
+- 关节控制
+- 电机状态监控
+- 强化学习控制策略部署
+- 自研 MPC / WBC / 全身控制
+- 检查关节角度是否超限
+- 判断电机是否过热
+- 读取足底力
+- 做底层控制算法调试
+
+------
+
+# 3. High State 是什么？
+
+**High State 是高层状态反馈。**
+
+它主要告诉你：
+
+> 机器人整体现在处于什么运动模式、什么步态、身体高度是多少、机体速度是多少、位置估计是多少、脚相对身体在哪里。
+
+在旧版 `unitree_legged_sdk` 中，`HighState` 包含 `mode`、`gaitType`、`footRaiseHeight`、`position`、`bodyHeight`、`velocity`、`yawSpeed`、`rangeObstacle`、`footPosition2Body`、`footSpeed2Body` 等字段，官方注释写的是 `HighState; // high level feedback`。
+
+在较新的 SDK2 / ROS2 体系中，很多地方不再叫 `HighState`，而更常见地叫 **`SportModeState`**。Unitree ROS2 文档说明，SportMode state 包含机器人的 position、velocity、foot position 等运动状态；Low-level state 则包含 motors states、power information 和其他 low-level states。
+
+------
+
+## 3.1 High State / SportModeState 关心的是整机运动
+
+典型字段包括：
+
+| 字段                                       | 含义               | 解释                                                         |
+| ------------------------------------------ | ------------------ | ------------------------------------------------------------ |
+| `mode`                                     | 当前运动模式       | 例如 idle、balance stand、locomotion、sit、recovery stand 等 |
+| `gaitType` / `gait_type`                   | 当前步态类型       | 例如 trot、run、climb stair 等                               |
+| `position`                                 | 机器人位置估计     | 通常来自自身里程计，可能会漂移                               |
+| `velocity`                                 | 机器人整体速度     | 例如前进速度、侧向速度、垂直速度                             |
+| `yawSpeed`                                 | 机体偏航角速度     | 也就是绕 z 轴转动速度                                        |
+| `bodyHeight`                               | 机身高度           | 当前身体高度                                                 |
+| `footRaiseHeight`                          | 抬脚高度           | 行走时脚抬起的高度                                           |
+| `footPosition2Body` / `foot_position_body` | 足端相对身体的位置 | 脚在机体坐标系中的位置                                       |
+| `footSpeed2Body` / `foot_speed_body`       | 足端相对身体的速度 | 脚相对身体移动速度                                           |
+| `rangeObstacle`                            | 障碍物距离         | 某些机型/模式下可用                                          |
+
+Unitree ROS2 文档中的 SportModeState 定义也列出了 `mode`、`gait_type`、`foot_raise_height`、`position`、`body_height`、`velocity`、`yaw_speed`、`foot_force`、`foot_position_body`、`foot_speed_body` 等字段。
+
+------
+
+# 4. 最核心区别：Low State 是“关节级”，High State 是“整机级”
+
+可以直接看这个表：
+
+| 对比维度   | Low State                                        | High State / SportModeState                              |
+| ---------- | ------------------------------------------------ | -------------------------------------------------------- |
+| 抽象层级   | 低层                                             | 高层                                                     |
+| 关注对象   | 电机、关节、IMU、电池、足底力                    | 整机运动状态、步态、速度、位置、身体高度                 |
+| 典型字段   | `motorState[i].q`、`dq`、`tauEst`、`temperature` | `mode`、`gaitType`、`position`、`velocity`、`bodyHeight` |
+| 主要用途   | 底层控制、关节控制、控制算法、诊断               | 应用开发、导航、运动状态读取、任务层决策                 |
+| 数据来源   | 电机/传感器/底层控制器反馈                       | 运动控制器加工后的整体状态                               |
+| 你看到的是 | 每个关节当前怎么样                               | 机器人整体现在在干什么                                   |
+| 对应命令   | `LowCmd`                                         | `HighCmd` / `SportClient`                                |
+| 适合谁用   | 控制算法开发者                                   | 应用开发者、导航/交互开发者                              |
+
+------
+
+# 5. 一个非常形象的例子
+
+假设机器人正在往前走。
+
+## High State 会告诉你：
+
+```
+机器人当前处于 locomotion 模式
+当前步态是 trot
+身体高度是 0.32m
+整体速度 vx = 0.3m/s
+yaw speed = 0.1rad/s
+左前脚相对身体的位置是 ...
+右后脚相对身体的位置是 ...
+```
+
+也就是说，High State 的视角是：
+
+> **这台机器人现在整体在怎么运动？**
+
+------
+
+## Low State 会告诉你：
+
+```
+第 0 个电机当前角度 q = ...
+第 0 个电机当前速度 dq = ...
+第 0 个电机当前估计力矩 tauEst = ...
+第 0 个电机温度 temperature = ...
+
+第 1 个电机当前角度 q = ...
+第 1 个电机当前速度 dq = ...
+第 1 个电机当前估计力矩 tauEst = ...
+...
+IMU 当前 roll/pitch/yaw 是 ...
+足底力是多少 ...
+电池电量是多少 ...
+```
+
+也就是说，Low State 的视角是：
+
+> **机器人每个关节和底层硬件现在具体是什么状态？**
+
+------
+
+# 6. High State 不是“更准确”，Low State 也不是“更完整”
+
+这里很容易误解。
+
+## 不是说 High State 更高级就一定更准确
+
+High State 中的 `position` 通常是经过状态估计/里程计得到的，它对应用开发很方便，但可能会漂移。旧版 `HighState` 代码注释里也说明 `position` 是来自自身 odometry 的 inertial frame 位置，通常会 drift。
+
+也就是说：
+
+```
+High State 的 position 很方便，但不能盲目当作绝对真实位置。
+```
+
+如果你要做高精度定位，通常还要结合：
+
+- LiDAR SLAM
+- VIO
+- GPS / RTK
+- 外部定位系统
+- 视觉定位
+- 地图融合
+
+------
+
+## 也不是说 Low State 一定更适合所有开发
+
+Low State 虽然更底层，但不代表你做应用就应该优先用它。
+
+如果你只是想让机器人：
+
+```
+走到某个地方
+巡逻
+跟随人
+做语音交互
+根据 Agent 指令行动
+```
+
+你主要应该用：
+
+```
+High State / SportModeState + 高层运动接口
+```
+
+如果你直接拿 Low State 做全关节控制，你就要自己承担：
+
+- 步态规划
+- 平衡控制
+- 关节轨迹生成
+- 足端落点规划
+- 力矩安全限制
+- 摔倒保护
+- 电机保护
+
+这对初学者非常危险。
+
+------
+
+# 7. 为什么 High State 有时也包含 motorState？
+
+这是一个很关键的细节。
+
+在旧版 `unitree_legged_sdk` 的 `HighState` 结构里，确实也包含了：
+
+```
+IMU imu;
+std::array<MotorState, 20> motorState;
+BmsState bms;
+footForce;
+footForceEst;
+```
+
+然后在此基础上又增加了：
+
+```
+mode
+gaitType
+position
+bodyHeight
+velocity
+yawSpeed
+footPosition2Body
+footSpeed2Body
+```
+
+也就是说，在旧版 SDK 中：
+
+> **HighState 不是完全没有底层信息，而是在部分底层反馈之上，又额外提供了高层运动状态。**
+
+旧版代码中可以看到，`HighState` 先包含 `imu`、`motorState`、`bms`、`footForce`，随后又包含 `mode`、`gaitType`、`position`、`velocity`、`footPosition2Body` 等整体运动字段。
+
+所以更准确地说：
+
+```
+LowState  = 底层反馈为主
+HighState = 底层反馈 + 高层运动控制器加工后的整体状态
+```
+
+但在 Go2 / SDK2 / ROS2 里，概念拆得更清楚：
+
+```
+LowState       低层状态
+SportModeState 高层运动状态
+```
+
+Unitree ROS2 文档中也是这样分开的：Sportmode state 用于获取 position、velocity、foot position 等运动状态；Low-level state 用于获取 motors states、power information 等低层状态。
+
+------
+
+# 8. Low State 和 High State 分别怎么用？
+
+## 场景 1：我要知道机器人是不是在走路
+
+用 **High State / SportModeState**。
+
+你看：
+
+```
+state.mode
+state.gaitType
+state.velocity
+state.yawSpeed
+```
+
+例如：
+
+```
+mode = locomotion
+gaitType = trot
+velocity[0] = 0.3
+yawSpeed = 0.1
+```
+
+你就知道机器人正在以某个速度运动。
+
+------
+
+## 场景 2：我要知道第 3 个关节现在角度是多少
+
+用 **Low State**。
+
+你看：
+
+```
+low_state.motorState[3].q
+```
+
+或者 SDK2/ROS2 中类似：
+
+```
+low_state.motor_state[3].q
+```
+
+这表示第 3 个关节当前角度。
+
+------
+
+## 场景 3：我要判断某个电机是否过热
+
+用 **Low State**。
+
+你看：
+
+```
+low_state.motorState[i].temperature
+```
+
+High State 通常不是专门给你做电机健康诊断的。
+
+------
+
+## 场景 4：我要让机器人根据导航算法移动
+
+主要用 **High State / SportModeState**。
+
+你需要知道：
+
+```
+机器人当前整体位置
+机器人当前整体速度
+机器人当前朝向
+机器人当前步态/运动模式
+```
+
+然后你通过高层接口发：
+
+```
+Move(vx, vy, vyaw)
+```
+
+这样更安全。
+
+------
+
+## 场景 5：我要部署强化学习训练出来的关节策略
+
+主要用 **Low State + Low Cmd**。
+
+强化学习 policy 常见输入可能是：
+
+```
+关节角度 q
+关节速度 dq
+IMU 姿态
+IMU 角速度
+历史动作
+目标速度
+```
+
+这些大量来自 Low State。
+
+然后 policy 输出：
+
+```
+目标关节角度
+目标关节速度
+PD 参数
+或者目标力矩
+```
+
+再通过 LowCmd 发给机器人。
+
+------
+
+# 9. 用人体类比非常好理解
+
+你可以把机器人想象成人。
+
+## Low State 像身体神经反馈
+
+```
+膝盖弯曲多少度？
+脚踝速度是多少？
+肌肉当前用力多少？
+体温是多少？
+脚底有没有压力？
+身体 IMU 感觉到倾斜了吗？
+```
+
+这是“身体硬件层”。
+
+------
+
+## High State 像大脑对动作的整体判断
+
+```
+我现在是在走路
+我现在是小跑步态
+我正在往前移动
+我身体高度是多少
+我脚相对身体在哪里
+我当前位置大概在哪里
+```
+
+这是“行为状态层”。
+
+------
+
+# 10. 和 LowCmd / HighCmd 的对应关系
+
+这点非常重要：
+
+| 命令                      | 状态反馈                       | 含义                                   |
+| ------------------------- | ------------------------------ | -------------------------------------- |
+| `LowCmd`                  | `LowState`                     | 你控制电机，机器人返回电机/传感器状态  |
+| `HighCmd` / `SportClient` | `HighState` / `SportModeState` | 你控制整机行为，机器人返回整体运动状态 |
+
+可以这样画：
+
+```
+低层控制闭环：
+
+你的控制器
+  ↓ LowCmd：q / dq / tau / kp / kd
+机器人电机
+  ↓ LowState：当前 q / dq / tauEst / temperature
+你的控制器继续计算下一帧命令
+高层控制闭环：
+
+你的应用程序
+  ↓ HighCmd / SportClient：Move / StandUp / Sit / TrajectoryFollow
+宇树内置运动控制器
+  ↓ HighState / SportModeState：mode / gait / velocity / position / foot position
+你的应用程序继续决定下一步任务
+```
+
+------
+
+# 11. 你应该优先读哪个 State？
+
+这取决于你的开发目标。
+
+## 如果你做应用层项目
+
+比如：
+
+- 语音控制机器人
+- 让机器人巡逻
+- 机器人导航
+- Agent 控制机器人
+- 机器人跟随人
+- 机器人展示动作
+- 机器人作为产品 Demo
+
+优先读：
+
+```
+High State / SportModeState
+```
+
+因为你最关心的是：
+
+```
+机器人整体在哪里？
+当前有没有走？
+速度是多少？
+姿态是否稳定？
+当前模式是什么？
+```
+
+------
+
+## 如果你做控制算法项目
+
+比如：
+
+- 自研步态
+- 强化学习控制
+- 关节空间控制
+- 力矩控制
+- 电机保护
+- 机械臂精细控制
+- 运动控制论文复现
+
+优先读：
+
+```
+Low State
+```
+
+因为你最关心的是：
+
+```
+每个关节角度是多少？
+速度是多少？
+力矩是多少？
+电机温度是多少？
+IMU 原始/底层状态如何？
+```
+
+------
+
+# 12. 最容易混淆的地方
+
+## 混淆 1：High State 是不是“高层命令执行结果”？
+
+**可以这样理解，但不完全等于。**
+
+High State / SportModeState 确实会反映高层运动控制器当前的状态，例如：
+
+```
+当前 mode
+当前 gait type
+当前 velocity
+当前 body height
+当前 foot position
+```
+
+但它不是简单告诉你“命令成功/失败”。它更像是：
+
+> 高层运动控制器根据传感器和状态估计后，对整机运动状态的实时反馈。
+
+------
+
+## 混淆 2：Low State 是不是只在 Low Level 控制时才有？
+
+不一定。
+
+很多情况下，即使你用高层控制，也仍然可以读取 Low State，因为电机状态和 IMU 状态一直存在。Unitree ROS2 文档中也把读取 Sportmode state 和读取 Low-level state 分别作为状态获取方式介绍：一个用于运动状态，一个用于低层电机/电源等状态。
+
+但具体能否同时安全地“高层控制 + 低层控制某些部位”，要看机型、固件、SDK、控制模式，不可以随便混用。
+
+------
+
+## 混淆 3：Low State 里的 `q` 是我发的目标角度吗？
+
+不是。
+
+Low State 里的：
+
+```
+motorState[i].q
+```
+
+是**当前反馈角度**。
+
+LowCmd 里的：
+
+```
+motorCmd[i].q
+```
+
+才是**你希望它到达的目标角度**。
+
+所以要区分：
+
+```
+LowCmd.motorCmd[i].q     = 我想让电机去哪里
+LowState.motorState[i].q = 电机现在实际在哪里
+```
+
+------
+
+# 13. 举一个完整控制循环例子
+
+假设你想做低层 PD 控制，让某个关节到达目标角度。
+
+你会这样做：
+
+```
+1. 读取 LowState
+   当前角度 q_current
+   当前速度 dq_current
+
+2. 计算目标
+   q_desired = 1.0 rad
+   dq_desired = 0
+
+3. 发送 LowCmd
+   motorCmd[i].q = q_desired
+   motorCmd[i].dq = dq_desired
+   motorCmd[i].kp = 20
+   motorCmd[i].kd = 1
+   motorCmd[i].tau = 0
+
+4. 下一帧再读取 LowState
+   看 q_current 有没有接近 q_desired
+```
+
+这个闭环里，LowState 是反馈，LowCmd 是控制。
+
+------
+
+# 14. 如果是高层运动控制，流程会变成这样
+
+假设你想让 Go2 往前走：
+
+```
+1. 发送高层命令
+   Move(0.3, 0, 0)
+
+2. 机器人内置运动控制器自己规划步态和平衡
+
+3. 你读取 HighState / SportModeState
+   mode = locomotion
+   velocity[0] ≈ 0.3
+   gait_type = trot
+   body_height = ...
+   foot_position_body = ...
+
+4. 如果发现速度不对，再调整 Move 的参数
+```
+
+这个闭环里，你不需要关心每个电机的目标角度。
+
+------
+
+# 15. 最终总结
+
+你可以这样记：
+
+```
+Low State：
+    “每个关节、电机、底层传感器现在是什么状态？”
+
+High State / SportModeState：
+    “整台机器人现在处于什么运动模式、步态、速度、位置和身体状态？”
+```
+
+最核心区别：
+
+| 问题                        | 应该看什么                  |
+| --------------------------- | --------------------------- |
+| 机器人现在整体是不是在走？  | High State                  |
+| 当前是什么步态？            | High State                  |
+| 当前机体速度是多少？        | High State                  |
+| 当前身体高度是多少？        | High State                  |
+| 当前足端相对身体在哪里？    | High State / SportModeState |
+| 第 5 个电机现在角度是多少？ | Low State                   |
+| 某个关节速度是多少？        | Low State                   |
+| 某个电机力矩是多少？        | Low State                   |
+| 某个电机有没有过热？        | Low State                   |
+| 电池/足底力/IMU 底层反馈？  | Low State                   |
+
+最重要的一句话：
+
+> **Low State 是“硬件/关节级反馈”，High State 是“整机/运动级反馈”。**
+>  做应用和导航，主要看 High State；做电机控制、强化学习和全身控制，主要看 Low State。
+
 ### 第 3 轮：PD 与 tau 的实际效果
 
 用户回答：

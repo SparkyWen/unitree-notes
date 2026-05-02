@@ -1,4 +1,4 @@
-# G1 MuJoCo SDK 桥接 Demo（关节级动作）
+# G1 MuJoCo SDK Bridge Demo（关节级动作）
 
 把 `unitree_mujoco/simulate_python` 当作 G1 真机替身，由 `unitree_sdk2_python` 通过
 DDS 下发 `LowCmd_`。本目录保存了一份 **sim 友好** 版本的 G1 低层例子，避开了上游

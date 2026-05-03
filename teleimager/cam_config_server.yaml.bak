@@ -11,7 +11,7 @@ head_camera:
   # Port to publish camera stream, e.g. zmq tcp://*:55555.  image_client.py should connect to the same port
   zmq_port : 55555
   # Set to true to enable WebRTC publishing, false to disable
-  enable_webrtc: false
+  enable_webrtc: true
   # Port for WebRTC signaling server
   webrtc_port : 60001
   # webrtc codec preference, options: "vp8", "h264"
@@ -21,12 +21,12 @@ head_camera:
   #   - "opencv"    → opencv driver
   #   - "realsense" → pyrealsense2 driver
   #   - "uvc"       → pyuvc driver
-  type: opencv
+  type: uvc
 
   # Image Format
   # image resolution: [height, width]
-  image_shape: [480, 640]
-  binocular: false
+  image_shape: [480, 1280]
+  binocular: true
   # frame per second
   fps: 30
 
@@ -43,17 +43,17 @@ head_camera:
   #   - type "realsense": supports serial_number only (but a RealSense can also be used as opencv/uvc if desired)
   #   - type "opencv":    supports video_id, serial_number, physical_path
   #   - type "uvc":       supports video_id, serial_number, physical_path
-  video_id: "0"
-  serial_number: null
+  video_id: 0
+  serial_number: 01.00.00
   physical_path: null
 
 # =====================================================
 # Left wrist camera configuration
 # =====================================================
 left_wrist_camera:
-  enable_zmq: false
+  enable_zmq: true
   zmq_port : 55556
-  enable_webrtc: false
+  enable_webrtc: true
   webrtc_port : 60002
   webrtc_codec: h264
   type: uvc
@@ -61,16 +61,16 @@ left_wrist_camera:
   binocular: false
   fps: 30
   video_id: 2
-  serial_number: null
+  serial_number: 200901010001
   physical_path: null
 
 # =====================================================
 # Right wrist camera configuration
 # =====================================================
 right_wrist_camera:
-  enable_zmq: false
+  enable_zmq: true
   zmq_port : 55557
-  enable_webrtc: false
+  enable_webrtc: true
   webrtc_port: 60003
   webrtc_codec: h264
   type: uvc
@@ -78,5 +78,5 @@ right_wrist_camera:
   binocular: false
   fps: 30
   video_id: 4
-  serial_number: null
+  serial_number: 200901010002
   physical_path: null

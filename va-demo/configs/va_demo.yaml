@@ -1,0 +1,39 @@
+openai:
+  realtime_model: "gpt-realtime"
+  vision_model: "gpt-5.5"
+  tts_model: "gpt-4o-mini-tts"
+  tts_voice: "alloy"
+  realtime_voice: "alloy"
+  vision_detail: "medium"
+
+audio:
+  samplerate: 24000
+  block_ms: 50
+  speaker_buffer_ms: 200
+  input_device: null
+  output_device: null
+
+camera:
+  host: "127.0.0.1"
+  request_port: 60000
+  vision_resize_width: 1024
+  vision_jpeg_quality: 85
+
+robot:
+  domain_id: 1
+  interface: "lo"
+
+safety:
+  walk:
+    vx_max: 0.3
+    vy_max: 0.1
+    wz_max: 0.4
+    duration_max_s: 1.5
+    duration_min_s: 0.2
+  say:
+    max_chars: 200
+  watchdog:
+    max_frame_age_s: 2.0
+    max_lowstate_age_s: 0.5
+
+run_mode: "confirm"

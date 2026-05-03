@@ -420,16 +420,30 @@ QA4.md §1.10 提了一句"摩擦差异，不是当时根因"。本文我们正�
 
 ```bash
 conda activate unitree
+
+export MESA_LOADER_DRIVER_OVERRIDE=d3d12
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+export LIBGL_ALWAYS_SOFTWARE=0
+export MUJOCO_GL=glfw
+
+glxinfo -B | grep -E "OpenGL renderer|Accelerated|Device|Vendor"
+
 cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 python unitree_mujoco.py
-# viewer 按 8 几次让脚落地（safety net）
-# 等终端 2 打印 "[combo] policy ready" 之后再按 9 剪绳
 ```
 
 终端 2：
 
 ```bash
 conda activate unitree
+
+export MESA_LOADER_DRIVER_OVERRIDE=d3d12
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+export LIBGL_ALWAYS_SOFTWARE=0
+export MUJOCO_GL=glfw
+
 cd ~/unitree/unitree-notes/g1_sim_demo
 python g1_sim_rl_combo.py
 ```

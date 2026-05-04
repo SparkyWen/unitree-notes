@@ -1,0 +1,7 @@
+openai>=1.55.0
+sounddevice>=0.4.7
+websockets>=12
+pyyaml
+numpy
+opencv-python
+pyzmq

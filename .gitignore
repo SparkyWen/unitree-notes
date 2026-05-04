@@ -19,6 +19,11 @@ venv/
 env/
 unitree-env/
 
+# --- Secrets / local env files ---
+.env
+.env.*
+!.env.example
+
 # --- RL / training artifacts (unitree_rl_mjlab) ---
 logs/
 outputs/

@@ -40,12 +40,12 @@ REALTIME_URL = "wss://api.openai.com/v1/realtime?model={model}"
 
 # ---------- Tool schemas exposed to the Realtime model -----------------------
 
-def _build_tool_schemas() -> List[Dict[str, Any]]:
+def _build_tool_schemas(vision_only: bool = False) -> List[Dict[str, Any]]:
     gesture_enum = [
         "wave_right", "wave_left", "hands_up", "t_pose",
         "salute", "clap", "guard", "punch_combo",
     ]
-    return [
+    schemas = [
         {
             "type": "function",
             "name": "say",
@@ -127,6 +127,10 @@ def _build_tool_schemas() -> List[Dict[str, Any]]:
             },
         },
     ]
+    if vision_only:
+        keep = {"say", "describe_scene"}
+        schemas = [s for s in schemas if s["name"] in keep]
+    return schemas
 
 
 # ---------- Tool dispatcher --------------------------------------------------

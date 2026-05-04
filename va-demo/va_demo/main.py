@@ -194,7 +194,7 @@ async def _run(args):
             samplerate=sr,
             rolling_window_s=wakeword_cfg.get("rolling_window_s", 1.5),
             inference_rate_hz=wakeword_cfg.get("inference_rate_hz", 2.0),
-            rms_threshold=wakeword_cfg.get("rms_threshold", 1500),
+            rms_threshold=wakeword_cfg.get("rms_threshold", 100),
             cooldown_s=wakeword_cfg.get("cooldown_s", 2.0),
             phrases=wakeword_cfg.get("phrases") or ["hi sparky"],
             selfecho_window_s=conv_cfg.get("selfecho_dedup_window_s", 6.0),

@@ -75,6 +75,58 @@ class FasterWhisperBackend:
         return " ".join(seg.text for seg in segments).strip()
 
 
+class OpenAITranscribeBackend:
+    """Cloud backend using OpenAI's audio.transcriptions API.
+
+    Each transcribe() call is a network round-trip (~200-500ms) and bills per
+    audio second. With WakeWordDetector at inference_rate_hz=2.0 you submit a
+    1.5 s window twice a second whenever RMS gates open, so idle cost is bounded
+    by how often you cross rms_threshold. Use only with OPENAI_API_KEY exported.
+
+    `prompt` biases the model toward proper-noun phrases like "Sparky" that
+    Whisper-class models otherwise garble; pass the wake phrase here.
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini-transcribe",
+        prompt: Optional[str] = "Sparky",
+        language: Optional[str] = None,
+    ):
+        from openai import OpenAI
+
+        self._client = OpenAI()
+        self._model = model
+        self._prompt = prompt
+        self._language = language
+        log.info(
+            "OpenAITranscribeBackend ready: model=%s prompt=%r language=%s",
+            model, prompt, language,
+        )
+
+    def transcribe(self, pcm: bytes, samplerate: int) -> str:
+        import io
+        import wave
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)  # int16
+            w.setframerate(samplerate)
+            w.writeframes(pcm)
+        wav_bytes = buf.getvalue()
+        kwargs: dict = {
+            "model": self._model,
+            "file": ("audio.wav", wav_bytes, "audio/wav"),
+        }
+        if self._prompt:
+            kwargs["prompt"] = self._prompt
+        if self._language:
+            kwargs["language"] = self._language
+        result = self._client.audio.transcriptions.create(**kwargs)
+        return (result.text or "").strip()
+
+
 class WakeWordDetector:
     def __init__(
         self,
@@ -84,7 +136,7 @@ class WakeWordDetector:
         samplerate: int = 24000,
         rolling_window_s: float = 1.5,
         inference_rate_hz: float = 2.0,
-        rms_threshold: int = 1500,
+        rms_threshold: int = 100,
         cooldown_s: float = 2.0,
         phrases: Optional[List[str]] = None,
         selfecho_window_s: float = 6.0,
@@ -154,19 +206,25 @@ class WakeWordDetector:
                 continue
             with self._buf_lock:
                 if len(self._buf) < self._window_bytes // 2:
+                    log.debug("buf too small: %d < %d", len(self._buf), self._window_bytes // 2)
                     continue
                 snapshot = bytes(self._buf)
-            if self._rms(snapshot) < self._rms_threshold:
+            rms_val = self._rms(snapshot)
+            if rms_val < self._rms_threshold:
+                log.debug("rms gate: %.0f < %d (skip)", rms_val, self._rms_threshold)
                 continue
+            log.debug("rms gate: %.0f >= %d (transcribe)", rms_val, self._rms_threshold)
             try:
                 text = self._backend.transcribe(snapshot, self._samplerate)
             except Exception as e:
                 log.warning("wake-word backend error: %s", e)
                 continue
+            log.debug("transcript: %r", text)
             if not text:
                 continue
             normalized = self._normalize(text)
             if not any(p in normalized for p in self._phrases):
+                log.debug("no phrase match in normalized=%r (phrases=%r)", normalized, self._phrases)
                 continue
             cache_text = self._cache.recent_text(self._selfecho_window_s)
             if any(p in cache_text for p in self._phrases):
@@ -174,6 +232,7 @@ class WakeWordDetector:
                 continue
             now = time.monotonic()
             if now - self._last_fire < self._cooldown_s:
+                log.debug("wake suppressed by cooldown")
                 continue
             self._last_fire = now
             try:

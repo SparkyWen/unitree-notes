@@ -43,7 +43,9 @@ wakeword:
   device: cpu                # cpu / cuda
   rolling_window_s: 1.5
   inference_rate_hz: 2.0
-  rms_threshold: 1500        # int16 RMS; raise if false-triggers, lower if it ignores you
+  rms_threshold: 100         # int16 RMS; raise if false-triggers, lower if it ignores you.
+                             # WSL2/USB mics often peak ~200-400 even when shouting; tune with
+                             # scripts/wake_word_debug.py --verbose (look for "rms gate:" lines).
   cooldown_s: 2.0
   language: null             # null = auto detect; "en" or "zh" to force
   phrases:

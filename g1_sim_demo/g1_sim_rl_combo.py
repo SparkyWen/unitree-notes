@@ -153,9 +153,14 @@ class J:
     RightWristYaw      = 28
 
 
+# Resolve the policy artifact directory relative to *this script*, not to
+# $HOME, so the demo works regardless of where the unitree-notes repo is
+# cloned. The script lives at <repo_root>/g1_sim_demo/g1_sim_rl_combo.py,
+# so the repo root is its parent's parent.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 POLICY_DIR = (
-    Path.home()
-    / "unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1"
+    _REPO_ROOT
+    / "unitree_rl_mjlab/deploy/robots/g1"
     / "config/policy/velocity/v0"
 )
 POLICY_ONNX = POLICY_DIR / "exported" / "policy.onnx"

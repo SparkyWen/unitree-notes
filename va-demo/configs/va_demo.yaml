@@ -73,3 +73,10 @@ conversation:
   selfecho_dedup_window_s: 6.0
 
 run_mode: "confirm"
+
+# vision-only test mode: when true (or when --vision-only is passed on CLI),
+# the Realtime model only sees [say, describe_scene] tools, system prompt is
+# replaced with the vision-only variant, and DDS/ComboController init is
+# skipped. Source of truth is the CLI flag; this entry is documentary so the
+# yaml lists every supported knob.
+vision_only: false

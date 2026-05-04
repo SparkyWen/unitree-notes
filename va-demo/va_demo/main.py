@@ -56,6 +56,14 @@ async def _run(args):
     cfg = _load_config(args.config)
     run_mode = args.mode or cfg.get("run_mode", "confirm")
 
+    if args.vision_only:
+        # Vision-only mode runs without DDS / ComboController; mujoco does not
+        # need to be running. The existing --no-skills branch handles the
+        # rest of the bypass.
+        if not args.no_skills:
+            log.info("--vision-only implies --no-skills; skipping DDS init")
+        args.no_skills = True
+
     # ---- audio ----
     sr = cfg["audio"]["samplerate"]
     mic = audio_io.MicStream(
@@ -164,7 +172,10 @@ async def _run(args):
         vision_resize_width=cfg["camera"]["vision_resize_width"],
         vision_jpeg_quality=cfg["camera"]["vision_jpeg_quality"],
         spoken_cache=spoken_cache,
+        vision_only=args.vision_only,
     )
+    if args.vision_only:
+        log.info("vision-only mode: tools=[say, describe_scene]; motion tools removed")
 
     sm: Optional[ConversationStateMachine] = None
     wakeword_cfg = cfg.get("wakeword", {}) or {}
@@ -265,6 +276,10 @@ def parse_args():
     p.add_argument("--no-wakeword", action="store_true",
                    help="disable wake-word gating; mic streams continuously to Realtime "
                         "(use to A/B against the original behavior)")
+    p.add_argument("--vision-only", action="store_true",
+                   help="vision-only test mode: drop motion tools (walk/gesture/stop/release_arms) "
+                        "from the Realtime schema and skip DDS/ComboController init. "
+                        "Implies --no-skills. MuJoCo is not required.")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args()
 

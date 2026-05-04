@@ -26,7 +26,7 @@ import websockets
 
 from .audio_io import MicStream, SpeakerStream
 from .camera import Camera
-from .prompts import REALTIME_SYSTEM_PROMPT, VISION_SCENE_PROMPT
+from .prompts import REALTIME_SYSTEM_PROMPT, REALTIME_SYSTEM_PROMPT_VISION_ONLY, VISION_SCENE_PROMPT
 from .safety import SafetySupervisor
 from .skills import SkillBackend
 from .tts import TTSClient
@@ -40,12 +40,12 @@ REALTIME_URL = "wss://api.openai.com/v1/realtime?model={model}"
 
 # ---------- Tool schemas exposed to the Realtime model -----------------------
 
-def _build_tool_schemas() -> List[Dict[str, Any]]:
+def _build_tool_schemas(vision_only: bool = False) -> List[Dict[str, Any]]:
     gesture_enum = [
         "wave_right", "wave_left", "hands_up", "t_pose",
         "salute", "clap", "guard", "punch_combo",
     ]
-    return [
+    schemas = [
         {
             "type": "function",
             "name": "say",
@@ -127,6 +127,10 @@ def _build_tool_schemas() -> List[Dict[str, Any]]:
             },
         },
     ]
+    if vision_only:
+        keep = {"say", "describe_scene"}
+        schemas = [s for s in schemas if s["name"] in keep]
+    return schemas
 
 
 # ---------- Tool dispatcher --------------------------------------------------
@@ -148,6 +152,7 @@ class RealtimeAgent:
     spoken_cache: Optional[Any] = None
     on_response_audio_delta: Optional[Callable[[], None]] = None
     on_response_done: Optional[Callable[[], None]] = None
+    vision_only: bool = False
 
     def __post_init__(self):
         self._uplink_enabled = asyncio.Event()
@@ -188,18 +193,28 @@ class RealtimeAgent:
             finally:
                 self._ws = None
 
+    def _resolve_instructions(self) -> str:
+        return (
+            REALTIME_SYSTEM_PROMPT_VISION_ONLY
+            if self.vision_only
+            else REALTIME_SYSTEM_PROMPT
+        )
+
+    def _resolve_tool_schemas(self) -> List[Dict[str, Any]]:
+        return _build_tool_schemas(vision_only=self.vision_only)
+
     async def _session_update(self, ws):
         evt = {
             "type": "session.update",
             "session": {
                 "modalities": ["audio", "text"],
                 "voice": self.voice,
-                "instructions": REALTIME_SYSTEM_PROMPT,
+                "instructions": self._resolve_instructions(),
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
                 "input_audio_transcription": {"model": "gpt-4o-mini-transcribe"},
                 "turn_detection": None,
-                "tools": _build_tool_schemas(),
+                "tools": self._resolve_tool_schemas(),
                 "tool_choice": "auto",
             },
         }

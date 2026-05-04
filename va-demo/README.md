@@ -201,7 +201,47 @@ python scripts/vision_loop_debug.py --rate-hz 1.0
 | `--no-realtime` | off | skip Realtime; just keep audio/camera/skills alive |
 | `--no-skills` | off | skip DDS / ComboController; tool calls for motion fail cleanly |
 | `--no-wakeword` | off | bypass wake-word gate; mic streams continuously to Realtime |
+| `--vision-only` | off | trim motion tools, skip DDS init; only `say` + `describe_scene` exposed to the Realtime model. Implies `--no-skills`; mujoco not required |
 | `-v / --verbose` | off | DEBUG logging |
+
+---
+
+## Vision-only test mode
+
+For testing the keyframe → vision → speech loop in isolation (no walking, no
+gestures, no MuJoCo), launch with:
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/va-demo
+python -m va_demo.main --vision-only -v
+```
+
+Only **two terminals** are needed in this mode:
+
+1. `teleimager.image_server` (camera frames)
+2. `va_demo.main --vision-only` (this process)
+
+`unitree_mujoco.py` does **not** need to be running. The Realtime model is
+launched with a vision-only system prompt and a trimmed tool list:
+
+| Tool exposed | Purpose |
+|---|---|
+| `say(text)` | canned TTS reply |
+| `describe_scene(question?, detail?)` | snapshot frame → vision model (`gpt-5.5` by default; override with `OPENAI_VISION_MODEL`) |
+
+`walk` / `gesture` / `stop` / `release_arms` are **not** advertised to the
+model in this mode — even if you ask, it will tell you motion is disabled
+and offer to describe the scene instead.
+
+Conversation example:
+
+- You: "Hi Sparky"
+- (wake-word fires; mic uplink opens)
+- You: "看看前面有什么？"
+- (1.5 s silence → utterance commits → Realtime calls `describe_scene`)
+- Sparky: "我看到桌子上有……" (spoken, in the user's language)
+- (8 s listening window — you can ask a follow-up without re-saying the wake word)
 
 ---
 

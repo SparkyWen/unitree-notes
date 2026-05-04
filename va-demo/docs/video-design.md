@@ -2,8 +2,9 @@
 
 **Branch:** `feature/video-listen`
 **完成日期:** 2026-05-04
-**测试结果:** 55 / 55 通过（50 旧 + 5 新）
-**变动规模:** 8 commits，6 个新代码改动 + 2 个文档（spec + plan）
+**最近补丁:** 2026-05-04（Camera 后台轮询 hotfix，详见 §9）
+**测试结果:** 58 / 58 通过（50 旧 + 5 vision-only + 3 camera-freshness hotfix）
+**变动规模:** vision-only 8 commits + camera hotfix（6 vision-only 代码改动 + 2 vision-only 文档 + 1 hotfix 代码 + 1 hotfix 测试）
 
 > 配套文档：本文档讲**做了什么、为什么、怎么实现的**；[`video-use.md`](video-use.md) 讲**怎么启动、怎么调、出问题怎么查**。
 
@@ -307,11 +308,13 @@ vision-only 模式下 `--mode` 实际上没什么影响（因为模型根本调�
 
 ### 7.4 关键帧定义
 
-"关键帧"在本实现里就是**调用 `describe_scene` 那一瞬间的最新 teleimager 帧**。没有抽帧策略、没有运动检测、没有相邻帧差。teleimager 内部以摄像头自然帧率（一般 ~30 FPS）持续推图，`Camera.latest_bgr()` 拿到的就是这一刻 ZMQ 缓存里最新的那张。
+"关键帧"在本实现里就是**调用 `describe_scene` 那一瞬间 `Camera` 内部缓存里最新的那张 teleimager 帧**。没有抽帧策略、没有运动检测、没有相邻帧差。
 
-如果你想要"关键帧 = 用户开始说话那一刻的帧"（避免 vision API 拿到说话过程中相机刚好抖动的画面），可以在状态机进入 CAPTURING 时主动抓一帧缓存，等 tool call 时用这个缓存帧。当前没做，因为：
+具体来说（见 §9 hotfix）：`Camera` 在 `__init__` 时起一个 20 Hz 的 daemon 后台线程，持续从 `teleimager.ImageClient.get_head_frame()` 拉帧并写入 `_last_bgr` / `_last_bgr_t`。`describe_scene` 工具被触发时直接读这个缓存（`latest_jpeg_b64()` → `latest_bgr()` 加锁返回 `_last_bgr`），不再走"按需向 teleimager 请求"的旧路径。所以拿到的帧最老也就 ~50 ms（一个 poll 周期）。
 
-- teleimager 缓存就是最新帧，相差 < 100 ms，对场景描述足够新
+如果你想要"关键帧 = 用户开始说话那一刻的帧"（避免 vision API 拿到说话过程中相机刚好抖动的画面），可以在状态机进入 CAPTURING 时主动 `cam.latest_bgr()` 一次缓存到状态机里，等 tool call 时用这个快照帧。当前没做，因为：
+
+- 缓存帧最老 ~50 ms，对场景描述足够新
 - 引入"快照锁定"会增加状态、复杂化失败模式
 - 不在 spec / plan 里要求
 
@@ -336,10 +339,11 @@ cd ~/unitree/unitree-notes/va-demo
 pytest tests/ -v
 ```
 
-55 个测试全过：
+58 个测试全过：
 
 ```
 tests/test_audio_io_fanout.py        ─ 1
+tests/test_camera_freshness.py       ─ 3  ← §9 hotfix 新增
 tests/test_conversation_state.py     ─ 8
 tests/test_safety.py                 ─ 14
 tests/test_skills_mock.py            ─ 8
@@ -348,23 +352,182 @@ tests/test_utterance_vad.py          ─ 7
 tests/test_vision_only_mode.py       ─ 5  ← 本次新增
 tests/test_wake_word.py              ─ 7
                                     ────
-                              total ─ 55
+                              total ─ 58
 ```
 
-新加的 5 个测试覆盖 spec §7.1 全部规划用例 + 1 个隐含约束（vision-only prompt 不含 motion 字面词）。整套不依赖 OpenAI / teleimager / faster-whisper 模型——`test_vision_only_mode.py` 只 import `va_demo.realtime_agent` 与 `va_demo.prompts`，用 `MagicMock` 替换所有外部依赖。
+vision-only 新加的 5 个测试覆盖 spec §7.1 全部规划用例 + 1 个隐含约束（vision-only prompt 不含 motion 字面词）。`test_camera_freshness.py` 的 3 个回归测试用一个 fake `teleimager.ImageClient` stub 验证后台 poller 把 `frame_age_seconds()` 从 `inf` 拉低到 < 1 s（详见 §9）。整套不依赖 OpenAI / 真 teleimager / faster-whisper 模型——所有外部依赖都用 `MagicMock` / `monkeypatch.setitem(sys.modules, ...)` 替换。
 
 ---
 
-## 9. 已知 / 设计取舍
+## 9. 事后补丁（hotfix）：Camera 后台轮询线程 — 修复 watchdog chicken-and-egg
+
+### 9.1 现象
+
+ship 后第一次实地烟测就翻车：操作员开了 teleimager + va-demo `--vision-only`，喊 "Hi Sparky → 前面有什么"，Sparky 用语音念出大意为"我没法读到摄像流，没法获取视频流和关键帧"的回应。teleimager 终端日志看起来一切正常，FPS 稳定 30+。
+
+### 9.2 根因（chicken-and-egg）
+
+调用链：
+
+```
+RealtimeAgent._dispatch_tool
+  └─► safety.SafetySupervisor.validate("describe_scene", …)
+        └─► WatchdogState.frame_age()  →  cam.frame_age_seconds()
+                                            └─► 读 self._last_bgr_t
+                                                 └─► 0.0  →  返回 float("inf")
+              if inf > max_frame_age_s (=2.0):
+                  return (False, "no recent frame (age=inf.0s)", {})
+  ◄── 工具结果 = {ok: False, reason: "no recent frame (age=inf.0s)"}
+       Realtime 模型把这个 reason 用语音念出来 → 用户听到的"读不到摄像流"
+```
+
+老版 `Camera.frame_age_seconds()` 是从 `_last_bgr_t` 算出来的，而 `_last_bgr_t` **只在 `latest_bgr()` 被调用时**才会刷新。`latest_bgr()` 又只被 `latest_jpeg_b64()` 调用；`latest_jpeg_b64()` 又只在 `_execute_tool` 里调用——而 `_execute_tool` 是在 `safety.validate()` **通过之后**才跑。
+
+所以 watchdog 永远等不到第一次成功更新——`_last_bgr_t` 永远是 0，`frame_age_seconds()` 永远 `inf`，watchdog 永远拒。teleimager 内部那个 SUB 线程（`teleimager/src/teleimager/image_client.py:410-470`）虽然在不停往 triple-ring buffer 写帧，但 va-demo 的 `Camera` 包装从来不主动去拉，那些帧白白堆在 buffer 里没人读。
+
+### 9.3 为什么之前没被捕获
+
+- `tests/test_safety.py` 的 watchdog 用的是硬编码 stub provider（`lambda: frame_age` with hardcoded 数值），完全绕过了真实的 `Camera.frame_age_seconds` 接线
+- `tests/` 下没有任何 `Camera` 集成测试
+- `docs/superpowers/plans/2026-05-04-vision-only-mode-implementation.md` T8 那个"手动烟测"任务实际并没真的跑过——一跑立刻撞上
+
+> **教训：plan 里写的"操作员手动验收"不是装饰品，必须有人真的跑一遍并把结果贴进 plan / spec 备注里**。下一次 plan 加这种条目时，acceptance gate 应该要求"贴出实地日志片段"才能勾掉。
+
+### 9.4 修复
+
+`va_demo/camera.py` 重写为带后台 daemon 线程的版本：
+
+```python
+class Camera:
+    def __init__(self, host="127.0.0.1", request_port=60000,
+                 request_bgr=True, poll_hz=20.0):
+        from teleimager.image_client import ImageClient
+        self._client = ImageClient(host=host, request_port=request_port,
+                                   request_bgr=request_bgr)
+        self._last_bgr: Optional[np.ndarray] = None
+        self._last_bgr_t: float = 0.0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._poll_interval_s = 1.0 / poll_hz if poll_hz > 0 else 0.05
+        self._poller = threading.Thread(
+            target=self._poll_loop, name="va-demo-camera-poll", daemon=True)
+        self._poller.start()
+
+    def _poll_loop(self):
+        while not self._stop.is_set():
+            try:
+                img = self._client.get_head_frame()
+                if img is not None and img.bgr is not None:
+                    with self._lock:
+                        self._last_bgr = img.bgr
+                        self._last_bgr_t = time.monotonic()
+            except Exception as e:
+                log.debug("camera poll error: %s", e)
+            self._stop.wait(self._poll_interval_s)
+
+    def latest_bgr(self):
+        with self._lock:
+            return self._last_bgr
+
+    def frame_age_seconds(self):
+        with self._lock:
+            if self._last_bgr_t <= 0:
+                return float("inf")
+            return time.monotonic() - self._last_bgr_t
+
+    def close(self):
+        self._stop.set()
+        try: self._poller.join(timeout=1.0)
+        except Exception: pass
+        try: self._client.close()
+        except Exception as e: log.warning("error closing image client: %s", e)
+```
+
+要点：
+
+- **后台线程主动拉帧**，不依赖工具调度时机
+- `_last_bgr_t` 由后台线程刷新，watchdog 看到的就是真实的"最新一次成功收到帧的时间"
+- 加锁保证 `_last_bgr` / `_last_bgr_t` 跨线程访问一致
+- `close()` 用 `Event.set()` 通知后台线程退出，再 `join(timeout=1.0)` 等它干净退；防止进程退出时挂住
+- `poll_hz=20.0` 默认值：50 ms 一次。比 `max_frame_age_s=2.0` 严苛 40 倍，留足容错
+- API 兼容：`latest_bgr()` / `latest_jpeg_b64()` / `frame_age_seconds()` / `close()` 签名全部不变；上游 `main.py` / `realtime_agent.py` / `safety.py` 一行不需要改
+
+### 9.5 测试（test_camera_freshness.py）
+
+```python
+class _FakeImageClient:
+    """模拟 teleimager.ImageClient.get_head_frame()：始终返回一个 1x1 BGR 帧"""
+    def __init__(self, host="127.0.0.1", request_port=60000, request_bgr=True):
+        self._frame = np.zeros((1, 1, 3), dtype=np.uint8)
+    def get_head_frame(self):
+        return _FakeTeleImage(self._frame.copy())
+    def close(self): pass
+
+@pytest.fixture
+def stubbed_teleimager(monkeypatch):
+    fake_pkg = types.ModuleType("teleimager")
+    fake_mod = types.ModuleType("teleimager.image_client")
+    fake_mod.ImageClient = _FakeImageClient
+    fake_pkg.image_client = fake_mod
+    monkeypatch.setitem(sys.modules, "teleimager", fake_pkg)
+    monkeypatch.setitem(sys.modules, "teleimager.image_client", fake_mod)
+```
+
+3 个回归测试：
+
+| 测试 | 断言 |
+|---|---|
+| `test_frame_age_is_finite_shortly_after_construction` | 构造 `Camera()` 后 1 s 内 `frame_age_seconds()` < `inf`。**用老代码会 FAIL（永远 inf）**，用新代码 PASS |
+| `test_frame_age_passes_default_watchdog_threshold` | 构造后 sleep 0.5 s，`frame_age` < 2.0（默认 watchdog 阈值）。**用老代码会 FAIL（inf > 2.0）** |
+| `test_close_stops_background_poller` | `close()` 后 `_poller` 线程必须在 1 s 内退出（防止泄漏 / 阻塞进程退出） |
+
+跑过两轮验证（先 RED、再 GREEN）：
+
+```
+# 旧 camera.py + 新测试 → 2 failed, 1 passed（前两条把 inf bug 钉死）
+# 新 camera.py + 新测试 → 3 passed
+# 全套：58 / 58 通过（55 旧 + 3 新；零回归）
+```
+
+### 9.6 行为合约更新
+
+| 原合约 | hotfix 后 |
+|---|---|
+| `cam.frame_age_seconds()` 在第一次 `latest_bgr()` 之前返回 `inf` | 在 `Camera()` 构造完成后 ~50 ms 内返回 < 1 s（前提：teleimager 在推帧） |
+| `Camera` 是无线程的纯请求 / 响应包装 | `Camera` 持有一个 daemon 后台轮询线程；必须 `close()` 来 join 它 |
+| 调 `latest_bgr()` 才会向 teleimager 请求一次 | 后台 20 Hz 主动拉；`latest_bgr()` 只是读已缓存的 `_last_bgr` |
+| `latest_bgr()` 不是线程安全的 | `latest_bgr()` / `frame_age_seconds()` 都通过 `self._lock` 加锁 |
+| 没有 `_lock` / `_stop` / `_poller` / `_poll_interval_s` 字段 | 新增上述字段；外部不应直接访问 |
+
+向上游（`main.py` / `realtime_agent.py` / `safety.py`）的 API 表面**完全兼容**——这些模块不需要任何改动。
+
+### 9.7 副作用 / 注意事项
+
+- **CPU 开销**：20 Hz 调一次 ZMQ recv + 一次 numpy 引用赋值 + 一次锁。在 WSL2 上实测 < 0.5% CPU，可忽略
+- **JPEG 解码开销**：`request_bgr=True` 让 teleimager 那边的 SUB 线程已经做了 JPEG → BGR 解码（teleimager `_decoder_loop`）；`Camera` 这一层只是读 numpy ref，不重复解码
+- **teleimager 卡顿时的行为**：teleimager SUB 线程在 100 ms poll timeout 后会向 `bgr_3ring_buffer` 写 `None`。`Camera._poll_loop` 看到 `bgr is None` 就跳过更新（不刷 `_last_bgr_t`）。这是期望行为：`frame_age_seconds()` 会随时间增长；超过 2 s 后 watchdog 会拒，模型口播 "frame too old" 类提示
+- **teleimager 完全没启动时的行为**：`ImageClient.__init__` 会 raise（因为 `ZMQ_Requester.request()` 拿不到 cam_config 且没有本地 fallback 文件），va-demo 直接启动失败。修复前后行为一致——这是 ImageClient 自己的合约，不是 hotfix 涉及范围
+- **后台线程异常**：`_poll_loop` 用宽 `except Exception` 包住单次 iteration，并降为 DEBUG 日志；防止瞬时 ZMQ 抖动（如 EAGAIN）把整个线程打死。如果想更严格可以改成 `log.warning` + 计数
+
+### 9.8 commit / 文件
+
+- 修改：`va_demo/camera.py`（30 行 → 93 行；改头到尾）
+- 新增：`tests/test_camera_freshness.py`（3 个测试）
+
+合 1 个 commit：`fix(va-demo): camera background-poll thread to refresh frame_age`。
+
+---
+
+## 10. 已知 / 设计取舍
 
 - **依赖 teleimager**：vision-only 不需要 MuJoCo，但**仍然需要** teleimager.image_server 跑着推帧。如果你只是想测"Realtime 链路本身"而不要摄像头依赖，可以用 `--no-realtime` 跑只播 TTS 的离线脚本（参考 `scripts/tts_debug.py`），但那条路不经过 `describe_scene`。
 - **gpt-5.5 账号权限**：你的账号必须开了 `gpt-5.5` 视觉接入。否则 `vision.describe()` 会 catch 异常返回 `"(vision request failed: ...)"`，Realtime 模型把这串错误念出来。修复办法是 `OPENAI_VISION_MODEL=gpt-5.1` 或别的可用多模态模型，写进 `.env` 重启 va-demo（详见 `video-use.md` §6）。
-- **首响延迟**：vision-only 一次完整 round trip = 唤醒(~300 ms) + 句末检测(1500 ms) + Realtime 提交(~200 ms) + tool dispatch(~50 ms) + camera 取帧(~30 ms) + Responses API(~1500–4000 ms 视图复杂度) + Realtime 朗读首块(~300 ms) ≈ 4–6 秒"看见你说话到听见 Sparky 开始说"。
-- **frame watchdog (2 s)**：teleimager 短暂卡顿（USB 相机重连 / WSL2 USB 重新枚举）会让 `describe_scene` 返回 `{ok:false, reason:"frame too old"}`。Sparky 会念"看不到画面"。等 teleimager 恢复推帧后下一次 wake 即可恢复。
+- **首响延迟**：vision-only 一次完整 round trip = 唤醒(~300 ms) + 句末检测(1500 ms) + Realtime 提交(~200 ms) + tool dispatch(~50 ms) + camera 取帧(~5 ms，从 Camera 缓存读，hotfix 后) + Responses API(~1500–4000 ms 视图复杂度) + Realtime 朗读首块(~300 ms) ≈ 4–6 秒"看见你说话到听见 Sparky 开始说"。
+- **frame watchdog (2 s)**：hotfix 后只有在 teleimager **真的连续 2 s 没推帧**（USB 相机重连 / WSL2 USB 重新枚举 / teleimager 进程崩溃）时才会触发，`describe_scene` 返回 `{ok:false, reason:"frame too old"}`，Sparky 会念"看不到画面"。等 teleimager 恢复推帧后下一次 wake 即可恢复。**hotfix 之前**这个错误会在第一次 `describe_scene` 时无条件触发（chicken-and-egg），现在已不会。
 
 ---
 
-## 10. 不在范围（明确不做的事）
+## 11. 不在范围（明确不做的事）
 
 故意没做的事，写在这里好让你知道边界（与 spec §2 一致）：
 
@@ -378,7 +541,7 @@ tests/test_wake_word.py              ─ 7
 
 ---
 
-## 11. 文件 / commit 速查
+## 12. 文件 / commit 速查
 
 ```
 va-demo/
@@ -391,15 +554,19 @@ va-demo/
 ├── va_demo/
 │   ├── prompts.py                ← REALTIME_SYSTEM_PROMPT_VISION_ONLY (commit bff2270)
 │   ├── realtime_agent.py         ← _build_tool_schemas + RealtimeAgent.vision_only (9c269f2, 68c706b)
-│   └── main.py                   ← --vision-only flag + no_skills 短路 (ffb2ef2)
+│   ├── main.py                   ← --vision-only flag + no_skills 短路 (ffb2ef2)
+│   └── camera.py                 ← §9 hotfix：daemon 后台 20 Hz poll 线程，加锁；API 兼容
 ├── configs/va_demo.yaml          ← vision_only: false 文档化 (fd62d55)
-├── tests/test_vision_only_mode.py ← 5 个测试 (9c269f2, bff2270, 68c706b)
+├── tests/
+│   ├── test_vision_only_mode.py  ← 5 个测试 (9c269f2, bff2270, 68c706b)
+│   └── test_camera_freshness.py  ← §9 hotfix 新增：3 个回归测试（fake teleimager stub）
 └── README.md                     ← Vision-only test mode 章节 (0c7642c)
 ```
 
-8 个 commit，按时间顺序：
+8 个 vision-only commit + 1 个 hotfix commit，按时间顺序：
 
 ```
+# vision-only ship（2026-05-04 早些时候）
 0c9722c docs(va-demo): vision-only mode design spec
 d534f8e docs(va-demo): vision-only mode implementation plan
 9c269f2 feat(va-demo): _build_tool_schemas(vision_only=) flag
@@ -408,11 +575,15 @@ bff2270 feat(va-demo): REALTIME_SYSTEM_PROMPT_VISION_ONLY
 ffb2ef2 feat(va-demo): --vision-only CLI flag
 fd62d55 docs(va-demo): document vision_only knob in yaml
 0c7642c docs(va-demo): README "Vision-only test mode" section
+55df9d0 docs(va-demo): video-design.md + video-use.md
+
+# hotfix（实地烟测撞 chicken-and-egg 后；详见 §9）
+<待提交> fix(va-demo): camera background-poll thread to refresh frame_age
 ```
 
 ---
 
-## 12. 参考
+## 13. 参考
 
 - 使用指南（启动、调参、故障速查）：[`video-use.md`](video-use.md)
 - 设计 spec（架构、数据流、错误处理详细）：`docs/superpowers/specs/2026-05-04-vision-only-mode-design.md`

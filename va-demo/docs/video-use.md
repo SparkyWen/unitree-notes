@@ -327,7 +327,8 @@ utterance:
 | 启动报 `Connection refused` 拉摄像头 | teleimager 没启动 | `ps aux \| grep teleimager` | 起 Terminal 1 的 teleimager.image_server |
 | Sparky 念 "(vision request failed: ... model not found)" | 你账号没 gpt-5.5 权限 | `python scripts/camera_debug.py --question x`，看返回的错误 | `.env` 里改 `OPENAI_VISION_MODEL=gpt-5.1` 或 `gpt-4o`，重启 va-demo |
 | Sparky 念 "no frame available" | teleimager 在跑但没拉到帧（相机断了） | 看 teleimager 终端日志；`v4l2-ctl --list-devices` | 重新 `usbipd attach`；重启 teleimager |
-| Sparky 念 "frame too old" 类的 | 帧老于 `max_frame_age_s=2.0` | teleimager 终端 FPS 是不是 < 0.5 | 调高 watchdog 阈值；或修 teleimager 卡顿根因 |
+| Sparky 念 "frame too old" / "no recent frame" | hotfix 后只在 teleimager **真的连续 ≥ 2 s 没推帧**才会出现（USB 相机重连 / WSL2 USB 重新枚举 / teleimager 卡死） | teleimager 终端 FPS 是不是 < 0.5 | 调高 `safety.watchdog.max_frame_age_s`；或修 teleimager 卡顿根因 |
+| 第一次 describe_scene 就被拒、reason 含 `age=inf.0s` | 你没装 hotfix（`va_demo/camera.py` 没有后台 poller） — chicken-and-egg bug 详见 [`video-design.md`](video-design.md) §9 | `git log --oneline va_demo/camera.py \| head -3` 看是否有 `fix(va-demo): camera background-poll thread`；`grep "_poll_loop" va_demo/camera.py` | `git pull` 拉最新，或手动 patch 到 hotfix 版 |
 | 喊 hi sparky 没任何 WAKE | wake-word RMS 阈值过高 / 麦克风没声 | `-v` 看 `rms gate: X < N (skip)` 行 | 调低 `wakeword.rms_threshold`；详见 audio-use.md §7 |
 | WAKE 触发了但提交后 Sparky 不响应 | Realtime WS 出错 | 看 va-demo 终端有没有 `realtime error:` 日志 | 检查 key 是否被 revoke；网络是否稳；重启 va-demo |
 | Sparky 念了一句中文但场景描述全是英文 | system prompt 语言适配生效但 vision API 默认英文 | 用户 question 里包含中文会让 vision 也用中文 | 触发时多说一句明确语言: "用中文描述前面" |
@@ -378,7 +379,51 @@ python scripts/vision_loop_debug.py --rate-hz 1.0
 # 期望: 每秒一行 [XXXX ms] 描述...，ms 大致 1500-4000 区间
 ```
 
-### 6.3 安静期间 vision-only 的成本
+### 6.3 单独验证 Camera 后台 poller（hotfix 引入）
+
+如果你怀疑 watchdog 又开始拒帧（无论是 chicken-and-egg 回归、还是 teleimager 真的卡了），不开 Realtime / vision API、用几行 Python 直接看 `frame_age`：
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/va-demo
+python -c "
+import time
+from va_demo.camera import Camera
+cam = Camera(host='127.0.0.1', request_port=60000, request_bgr=True)
+for _ in range(10):
+    print(f'frame_age={cam.frame_age_seconds():.3f}s')
+    time.sleep(0.5)
+cam.close()
+"
+```
+
+期望（teleimager 在推帧）：
+
+```
+frame_age=inf            ← 第一行偶尔会赶在第一次 poll 前；正常
+frame_age=0.013s
+frame_age=0.027s
+frame_age=0.044s
+...                      ← 全部 < 0.1 s，节奏稳定
+```
+
+故障对照：
+
+| 你看到的 | 说明 | 怎么办 |
+|---|---|---|
+| 全部行都 `inf` | **chicken-and-egg 回归 / 后台线程没启动 / camera.py 不是 hotfix 版** | `grep _poll_loop va_demo/camera.py`，没有就 `git pull` |
+| 前几行正常，之后慢慢爬上 1 s+ | teleimager 卡顿 / USB 相机断 | 看 teleimager 终端；`v4l2-ctl --list-devices`；重新 attach |
+| 直接 raise `Failed to get camera configuration` | teleimager 没启动 / 端口不对 | `python -m teleimager.image_server` |
+| 抛 `ImportError: No module named teleimager` | 没在 `agi` 环境 / teleimager 没装 | `conda activate agi`；`pip install -e ../teleimager` |
+
+跑回归测试也可以确认 hotfix 在位：
+
+```bash
+pytest tests/test_camera_freshness.py -v
+# 期望: 3 passed
+```
+
+### 6.4 安静期间 vision-only 的成本
 
 vision-only 运行**不发起任何 vision API 调用**直到你 wake + 问视觉问题。安静期间的成本结构：
 
@@ -420,7 +465,7 @@ vision-only 仅仅是在最上层加了一个 **schema 切换 + DDS 跳过** 的
 ```bash
 cd ~/unitree/unitree-notes/va-demo
 pytest tests/ -v
-# 期望: 55 passed
+# 期望: 58 passed  (50 旧 + 5 vision-only + 3 camera-freshness hotfix)
 ```
 
 只跑 vision-only 相关：
@@ -430,7 +475,14 @@ pytest tests/test_vision_only_mode.py -v
 # 期望: 5 passed
 ```
 
-测试不依赖 OpenAI / teleimager / faster-whisper，直接 import 模块用 mock 跑。CI 友好。
+只跑 §6.3 提到的 Camera hotfix 回归：
+
+```bash
+pytest tests/test_camera_freshness.py -v
+# 期望: 3 passed
+```
+
+测试不依赖 OpenAI / 真 teleimager / faster-whisper —— 直接 import 模块用 mock 跑。`test_camera_freshness.py` 用 `monkeypatch.setitem(sys.modules, "teleimager.image_client", fake_mod)` 注入一个 fake `ImageClient`，所以即使没装 teleimager 也能跑。CI 友好。
 
 ---
 
@@ -487,7 +539,8 @@ pytest tests/test_vision_only_mode.py -v
   - `va_demo/main.py` — `--vision-only` flag + `args.no_skills` 短路
   - `va_demo/realtime_agent.py` — `vision_only` 字段 + `_resolve_*` 助手 + `_build_tool_schemas(vision_only=)`
   - `va_demo/prompts.py` — `REALTIME_SYSTEM_PROMPT_VISION_ONLY`
-  - `va_demo/camera.py` — TeleImager ZMQ client 包装（无改动）
+  - `va_demo/camera.py` — TeleImager ZMQ client 包装；**hotfix 后**带 daemon 后台 20 Hz poll 线程刷新 `_last_bgr_t`，加锁保线程安全（详见 [`video-design.md`](video-design.md) §9）
   - `va_demo/vision.py` — OpenAI Responses API 调用（无改动）
   - `configs/va_demo.yaml::openai.vision_model` — 模型默认（env 优先）
-  - `tests/test_vision_only_mode.py` — 5 个新测试覆盖 schema + prompt + agent 字段
+  - `tests/test_vision_only_mode.py` — 5 个 vision-only 测试覆盖 schema + prompt + agent 字段
+  - `tests/test_camera_freshness.py` — **hotfix 新增**：3 个回归测试，用 fake teleimager stub 验证后台 poller 把 `frame_age_seconds()` 从 `inf` 拉低到 < 1 s

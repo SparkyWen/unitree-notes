@@ -17,7 +17,11 @@ from .conversation_state import ConversationConfig, ConversationStateMachine
 from .realtime_agent import RealtimeAgent
 from .spoken_cache import SpokenTranscriptCache
 from .utterance_vad import UtteranceVAD
-from .wake_word import FasterWhisperBackend, WakeWordDetector
+from .wake_word import (
+    FasterWhisperBackend,
+    OpenAITranscribeBackend,
+    WakeWordDetector,
+)
 
 
 log = logging.getLogger("va_demo")
@@ -167,13 +171,27 @@ async def _run(args):
     if not args.no_wakeword and wakeword_cfg.get("enabled", True):
         utt_cfg = cfg.get("utterance", {}) or {}
         conv_cfg = cfg.get("conversation", {}) or {}
+        backend_name = (wakeword_cfg.get("backend") or "openai").lower()
         try:
-            backend = FasterWhisperBackend(
-                model_size=wakeword_cfg.get("model_size", "tiny"),
-                compute_type=wakeword_cfg.get("compute_type", "int8"),
-                device=wakeword_cfg.get("device", "cpu"),
-                language=wakeword_cfg.get("language") or None,
-            )
+            if backend_name == "openai":
+                backend = OpenAITranscribeBackend(
+                    model=wakeword_cfg.get("openai_model", "gpt-4o-transcribe"),
+                    prompt=wakeword_cfg.get("openai_prompt", "Sparky"),
+                    language=wakeword_cfg.get("language") or None,
+                )
+            elif backend_name == "local":
+                backend = FasterWhisperBackend(
+                    model_size=wakeword_cfg.get("model_size", "tiny"),
+                    compute_type=wakeword_cfg.get("compute_type", "int8"),
+                    device=wakeword_cfg.get("device", "cpu"),
+                    language=wakeword_cfg.get("language") or None,
+                )
+            else:
+                log.error(
+                    "unknown wakeword.backend=%r (expected 'openai' or 'local')",
+                    backend_name,
+                )
+                sys.exit(3)
         except Exception as e:
             log.error(
                 "wake-word backend failed to load (%s). "

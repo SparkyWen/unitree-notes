@@ -264,7 +264,7 @@ conversation:
   selfecho_dedup_window_s: 6.0  # Sparky 自己说过的话多久内挡住唤醒匹配
 ```
 
-**注意：** 主入口 `va_demo/main.py` 当前**只支持 `local` 后端**（构造 `FasterWhisperBackend`）。如果想在 prod 里用 4o，要么扩 main.py 支持 backend 选项，要么先用 wake_word_debug.py 验证设计后再决定要不要切。
+**默认后端：** `openai` (`gpt-4o-transcribe`)。需要 `OPENAI_API_KEY`。要切回离线 `faster-whisper`，把 `wakeword.backend` 改成 `local`（仍建议 `model_size: base` 起步，`tiny` 听不准 "Sparky"）。
 
 ---
 

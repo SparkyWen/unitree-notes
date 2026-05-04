@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .audio_io import SpeakerStream
+    from .spoken_cache import SpokenTranscriptCache
 
 log = logging.getLogger(__name__)
 
@@ -22,15 +23,19 @@ class TTSClient:
         speaker: "SpeakerStream",
         model: str = "gpt-4o-mini-tts",
         voice: str = "alloy",
+        spoken_cache: Optional["SpokenTranscriptCache"] = None,
     ):
         self._client = client
         self._speaker = speaker
         self._model = model
         self._voice = voice
+        self._cache = spoken_cache
 
     async def speak(self, text: str, voice: str | None = None):
         if not text:
             return
+        if self._cache is not None:
+            self._cache.add(text)
         loop = asyncio.get_event_loop()
         voice_id = voice or self._voice
 

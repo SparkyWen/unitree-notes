@@ -1,11 +1,16 @@
 """OpenAI Realtime API client over raw WebSocket.
 
 Two concurrent tasks:
-  - uplink:   MicStream queue -> input_audio_buffer.append
+  - uplink:   MicStream queue -> input_audio_buffer.append (gated by an
+              asyncio.Event so the state machine can mute when idle)
   - downlink: server events -> SpeakerStream + tool dispatcher
 
 Tool dispatcher routes to SkillBackend / VisionClient / TTSClient through the
 SafetySupervisor.
+
+Turn-taking is OFF on the server (turn_detection: null). The
+ConversationStateMachine drives commits and response.create through
+commit_and_respond() / cancel_response() / set_uplink_enabled().
 """
 from __future__ import annotations
 
@@ -14,7 +19,7 @@ import base64
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import websockets
@@ -140,6 +145,13 @@ class RealtimeAgent:
     safety: SafetySupervisor
     vision_resize_width: int = 1024
     vision_jpeg_quality: int = 85
+    spoken_cache: Optional[Any] = None
+    on_response_audio_delta: Optional[Callable[[], None]] = None
+    on_response_done: Optional[Callable[[], None]] = None
+
+    def __post_init__(self):
+        self._uplink_enabled = asyncio.Event()
+        self._ws = None
 
     async def run(self):
         url = REALTIME_URL.format(model=self.model)
@@ -155,22 +167,26 @@ class RealtimeAgent:
             ws = await websockets.connect(url, extra_headers=headers, **connect_kwargs)
 
         async with ws:
-            await self._session_update(ws)
-            uplink = asyncio.create_task(self._uplink(ws), name="rt-uplink")
-            downlink = asyncio.create_task(self._downlink(ws), name="rt-downlink")
+            self._ws = ws
             try:
-                done, pending = await asyncio.wait(
-                    {uplink, downlink}, return_when=asyncio.FIRST_COMPLETED
-                )
-                for t in pending:
-                    t.cancel()
-                for t in done:
-                    exc = t.exception()
-                    if exc:
-                        raise exc
+                await self._session_update(ws)
+                uplink = asyncio.create_task(self._uplink(ws), name="rt-uplink")
+                downlink = asyncio.create_task(self._downlink(ws), name="rt-downlink")
+                try:
+                    done, pending = await asyncio.wait(
+                        {uplink, downlink}, return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for t in pending:
+                        t.cancel()
+                    for t in done:
+                        exc = t.exception()
+                        if exc:
+                            raise exc
+                finally:
+                    uplink.cancel()
+                    downlink.cancel()
             finally:
-                uplink.cancel()
-                downlink.cancel()
+                self._ws = None
 
     async def _session_update(self, ws):
         evt = {
@@ -182,12 +198,7 @@ class RealtimeAgent:
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
                 "input_audio_transcription": {"model": "gpt-4o-mini-transcribe"},
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500,
-                },
+                "turn_detection": None,
                 "tools": _build_tool_schemas(),
                 "tool_choice": "auto",
             },
@@ -200,6 +211,8 @@ class RealtimeAgent:
                 chunk = await self.mic.queue.get()
                 if not chunk:
                     continue
+                if not self._uplink_enabled.is_set():
+                    continue  # state machine has us muted; discard the chunk
                 evt = {
                     "type": "input_audio_buffer.append",
                     "audio": base64.b64encode(chunk).decode("ascii"),
@@ -232,27 +245,44 @@ class RealtimeAgent:
             b64 = evt.get("delta", "")
             if b64:
                 self.speaker.write(base64.b64decode(b64))
+                if self.on_response_audio_delta is not None:
+                    try:
+                        self.on_response_audio_delta()
+                    except Exception:
+                        log.exception("on_response_audio_delta raised")
         elif t == "response.audio.done":
             pass
         elif t == "response.audio_transcript.delta":
             piece = evt.get("delta", "")
             if piece:
                 print(piece, end="", flush=True)
+                if self.spoken_cache is not None:
+                    self.spoken_cache.add(piece)
         elif t == "response.audio_transcript.done":
             print()  # newline
+            transcript = evt.get("transcript", "")
+            if transcript and self.spoken_cache is not None:
+                self.spoken_cache.add(transcript)
         elif t == "conversation.item.input_audio_transcription.completed":
             transcript = evt.get("transcript", "")
             if transcript:
                 print(f"\n[user] {transcript}", flush=True)
         elif t == "input_audio_buffer.speech_started":
             log.debug("user speech started")
-            self.speaker.clear()  # barge-in: stop playback when user speaks
+            # NOTE: do NOT clear the speaker here. The state machine drives
+            # barge-in via the wake-word detector. server_vad is off anyway.
+        elif t == "response.done":
+            if self.on_response_done is not None:
+                try:
+                    self.on_response_done()
+                except Exception:
+                    log.exception("on_response_done raised")
         elif t == "response.function_call_arguments.done":
             await self._dispatch_tool(ws, evt)
         elif t == "error":
             log.error("realtime error: %s", evt.get("error"))
         elif t in ("session.created", "session.updated", "response.created",
-                   "response.done", "rate_limits.updated", "response.output_item.added",
+                   "rate_limits.updated", "response.output_item.added",
                    "response.output_item.done", "response.content_part.added",
                    "response.content_part.done", "input_audio_buffer.committed",
                    "input_audio_buffer.speech_stopped", "conversation.item.created"):
@@ -327,3 +357,26 @@ class RealtimeAgent:
         if name == "gesture":
             return await self.skills.gesture(args["name"])
         return {"ok": False, "reason": f"unknown tool: {name}"}
+
+    # ---------- public hooks for the ConversationStateMachine ----------
+
+    async def commit_and_respond(self):
+        if self._ws is None:
+            return
+        await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+        await self._ws.send(json.dumps({"type": "response.create"}))
+
+    async def cancel_response(self):
+        if self._ws is None:
+            return
+        try:
+            await self._ws.send(json.dumps({"type": "response.cancel"}))
+        except Exception as e:
+            log.debug("response.cancel send failed (likely no active response): %s", e)
+        self.speaker.clear()
+
+    def set_uplink_enabled(self, enabled: bool):
+        if enabled:
+            self._uplink_enabled.set()
+        else:
+            self._uplink_enabled.clear()

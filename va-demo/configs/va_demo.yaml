@@ -36,4 +36,40 @@ safety:
     max_frame_age_s: 2.0
     max_lowstate_age_s: 0.5
 
+wakeword:
+  enabled: true
+  backend: openai            # openai = gpt-4o-transcribe (cloud, default).
+                             # local  = faster-whisper (offline, but tiny mishears "Sparky"
+                             #          as spike/spark/Marky; needs base or larger to be reliable).
+  # local-backend-only:
+  model_size: tiny           # tiny / base / small (faster-whisper)
+  compute_type: int8         # int8 / float16 / float32
+  device: cpu                # cpu / cuda
+  # openai-backend-only:
+  openai_model: gpt-4o-transcribe   # gpt-4o-transcribe / gpt-4o-mini-transcribe
+  openai_prompt: "Sparky"           # bias the transcriber toward proper nouns
+  rolling_window_s: 1.5
+  inference_rate_hz: 2.0
+  rms_threshold: 100         # int16 RMS; raise if false-triggers, lower if it ignores you.
+                             # WSL2/USB mics often peak ~200-400 even when shouting; tune with
+                             # scripts/wake_word_debug.py --verbose (look for "rms gate:" lines).
+  cooldown_s: 2.0
+  language: null             # null = auto detect; "en" or "zh" to force
+  phrases:
+    - "hi sparky"
+    - "hey sparky"
+    - "hi sparkie"
+    - "嗨 sparky"
+    - "你好 sparky"
+
+utterance:
+  silence_threshold_ms: 1500
+  max_duration_s: 30.0
+  vad_aggressiveness: 2
+  no_speech_timeout_s: 4.0   # AWAKE -> IDLE if user said nothing after wake
+
+conversation:
+  listening_window_s: 8.0
+  selfecho_dedup_window_s: 6.0
+
 run_mode: "confirm"

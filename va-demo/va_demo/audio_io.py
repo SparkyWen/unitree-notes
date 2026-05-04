@@ -1,14 +1,17 @@
 """sounddevice mic capture and speaker playback for the Realtime audio loop.
 
 PCM16 mono at 24 kHz to match OpenAI Realtime + TTS pcm output.
+
+MicStream supports a fan-out: multiple consumers can subscribe() to get
+their own asyncio.Queue. The legacy `mic.queue` attribute is an alias for
+the first subscriber so existing single-consumer code keeps working.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import queue
 import threading
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 
@@ -16,7 +19,7 @@ log = logging.getLogger(__name__)
 
 
 class MicStream:
-    """Captures PCM16 mono frames from the default input device into an asyncio queue."""
+    """Captures PCM16 mono frames; supports multiple async listeners (fan-out)."""
 
     def __init__(
         self,
@@ -32,11 +35,28 @@ class MicStream:
         self.samplerate = samplerate
         self.block_frames = int(samplerate * block_ms / 1000)
         self.device = device
-        # Resolve the loop lazily so MicStream can be constructed before the loop runs.
         self.loop = loop
-        self.queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=max_queue)
+        self._max_queue = max_queue
+        self._listeners: List[asyncio.Queue[bytes]] = []
+        self._listeners_lock = threading.Lock()
         self._stream: Optional["sd.RawInputStream"] = None
         self._closed = False
+        # Eager first listener so existing code that uses mic.queue keeps working.
+        self.queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=max_queue)
+        self._listeners.append(self.queue)
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=self._max_queue)
+        with self._listeners_lock:
+            self._listeners.append(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        with self._listeners_lock:
+            try:
+                self._listeners.remove(q)
+            except ValueError:
+                pass
 
     def _callback(self, indata, frames, time_info, status):
         if status:
@@ -50,17 +70,20 @@ class MicStream:
     def _enqueue_nowait(self, chunk: bytes):
         if self._closed:
             return
-        try:
-            self.queue.put_nowait(chunk)
-        except asyncio.QueueFull:
+        with self._listeners_lock:
+            listeners = list(self._listeners)
+        for q in listeners:
             try:
-                self.queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-            try:
-                self.queue.put_nowait(chunk)
+                q.put_nowait(chunk)
             except asyncio.QueueFull:
-                pass
+                try:
+                    q.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    q.put_nowait(chunk)
+                except asyncio.QueueFull:
+                    pass
 
     def start(self):
         if self.loop is None:

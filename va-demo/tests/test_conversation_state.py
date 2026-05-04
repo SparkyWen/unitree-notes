@@ -121,7 +121,9 @@ async def test_silence_commits_and_goes_to_thinking():
         assert agent.commit_calls == 1
         assert sm.state == State.THINKING
         assert agent.uplink_states[-1] is False
-        assert wake.paused is False  # resumed when entering THINKING
+        # Wake stays paused through THINKING/SPEAKING so the model's own
+        # speaker output cannot be misheard as the wake phrase mid-reply.
+        assert wake.paused is True
     finally:
         await sm.stop()
 
@@ -147,24 +149,41 @@ async def test_response_done_enters_listening_window_then_idle():
     await sm.start()
     try:
         sm._force_state(State.SPEAKING)
+        wake.paused = True  # mirror real flow: paused since CAPTURING/THINKING
         sm.handle_response_done()
         await asyncio.sleep(0.02)
         assert sm.state == State.LISTENING_WINDOW
+        # Detector must be active again so the user can wake on the next turn.
+        assert wake.paused is False
         await asyncio.sleep(0.3)
         assert sm.state == State.IDLE
     finally:
         await sm.stop()
 
 
-async def test_wake_during_speaking_cancels_and_recaptures():
+async def test_wake_during_speaking_is_ignored():
+    """Barge-in via wake word is disabled by design: model speech plays through."""
     sm, wake, vad, agent = _make_sm()
     await sm.start()
     try:
         sm._force_state(State.SPEAKING)
         sm.handle_wake(WakeEvent(text="hi sparky", t=time.monotonic()))
         await asyncio.sleep(0.05)
-        assert agent.cancel_calls == 1
-        assert sm.state == State.CAPTURING
+        assert agent.cancel_calls == 0
+        assert sm.state == State.SPEAKING
+    finally:
+        await sm.stop()
+
+
+async def test_wake_during_thinking_is_ignored():
+    sm, wake, vad, agent = _make_sm()
+    await sm.start()
+    try:
+        sm._force_state(State.THINKING)
+        sm.handle_wake(WakeEvent(text="hi sparky", t=time.monotonic()))
+        await asyncio.sleep(0.05)
+        assert agent.cancel_calls == 0
+        assert sm.state == State.THINKING
     finally:
         await sm.stop()
 

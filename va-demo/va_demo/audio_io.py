@@ -118,15 +118,24 @@ class MicStream:
 class SpeakerStream:
     """Plays PCM16 mono bytes pushed via `write()`. Thread-safe.
 
-    Uses a ring queue so a slow producer doesn't block; a fast producer
-    just builds backlog up to ~speaker_buffer_ms then drops oldest.
+    The producer (OpenAI Realtime WS or TTS HTTP stream) typically delivers
+    audio FASTER than realtime, so the buffer grows during a response and
+    drains as the playback callback consumes it at the device sample rate.
+    Use `clear()` to interrupt playback (e.g. on wake-word barge-in) — that
+    is the correct way to stop unwanted audio, NOT capping the buffer.
+
+    A loose sanity cap (~60 s of audio) is kept so a runaway producer can't
+    grow memory without bound, but it's far above any real response length
+    and is never hit in normal operation.
     """
+
+    SANITY_CAP_SECONDS = 60
 
     def __init__(
         self,
         samplerate: int = 24000,
         device: Optional[int] = None,
-        buffer_ms: int = 200,
+        buffer_ms: int = 200,  # accepted for back-compat; not used as a hard cap
     ):
         import sounddevice as sd
 
@@ -134,7 +143,7 @@ class SpeakerStream:
         self.samplerate = samplerate
         self.device = device
         self.bytes_per_sample = 2
-        self.max_bytes = int(samplerate * buffer_ms / 1000) * self.bytes_per_sample * 4
+        self._sanity_cap_bytes = self.SANITY_CAP_SECONDS * samplerate * self.bytes_per_sample
         self._lock = threading.Lock()
         self._buf = bytearray()
         self._stream: Optional["sd.RawOutputStream"] = None
@@ -170,9 +179,14 @@ class SpeakerStream:
             return
         with self._lock:
             self._buf.extend(pcm_bytes)
-            if len(self._buf) > self.max_bytes:
-                drop = len(self._buf) - self.max_bytes
+            if len(self._buf) > self._sanity_cap_bytes:
+                drop = len(self._buf) - self._sanity_cap_bytes
                 del self._buf[:drop]
+                log.warning(
+                    "speaker buffer exceeded sanity cap (%d s); dropped %d bytes — "
+                    "this should not happen in normal operation",
+                    self.SANITY_CAP_SECONDS, drop,
+                )
 
     def clear(self):
         with self._lock:

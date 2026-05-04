@@ -7,10 +7,14 @@ States:
   CAPTURING         uplink enabled; utterance VAD running on each chunk;
                     wake detector paused (we already know we're talking).
   THINKING          utterance committed; waiting for first audio delta.
-  SPEAKING          model is replying. Wake-word match is the only thing
-                    that can interrupt.
-  LISTENING_WINDOW  short post-reply window where speaking again does not
-                    require a wake word.
+                    Wake detector stays paused.
+  SPEAKING          model is replying. Wake detector stays paused so the
+                    model's own speaker output (and any room echo) cannot
+                    be misheard as a wake phrase mid-reply. The reply is
+                    delivered fully; barge-in via wake-word is disabled.
+  LISTENING_WINDOW  short post-reply window. Wake detector resumes here
+                    so the user can say the wake phrase again and start a
+                    new turn without having to wait through silence.
 """
 from __future__ import annotations
 
@@ -114,18 +118,16 @@ class ConversationStateMachine:
     def _on_wake_in_loop(self, evt) -> None:
         log.info("[wake] %s (state=%s)", evt.text, self._state.value)
         if self._state in (State.SPEAKING, State.THINKING):
-            asyncio.create_task(self._cancel_then_capture())
+            # Defense in depth: the detector should be paused in these states
+            # (see _enter_thinking / _enter_listening_window) but a transcribe
+            # already in flight when we paused can still deliver one event.
+            # Drop it — barge-in via wake-word is disabled by design now.
+            log.debug("ignoring wake during %s (barge-in disabled)", self._state.value)
             return
         if self._state in (State.IDLE, State.LISTENING_WINDOW):
             self._enter_capturing()
             return
         # CAPTURING / AWAKE: ignore (already / about to be capturing).
-
-    async def _cancel_then_capture(self) -> None:
-        try:
-            await self.agent.cancel_response()
-        finally:
-            self._enter_capturing()
 
     def _on_response_audio_delta_in_loop(self) -> None:
         if self._state == State.THINKING:
@@ -191,11 +193,15 @@ class ConversationStateMachine:
     def _enter_thinking(self) -> None:
         self._cancel_timer()
         self.agent.set_uplink_enabled(False)
-        self.wake_word.resume()
+        # Keep wake_word paused through THINKING and SPEAKING so the model's
+        # own speaker output cannot be misheard as the wake phrase. The
+        # detector resumes when we enter LISTENING_WINDOW.
+        self.wake_word.pause()
         self._set_state(State.THINKING)
         asyncio.create_task(self.agent.commit_and_respond())
 
     def _enter_listening_window(self) -> None:
+        self.wake_word.resume()
         self._set_state(State.LISTENING_WINDOW)
         self._reset_timer(self.cfg.listening_window_s, self._listening_window_cb)
 

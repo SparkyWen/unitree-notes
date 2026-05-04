@@ -42,3 +42,39 @@ def test_vision_only_prompt_exists_and_excludes_motion_words():
     assert "Sparky" in p
     # Must be a different string from the default (sanity)
     assert p != REALTIME_SYSTEM_PROMPT
+
+
+def test_realtime_agent_vision_only_resolves_to_vision_prompt_and_schemas():
+    """RealtimeAgent.vision_only=True must select the vision prompt and
+    the trimmed schema set. We construct the agent with stub deps so we
+    can read its resolved values without going async."""
+    from unittest.mock import MagicMock
+
+    from va_demo.prompts import REALTIME_SYSTEM_PROMPT, REALTIME_SYSTEM_PROMPT_VISION_ONLY
+    from va_demo.realtime_agent import RealtimeAgent
+
+    stub = MagicMock()
+    common = dict(
+        api_key="sk-test",
+        model="gpt-realtime",
+        voice="alloy",
+        mic=stub,
+        speaker=stub,
+        camera=stub,
+        vision=stub,
+        tts=stub,
+        skills=None,
+        safety=stub,
+    )
+
+    a_default = RealtimeAgent(**common)  # vision_only defaults to False
+    assert a_default.vision_only is False
+    assert a_default._resolve_instructions() == REALTIME_SYSTEM_PROMPT
+    names = {s["name"] for s in a_default._resolve_tool_schemas()}
+    assert "walk" in names and "describe_scene" in names
+
+    a_vision = RealtimeAgent(vision_only=True, **common)
+    assert a_vision.vision_only is True
+    assert a_vision._resolve_instructions() == REALTIME_SYSTEM_PROMPT_VISION_ONLY
+    names = {s["name"] for s in a_vision._resolve_tool_schemas()}
+    assert names == {"say", "describe_scene"}

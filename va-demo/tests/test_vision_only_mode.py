@@ -27,3 +27,18 @@ def test_tool_schemas_vision_only_keeps_describe_scene_shape():
     vis = {s["name"]: s for s in _build_tool_schemas(vision_only=True)}
     assert vis["describe_scene"] == full["describe_scene"]
     assert vis["say"] == full["say"]
+
+
+def test_vision_only_prompt_exists_and_excludes_motion_words():
+    from va_demo.prompts import REALTIME_SYSTEM_PROMPT, REALTIME_SYSTEM_PROMPT_VISION_ONLY
+
+    p = REALTIME_SYSTEM_PROMPT_VISION_ONLY
+    assert p, "vision-only prompt is empty"
+    # Must NOT advertise motion tools
+    assert "walk" not in p.lower()
+    assert "gesture" not in p.lower()
+    # Must still mention describe_scene and the self-name rule (carried over)
+    assert "describe_scene" in p
+    assert "Sparky" in p
+    # Must be a different string from the default (sanity)
+    assert p != REALTIME_SYSTEM_PROMPT

@@ -13,7 +13,11 @@ from typing import Optional
 import yaml
 
 from . import audio_io, camera, safety, skills, tts, vision
+from .conversation_state import ConversationConfig, ConversationStateMachine
 from .realtime_agent import RealtimeAgent
+from .spoken_cache import SpokenTranscriptCache
+from .utterance_vad import UtteranceVAD
+from .wake_word import FasterWhisperBackend, WakeWordDetector
 
 
 log = logging.getLogger("va_demo")
@@ -38,7 +42,6 @@ def _setup_logging(verbose: bool):
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    # Quiet noisy libraries unless --verbose.
     if not verbose:
         logging.getLogger("websockets").setLevel(logging.WARNING)
         logging.getLogger("openai").setLevel(logging.WARNING)
@@ -81,7 +84,6 @@ async def _run(args):
                  cfg["robot"]["domain_id"], cfg["robot"]["interface"])
         skill_backend = skills.build_skill_backend()
         log.info("waiting for ComboController policy_active ...")
-        # ComboController prints "[combo] policy ready" once boot ramp finishes.
         deadline = asyncio.get_event_loop().time() + 30.0
         while not skill_backend._ctl.policy_active:
             if asyncio.get_event_loop().time() > deadline:
@@ -114,11 +116,13 @@ async def _run(args):
         model=os.environ.get("OPENAI_VISION_MODEL", cfg["openai"]["vision_model"]),
         default_detail=cfg["openai"]["vision_detail"],
     )
+    spoken_cache = SpokenTranscriptCache()
     tts_client = tts.TTSClient(
         openai_client,
         speaker,
         model=os.environ.get("OPENAI_TTS_MODEL", cfg["openai"]["tts_model"]),
         voice=cfg["openai"]["tts_voice"],
+        spoken_cache=spoken_cache,
     )
 
     # ---- realtime ----
@@ -134,25 +138,94 @@ async def _run(args):
                 await asyncio.sleep(1.0)
         finally:
             pass
-    else:
-        agent = RealtimeAgent(
-            api_key=api_key,
-            model=os.environ.get("OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]),
-            voice=cfg["openai"]["realtime_voice"],
-            mic=mic,
-            speaker=speaker,
-            camera=cam,
-            vision=vision_client,
-            tts=tts_client,
-            skills=skill_backend,
-            safety=sup,
-            vision_resize_width=cfg["camera"]["vision_resize_width"],
-            vision_jpeg_quality=cfg["camera"]["vision_jpeg_quality"],
-        )
+        # ---- shutdown ----
+        if skill_backend is not None:
+            skill_backend.shutdown()
+        cam.close()
+        mic.close()
+        speaker.close()
+        return
+
+    agent = RealtimeAgent(
+        api_key=api_key,
+        model=os.environ.get("OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]),
+        voice=cfg["openai"]["realtime_voice"],
+        mic=mic,
+        speaker=speaker,
+        camera=cam,
+        vision=vision_client,
+        tts=tts_client,
+        skills=skill_backend,
+        safety=sup,
+        vision_resize_width=cfg["camera"]["vision_resize_width"],
+        vision_jpeg_quality=cfg["camera"]["vision_jpeg_quality"],
+        spoken_cache=spoken_cache,
+    )
+
+    sm: Optional[ConversationStateMachine] = None
+    wakeword_cfg = cfg.get("wakeword", {}) or {}
+    if not args.no_wakeword and wakeword_cfg.get("enabled", True):
+        utt_cfg = cfg.get("utterance", {}) or {}
+        conv_cfg = cfg.get("conversation", {}) or {}
         try:
-            await agent.run()
-        finally:
-            log.info("shutting down ...")
+            backend = FasterWhisperBackend(
+                model_size=wakeword_cfg.get("model_size", "tiny"),
+                compute_type=wakeword_cfg.get("compute_type", "int8"),
+                device=wakeword_cfg.get("device", "cpu"),
+                language=wakeword_cfg.get("language") or None,
+            )
+        except Exception as e:
+            log.error(
+                "wake-word backend failed to load (%s). "
+                "Re-run with --no-wakeword to fall back to always-on Realtime.",
+                e,
+            )
+            sys.exit(3)
+        utt_vad = UtteranceVAD(
+            samplerate=sr,
+            silence_threshold_ms=utt_cfg.get("silence_threshold_ms", 1500),
+            max_duration_s=utt_cfg.get("max_duration_s", 30.0),
+            aggressiveness=utt_cfg.get("vad_aggressiveness", 2),
+        )
+        wake = WakeWordDetector(
+            backend=backend,
+            spoken_cache=spoken_cache,
+            on_wake=lambda evt: sm.handle_wake(evt) if sm else None,
+            samplerate=sr,
+            rolling_window_s=wakeword_cfg.get("rolling_window_s", 1.5),
+            inference_rate_hz=wakeword_cfg.get("inference_rate_hz", 2.0),
+            rms_threshold=wakeword_cfg.get("rms_threshold", 1500),
+            cooldown_s=wakeword_cfg.get("cooldown_s", 2.0),
+            phrases=wakeword_cfg.get("phrases") or ["hi sparky"],
+            selfecho_window_s=conv_cfg.get("selfecho_dedup_window_s", 6.0),
+        )
+        sm = ConversationStateMachine(
+            cfg=ConversationConfig(
+                listening_window_s=conv_cfg.get("listening_window_s", 8.0),
+                no_speech_timeout_s=utt_cfg.get("no_speech_timeout_s", 4.0),
+            ),
+            wake_word=wake,
+            utterance_vad=utt_vad,
+            realtime_agent=agent,
+            mic=mic,
+        )
+        agent.on_response_audio_delta = sm.handle_response_audio_delta
+        agent.on_response_done = sm.handle_response_done
+        log.info("wake-word enabled: phrases=%s", wakeword_cfg.get("phrases"))
+    else:
+        log.info("wake-word DISABLED (--no-wakeword or wakeword.enabled=false); "
+                 "Realtime uplink runs continuously")
+
+    try:
+        if sm is not None:
+            await sm.start()
+        else:
+            agent.set_uplink_enabled(True)
+        await agent.run()
+    finally:
+        log.info("shutting down ...")
+        if sm is not None:
+            await sm.stop()
 
     # ---- shutdown ----
     if skill_backend is not None:
@@ -171,6 +244,9 @@ def parse_args():
                    help="don't connect to Realtime; useful for debugging audio/camera only")
     p.add_argument("--no-skills", action="store_true",
                    help="don't init DDS / ComboController; tool calls for motion will fail")
+    p.add_argument("--no-wakeword", action="store_true",
+                   help="disable wake-word gating; mic streams continuously to Realtime "
+                        "(use to A/B against the original behavior)")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args()
 

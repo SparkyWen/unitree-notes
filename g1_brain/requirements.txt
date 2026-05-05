@@ -1,0 +1,27 @@
+# g1_brain dependencies on top of the unitree / agi conda env that already has:
+#   unitree_sdk2py, cyclonedds, mujoco, numpy, opencv-python, pyyaml,
+#   sounddevice, webrtcvad, websockets, openai, aiohttp
+#
+# Install with: pip install -r requirements.txt
+
+# Vision — detection & pose
+ultralytics>=8.3
+mediapipe>=0.10
+
+# PyTorch is pulled in by ultralytics; pin a recent stable line so the
+# 4060 + WSL2 CUDA 12.1 wheels match.
+torch>=2.1
+torchvision>=0.16
+
+# E-stop keyboard listener (independent process)
+pynput>=1.7
+
+# Optional — DepthAnythingV2 fallback for sim2real depth experiments.
+# Default config has perception.mono_depth.enabled=false, so skip these
+# unless you flip that flag.
+# transformers>=4.40
+# accelerate>=0.30
+
+# Test deps (already in agi env normally; listed for completeness)
+pytest>=7
+pytest-asyncio>=0.21

@@ -1,0 +1,124 @@
+mode: "sim"                     # sim / real
+run_mode: "confirm"             # observe / confirm / active
+
+robot:
+  domain_id: 1
+  interface: "lo"
+  mjcf_path: "${HOME}/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml"
+
+cameras:
+  usb:
+    enabled: true
+    source: "teleimager"        # teleimager / cv2
+    teleimager_host: "127.0.0.1"
+    teleimager_request_port: 60000
+    cv2_index: 0
+    poll_hz: 20
+  head:
+    enabled: true
+    camera_name: "head_camera"  # falls back to first <camera> in the MJCF if missing
+    width: 640
+    height: 480
+    poll_hz: 20
+
+perception:
+  device: "auto"                # cuda / cpu / auto
+  yolo:
+    enabled: true
+    weights: "yolo11s.pt"
+    conf: 0.4
+    inference_hz: 15
+    sources: ["head", "usb"]    # which streams to detect on
+  pose:
+    enabled: true
+    inference_hz: 15
+    min_visibility: 0.5
+    gesture_persist_frames: 3
+    gesture_min_confidence: 0.7
+  mono_depth:
+    enabled: false              # sim default uses native MuJoCo depth
+    model: "depth-anything/Depth-Anything-V2-Small-hf"
+  ground_constraint:
+    cone_half_angle_deg: 15
+    cone_min_dist_m: 0.5
+    cone_max_dist_m: 1.5
+    safe_clearance_m: 0.6
+
+safety:
+  walk:
+    vx_max: 0.20
+    vy_max: 0.10
+    wz_max: 0.30
+    duration_max_s: 1.0
+    duration_min_s: 0.2
+  gesture:
+    max_concurrent: 1
+  scene:
+    min_obstacle_m: 0.6
+    min_person_m: 0.8
+    min_person_for_gesture_m: 0.5
+  pose:
+    gravity_z_min: -0.85        # projected gravity z must be <= this (more negative = more upright)
+  watchdog:
+    lowstate_max_age_s: 0.5
+    head_frame_max_age_s: 2.0
+    usb_frame_max_age_s: 3.0
+  say:
+    max_chars: 200
+  estop:
+    flag_path: "/tmp/g1_brain_estop"
+    keys: ["esc"]
+    publish_zero_torque_count: 30
+
+openai:
+  realtime_model: "gpt-realtime"
+  vision_model: "gpt-5.5"
+  tts_model: "gpt-4o-mini-tts"
+  tts_voice: "alloy"
+  realtime_voice: "alloy"
+  vision_detail: "medium"
+
+audio:
+  samplerate: 24000
+  block_ms: 50
+  speaker_buffer_ms: 200
+  input_device: null
+  output_device: null
+
+wakeword:
+  enabled: true
+  backend: openai
+  openai_model: "gpt-4o-transcribe"
+  openai_prompt: "Sparky"
+  rolling_window_s: 1.5
+  inference_rate_hz: 2.0
+  rms_threshold: 100
+  cooldown_s: 2.0
+  language: null
+  phrases:
+    - "hi sparky"
+    - "hey sparky"
+    - "hi sparkie"
+    - "嗨 sparky"
+    - "你好 sparky"
+
+utterance:
+  silence_threshold_ms: 1500
+  max_duration_s: 30.0
+  vad_aggressiveness: 2
+  no_speech_timeout_s: 4.0
+
+conversation:
+  listening_window_s: 8.0
+  selfecho_dedup_window_s: 6.0
+
+mock_imitation:
+  enabled: true
+  auto_suggest_high_conf: 0.8
+  auto_suggest_persist_s: 1.0
+  mirrorable: ["wave_right", "wave_left", "hands_up", "t_pose"]
+
+logging:
+  level: "INFO"
+  log_dir: "${HOME}/unitree/unitree-notes/g1_brain/logs"
+  rotate_mb: 50

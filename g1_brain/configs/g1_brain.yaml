@@ -1,5 +1,10 @@
 mode: "sim"                     # sim / real
-run_mode: "confirm"             # observe / confirm / active
+run_mode: "active"              # observe / confirm / active
+                                # NOTE: "confirm" requires terminal y/N input
+                                # for every motion call and therefore blocks
+                                # voice control (the operator can't reach the
+                                # terminal mid-conversation). Use "confirm"
+                                # only for keyboard-driven debugging.
 
 robot:
   domain_id: 1
@@ -82,7 +87,12 @@ safety:
     # When in EMERGENCY_STOP and all motion-blocking watchdogs (lowstate,
     # head_frame, pose) have been continuously clear for this long, walk
     # EMERGENCY_STOP -> RECOVERING -> STANDING automatically.
-    recovery_hold_s: 2.0
+    # NOTE: too small a value (<3s) causes ENGAGED <-> EMERGENCY_STOP flapping
+    # when the robot is barely upright (pose oscillating around the threshold)
+    # — auto-recovery declares "all clear", policy re-engages, pose trips again
+    # within 0.5s. 5s gives the policy time to actually settle before we accept
+    # it as recovered.
+    recovery_hold_s: 5.0
   say:
     max_chars: 200
   estop:
@@ -112,7 +122,7 @@ wakeword:
   openai_prompt: "Sparky"
   rolling_window_s: 1.5
   inference_rate_hz: 2.0
-  rms_threshold: 100
+  rms_threshold: 300
   cooldown_s: 2.0
   language: null
   phrases:

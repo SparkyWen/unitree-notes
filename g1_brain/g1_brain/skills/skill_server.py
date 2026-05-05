@@ -180,6 +180,7 @@ class SkillServer:
             return {"ok": False, "skill": tool, "reason": f"safety exception: {e!s}"}
 
         if not ok:
+            log.warning("safety rejected %s(%s): %s", tool, args, reason)
             return {"ok": False, "skill": tool, "reason": reason}
 
         sanitized = dict(sanitized or {})

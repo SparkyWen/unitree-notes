@@ -144,6 +144,13 @@ class WatchdogManager:
         if self._started:
             return
         self._started_at = time.monotonic()
+        # Re-arm the boot-grace window every time auto-recovery completes a
+        # RECOVERING -> STANDING transition. Without this, the policy's first
+        # ~1 s after re-engagement (where it's still settling and gravity_z
+        # noisily flirts with the threshold) was tripping the pose watchdog
+        # again immediately, producing the ENGAGED <-> EMERGENCY_STOP flap
+        # we saw in 2026-05-05 logs (a 90 s loop at one trip every 100 ms).
+        self.fsm.subscribe(self._on_fsm_transition)
         self._threads["lowstate"] = _WatchdogThread(
             "wd_lowstate", 0.1, self._tick_lowstate
         )
@@ -169,12 +176,39 @@ class WatchdogManager:
         )
 
     def stop(self) -> None:
+        try:
+            self.fsm.unsubscribe(self._on_fsm_transition)
+        except Exception:  # noqa: BLE001 — best effort
+            pass
         for t in self._threads.values():
             t.stop()
         for t in self._threads.values():
             t.join(timeout=1.0)
         self._threads.clear()
         self._started = False
+
+    def _on_fsm_transition(
+        self,
+        old: RobotFsmState,
+        new: RobotFsmState,
+        reason: str,  # noqa: ARG002 — required by FSM subscriber signature
+    ) -> None:
+        """Re-arm the boot-grace window on RECOVERING -> STANDING.
+
+        Auto-recovery jumps EMERGENCY_STOP -> RECOVERING -> STANDING in
+        rapid succession, and STANDING -> ENGAGED follows ~0.3 s later.
+        That gives the RL policy almost no time to settle before pose ticks
+        start judging it again. Resetting `_started_at` here applies the
+        same grace window we use at boot so the policy has a fair chance
+        to stabilize before any single transient sample re-promotes us
+        back to EMERGENCY_STOP.
+        """
+        if old == RobotFsmState.RECOVERING and new == RobotFsmState.STANDING:
+            self._started_at = time.monotonic()
+            log.info(
+                "watchdogs: re-armed boot-grace (%.1fs) after auto-recovery",
+                self.boot_grace_s,
+            )
 
     # ----- helpers ----------------------------------------------------------
 

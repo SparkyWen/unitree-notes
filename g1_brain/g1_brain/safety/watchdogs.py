@@ -224,7 +224,15 @@ class WatchdogManager:
                 log.warning("watchdog %s tripped: %s", name, reason)
             elapsed = now - self._trip_since[name]
             in_grace = self._in_boot_grace(now)
-        if self.supervisor is not None:
+        # Only emergency-class (motion-blocking) trips propagate to the
+        # supervisor. ``emergency=False`` trips (currently usb_frame) are
+        # informational: they get logged + tracked locally for recovery
+        # bookkeeping, but they MUST NOT block motion calls. usb_frame
+        # gates user-gesture detection (the laptop webcam fed via
+        # teleimager) — losing it should not stop the robot from waving,
+        # walking, or otherwise running, since none of those skills read
+        # the USB stream.
+        if self.supervisor is not None and emergency:
             try:
                 self.supervisor.set_watchdog_trip(name, reason)
             except Exception:  # noqa: BLE001
@@ -244,6 +252,8 @@ class WatchdogManager:
             if self._trip_since[name] is not None:
                 self._trip_since[name] = None
                 log.info("watchdog %s cleared", name)
+        # Always best-effort clear; idempotent if the trip was never set
+        # on the supervisor in the first place (informational trips).
         if self.supervisor is not None:
             try:
                 self.supervisor.set_watchdog_trip(name, None)

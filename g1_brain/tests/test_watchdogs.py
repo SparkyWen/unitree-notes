@@ -29,6 +29,19 @@ def _make_wd(boot_grace_s: float = 5.0):
     return fsm, wd
 
 
+class _CaptureSupervisor:
+    """Records calls to set_watchdog_trip so we can assert on them."""
+
+    def __init__(self) -> None:
+        self.trips: dict = {}
+
+    def set_watchdog_trip(self, name: str, reason):
+        if reason is None:
+            self.trips.pop(name, None)
+        else:
+            self.trips[name] = reason
+
+
 def test_recovery_to_standing_rearms_boot_grace():
     fsm, wd = _make_wd(boot_grace_s=5.0)
     fsm.transition(RobotFsmState.STANDING, "boot")
@@ -71,6 +84,54 @@ def test_other_transitions_do_not_rearm_grace():
         assert wd._started_at > snapshot
     finally:
         wd.stop()
+
+
+def test_informational_trip_does_not_propagate_to_supervisor():
+    """Regression: a tripped usb_frame watchdog must NOT push a flag to the
+    supervisor (which would block ALL motion calls).
+
+    usb_frame gates only the laptop webcam used to detect the *user's*
+    gestures for mock_imitate auto-trigger. Losing it should not prevent
+    the robot from waving, walking, or otherwise responding to direct
+    voice commands. Before this fix, a missing teleimager turned every
+    motion call into "watchdog tripped: usb_frame=age=infs".
+    """
+    fsm = RobotFsm()
+    sup = _CaptureSupervisor()
+    wd = WatchdogManager(
+        cfg={"safety": {"watchdog": {"boot_grace_s": 0.0}}},
+        scene_bus=SceneStateBus(),
+        robot_bus=RobotStateBus(),
+        fsm=fsm,
+        combo_ctl=None,
+        supervisor=sup,
+    )
+    # Trip the informational watchdog directly (no thread needed).
+    wd._set_trip("usb_frame", "age=infs", emergency=False)
+    assert "usb_frame" not in sup.trips, (
+        "informational trip leaked into supervisor; this would block motion"
+    )
+    # Sanity: emergency-class trips must still propagate.
+    wd._set_trip("lowstate", "age=1.5s", emergency=True)
+    assert "lowstate" in sup.trips
+
+
+def test_emergency_clear_propagates_to_supervisor():
+    """Even after an emergency-class trip is cleared, the supervisor flag
+    must drop too; otherwise motion would stay blocked indefinitely."""
+    fsm = RobotFsm()
+    sup = _CaptureSupervisor()
+    wd = WatchdogManager(
+        cfg={"safety": {"watchdog": {"boot_grace_s": 0.0}}},
+        scene_bus=SceneStateBus(),
+        robot_bus=RobotStateBus(),
+        fsm=fsm,
+        combo_ctl=None,
+        supervisor=sup,
+    )
+    wd._set_trip("lowstate", "age=1.5s", emergency=True)
+    wd._clear_trip("lowstate")
+    assert "lowstate" not in sup.trips
 
 
 def test_unsubscribe_on_stop():

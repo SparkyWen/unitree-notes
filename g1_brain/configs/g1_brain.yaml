@@ -12,27 +12,44 @@ robot:
   mjcf_path: "${HOME}/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml"
 
 cameras:
+  # === Two cameras, two completely different jobs ==========================
+  # head: the robot's own first-person camera, rendered by MuJoCo from a
+  #       <camera> attached to torso_link. This is what the robot itself
+  #       "sees" while walking. It drives describe_scene, ground constraint
+  #       (terrain / obstacles / clear_path), and head-stream YOLO. ALWAYS
+  #       enable this in sim — it is the robot's eyes.
+  # usb:  a separate camera (laptop webcam by default) pointed at the human
+  #       user. It feeds MediaPipe pose detection so the perception layer
+  #       can spot the user waving / showing T-pose / etc., which then
+  #       triggers mock_imitate (the "user waves → robot waves back" demo).
+  #       It is OPTIONAL. Disable it (enabled: false below) if you do not
+  #       want / cannot run a webcam — gestures, walking, and describe_scene
+  #       all keep working because they only need the head camera. Losing
+  #       the USB stream raises an informational warning but never blocks
+  #       motion.
   usb:
-    enabled: true
-    # In sim mode, run unitree-notes/teleimager/image_server locally — it
-    # captures /dev/video0 (laptop webcam) and serves frames on
-    # teleimager_request_port. On the real robot, point teleimager_host at
-    # the robot. Switch source to "cv2" if you want to bypass teleimager and
-    # have UsbCamera open /dev/video0 directly (only valid when nothing else
-    # — including teleimager — already holds the device).
+    enabled: true               # set false to skip the laptop webcam entirely
+    # When enabled: in sim, run unitree-notes/teleimager/image_server locally
+    # (it captures /dev/video0 and serves frames on teleimager_request_port).
+    # On the real robot, point teleimager_host at the robot. Switch source to
+    # "cv2" to bypass teleimager and have UsbCamera open /dev/video0 directly
+    # (only valid when nothing else — including teleimager — already holds
+    # the device).
     source: "teleimager"        # teleimager / cv2
     teleimager_host: "127.0.0.1"
     teleimager_request_port: 60000
     cv2_index: 0
     poll_hz: 20
   head:
-    enabled: true
+    enabled: true               # leave true — this is the robot's own eyes
     camera_name: "head_camera"  # synthesized on attach_body if missing in MJCF
     width: 640
     height: 480
     poll_hz: 20
     # When the included MJCF has no <camera>, MuJoCoHeadCamera attaches one
     # via MjSpec onto this body. Defaults match unitree_mujoco's G1 torso.
+    # To inspect the rendered head view live, run:
+    #   python -m g1_brain.apps.perception_debug --show
     attach_body: "torso_link"
     attach_pos: [0.08, 0.0, 0.45]
     attach_xyaxes: [0.0, -1.0, 0.0, 0.0, 0.0, 1.0]   # look forward (+X)

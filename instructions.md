@@ -21,20 +21,29 @@ python unitree_mujoco.py
 
 ```bash
 conda activate unitree
-
-export MESA_LOADER_DRIVER_OVERRIDE=d3d12
-export GALLIUM_DRIVER=d3d12
-export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-export LIBGL_ALWAYS_SOFTWARE=0
-export MUJOCO_GL=glfw
-
 cd ~/unitree/unitree-notes/g1_sim_demo
 python g1_sim_rl_combo.py
 ```
 
 # 2. mujoco跑va
 
-## 1. 把摄像头挂载到 WSL2
+## 1. 启动VA demo
+
+### 终端 1 — MuJoCo 仿真
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py
+```
+
+- MuJoCo viewer 弹出后：按 `7` **把 G1 放下**到地面，按 `9` **松开/禁用 elastic band**（按 `8` 是反方向把它再吊起来，调试时一般不用）。
+- 看到 G1 双脚落地、policy 接管后保持站立（轻微微调脚踝）即可。
+- 视窗里可以鼠标拖拽视角、滚轮缩放；摔倒后按一下 `Backspace` 重置仿真状态。
+
+### 终端 2 — TeleImager 图像服务
+
+#### ==先把摄像头挂载到 WSL2==
 
 确保 WSL2 的 Ubuntu 窗口已经打开，然后在 PowerShell 执行：
 
@@ -55,22 +64,6 @@ usbipd list
 ```
 
 只要状态不是 `Attached`，WSL2 里面就不会有 `/dev/video0`。
-
-## 2. 启动VA demo
-
-### 终端 1 — MuJoCo 仿真
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
-python unitree_mujoco.py
-```
-
-- MuJoCo viewer 弹出后：按 `7` **把 G1 放下**到地面，按 `9` **松开/禁用 elastic band**（按 `8` 是反方向把它再吊起来，调试时一般不用）。
-- 看到 G1 双脚落地、policy 接管后保持站立（轻微微调脚踝）即可。
-- 视窗里可以鼠标拖拽视角、滚轮缩放；摔倒后按一下 `Backspace` 重置仿真状态。
-
-### 终端 2 — TeleImager 图像服务
 
 ```bash
 conda activate agi
@@ -108,7 +101,7 @@ python -m va_demo.main --mode observe    # 完全禁动作，只语音+视觉
 python -m va_demo.main --mode confirm
 ```
 
-### Level 1 — confirm 模式（你日常调试就用这档）
+#### Level 1 — confirm 模式（你日常调试就用这档）
 
 ```bash
 python -m va_demo.main --mode confirm
@@ -126,10 +119,41 @@ python -m va_demo.main --mode confirm
 
 任何一项视觉不对 = 问题在 `va_demo/realtime_agent.py`（参数解析）或工具描述（`va_demo/prompts.py`）让模型传了奇怪的值，看终端日志里 tool call 的实际参数。
 
-### Level 2 — active 模式（无 prompt，全自动）
+#### Level 2 — active 模式（无 prompt，全自动）
 
 ```bash
 python -m va_demo.main --mode active
 ```
 
 只在你已经在 Level 5 信任了模型的判断之后再用。viewer 里看到的动作完全由模型决定，**确保挂带可以快速重启 / `Backspace` 重置 / 备好 Ctrl-C**。
+
+---
+
+
+
+## 2. 启动语音控制和安全加载demo
+
+```python
+# Terminal 3 — E-stop listener (independent process)
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.safety.estop_listener
+
+
+# Press ESC at any time to engage; the file /tmp/g1_brain_estop is
+# touched and the agent's SafetySupervisor rejects all motion until the
+# file is removed.
+```
+
+
+
+```python
+# Terminal 4 — agent
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a
+python -m g1_brain.apps.agent_main --mode confirm
+```
+
+
+

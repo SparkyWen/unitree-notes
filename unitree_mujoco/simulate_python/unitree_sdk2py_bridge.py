@@ -53,6 +53,12 @@ class UnitreeSdk2Bridge:
         # 200 Hz integrator and causes Kp-driven oscillation -> instability.
         self._cmd_lock = threading.Lock()
         self._latest_cmd = None
+        # Whether at least one external lowcmd has arrived. Until True, the
+        # `_default_hold_cmd` (if available) is used so the robot holds the
+        # trained default pose at MuJoCo startup instead of collapsing.
+        self._external_cmd_received = False
+        self._default_hold_cmd: np.ndarray | None = None
+        self._maybe_seed_default_hold_cmd()
 
         # Check sensor
         for i in range(self.dim_motor_sensor, self.mj_model.nsensor):
@@ -116,6 +122,83 @@ class UnitreeSdk2Bridge:
             "left": 15,
         }
 
+    def _maybe_seed_default_hold_cmd(self):
+        """If config.py provides G1 default-pose constants, build a (n,5)
+        cmd array (tau=0, kp, q_des=default, kd, dq=0) and seed
+        ``_latest_cmd`` with it. ApplyControl will then use this PD law
+        before any external rt/lowcmd has arrived, so the robot holds its
+        trained default joint pose at MuJoCo startup instead of collapsing
+        under gravity. As soon as an external controller starts publishing
+        lowcmd, ``LowCmdHandler`` overwrites this seed.
+
+        Only seeds for G1 — other robots in this repo (Go2/B2/H1) keep the
+        original "no-cmd-no-control" behaviour the user is used to.
+        """
+        if getattr(config, "ROBOT", None) != "g1":
+            return
+        try:
+            q_def = getattr(config, "G1_DEFAULT_JOINT_POS", None)
+            kp = getattr(config, "G1_DEFAULT_KP", None)
+            kd = getattr(config, "G1_DEFAULT_KD", None)
+        except Exception:  # noqa: BLE001
+            return
+        if q_def is None or kp is None or kd is None:
+            return
+        n = self.num_motor
+        if not (len(q_def) == n and len(kp) == n and len(kd) == n):
+            print(
+                f"[bridge] WARN: default-hold dim mismatch (n={n}, "
+                f"q_def={len(q_def)}, kp={len(kp)}, kd={len(kd)}); "
+                f"skipping default-pose hold.",
+                file=sys.stderr,
+            )
+            return
+        cmd = np.zeros((n, 5), dtype=np.float64)
+        cmd[:, 0] = 0.0          # tau_ff
+        cmd[:, 1] = np.asarray(kp, dtype=np.float64)
+        cmd[:, 2] = np.asarray(q_def, dtype=np.float64)
+        cmd[:, 3] = np.asarray(kd, dtype=np.float64)
+        cmd[:, 4] = 0.0          # dq_des
+        self._default_hold_cmd = cmd
+        with self._cmd_lock:
+            # Seed the hot cache too so the very first ApplyControl tick
+            # already produces the holding torques.
+            self._latest_cmd = cmd
+        # Also force MuJoCo's qpos for the actuated joints to the default
+        # pose so the robot starts visually in the trained pose, not with
+        # all-zero joints (which would have knees fully straight, hips
+        # straight, and the robot taller than the policy expects).
+        self._apply_default_qpos(q_def)
+        print(
+            "[bridge] g1: seeded default-pose holding PD (robot will hold "
+            "trained default joint pose until external rt/lowcmd arrives)."
+        )
+
+    def _apply_default_qpos(self, q_def):
+        """Write `q_def` into mj_data.qpos so the simulator starts at the
+        trained default joint pose instead of all-zero joints. Skips
+        silently if the dimensions don't line up (e.g. floating base
+        accounting differs across robot variants).
+        """
+        try:
+            qpos = self.mj_data.qpos
+            n = self.num_motor
+            # G1 has a floating base: qpos = [free_joint(7), motors(n)].
+            # nq should equal 7 + n. If anything else, bail out so we don't
+            # corrupt qpos.
+            if qpos.shape[0] != 7 + n:
+                return
+            qpos[7:7 + n] = np.asarray(q_def, dtype=np.float64)
+            # Ensure pelvis quaternion is identity (mujoco stores [w,x,y,z]
+            # in qpos[3:7]) — if the model file initialised it to all
+            # zeros our integration would explode.
+            if np.linalg.norm(qpos[3:7]) < 1e-6:
+                qpos[3:7] = (1.0, 0.0, 0.0, 0.0)
+            mujoco.mj_forward(self.mj_model, self.mj_data)
+        except Exception as e:  # noqa: BLE001 — best effort
+            print(f"[bridge] WARN: could not set default qpos: {e}",
+                  file=sys.stderr)
+
     def LowCmdHandler(self, msg: LowCmd_):
         # Cache the cmd; the actual PD evaluation happens at sim rate via
         # ApplyControl() so the controller sees fresh q / dq every step.
@@ -130,6 +213,7 @@ class UnitreeSdk2Bridge:
             cmd[i, 4] = mc.dq
         with self._cmd_lock:
             self._latest_cmd = cmd
+            self._external_cmd_received = True
 
     def ApplyControl(self):
         """Compute joint torques from the latest cached lowcmd and current

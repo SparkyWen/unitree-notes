@@ -8,15 +8,14 @@ here. The other 3 (bow / lean / squat / kick / lift_knee / twist) move the
 waist or legs, which would corrupt `projected_gravity` and crash the RL
 policy — they're intentionally NOT exposed as gestures (see plan §4.2).
 
-The poses in g1_sim_keyboard are absolute 29-D joint targets relative to
-the URDF zero pose. ComboController's gesture envelope is
-``arm_offset ± ARM_GESTURE_K * arm_scale``; absolute poses authored
-without knowing that envelope can violate it (most notably salute's
-shoulder_pitch=-0.6 with default offset 0.35 lands at a 0.95-rad delta,
-~2.2× scale on shoulder_pitch — outside the envelope). We always run the
-slice through `_clamp_arm_to_safe_envelope` before queueing; if a joint
-gets clipped we log a one-line warning so the gesture's visual fidelity
-loss is visible, but we never panic.
+These poses are absolute 29-D joint targets. We clamp the arm slice to
+the physical joint limits (matching `ComboController.ARM_JOINT_LIMITS`)
+before queuing — that's the only structural safety net we still need
+because ComboController masks the arm slice of the policy observation
+while a gesture is active, eliminating the OOD-on-legs risk that the
+older `default ± K*action_scale` envelope used to guard against. If a
+joint gets clipped against the physical limit we log a one-line warning
+so the gesture's visual fidelity loss is visible, but we never panic.
 """
 from __future__ import annotations
 
@@ -85,26 +84,57 @@ class ArmAction:
     keyframes: List[Tuple[float, np.ndarray]]
 
 
+# Per-arm-joint physical limits (rad). Mirrors
+# `ComboController.ARM_JOINT_LIMITS` (g1_sim_rl_combo.py). Kept locally
+# so this module doesn't have to import the heavy combo module at import
+# time. Indices 0..13 correspond to ARM_START..ARM_START+13.
+_ARM_JOINT_LIMITS: Tuple[Tuple[float, float], ...] = (
+    (-3.05, 2.65),   # 15 LeftShoulderPitch
+    (-1.55, 2.20),   # 16 LeftShoulderRoll
+    (-2.55, 2.55),   # 17 LeftShoulderYaw
+    (-1.00, 2.05),   # 18 LeftElbow
+    (-1.95, 1.95),   # 19 LeftWristRoll
+    (-1.55, 1.55),   # 20 LeftWristPitch
+    (-1.55, 1.55),   # 21 LeftWristYaw
+    (-3.05, 2.65),   # 22 RightShoulderPitch
+    (-2.20, 1.55),   # 23 RightShoulderRoll
+    (-2.55, 2.55),   # 24 RightShoulderYaw
+    (-1.00, 2.05),   # 25 RightElbow
+    (-1.95, 1.95),   # 26 RightWristRoll
+    (-1.55, 1.55),   # 27 RightWristPitch
+    (-1.55, 1.55),   # 28 RightWristYaw
+)
+_ARM_LIMIT_LO = np.array([lo for (lo, _) in _ARM_JOINT_LIMITS], dtype=np.float64)
+_ARM_LIMIT_HI = np.array([hi for (_, hi) in _ARM_JOINT_LIMITS], dtype=np.float64)
+
+
 def _clamp_to_envelope(
     arm_pose_14d: np.ndarray,
-    arm_offset: np.ndarray,
-    arm_scale: np.ndarray,
+    arm_offset: np.ndarray,  # noqa: ARG001 — kept for API stability
+    arm_scale: np.ndarray,   # noqa: ARG001 — kept for API stability
     *,
-    k: float = 2.0,
+    k: float = 2.0,          # noqa: ARG001 — kept for API stability
     label: str = "",
 ) -> np.ndarray:
-    """Clamp a 14-D arm pose to ``arm_offset ± k * arm_scale``.
+    """Clamp a 14-D arm pose to the physical joint limits.
 
-    Mirrors `ComboController._clamp_arm_to_safe_envelope` exactly (same
-    K=2.0). Logs a single warning if any joint is actually clipped.
+    Earlier this clamped to ``arm_offset ± k * arm_scale``, an envelope
+    derived from the policy's training distribution. That envelope was
+    too tight (for example salute's shoulder_pitch=-0.6 was clipped to
+    -0.53 with k=2.0, hug's -0.8 was clipped to -0.53 — both poses lost
+    their character). The OOD risk that envelope guarded against is now
+    eliminated by `ComboController._build_obs` masking the arm slice of
+    the policy observation while a gesture is active, so we only need
+    to enforce the physical limits here.
+
+    The signature is preserved for backward compatibility; arm_offset,
+    arm_scale, and k are no longer used.
     """
-    lo = arm_offset - k * arm_scale
-    hi = arm_offset + k * arm_scale
-    clipped = np.clip(arm_pose_14d, lo, hi)
+    clipped = np.clip(arm_pose_14d, _ARM_LIMIT_LO, _ARM_LIMIT_HI)
     if not np.allclose(clipped, arm_pose_14d, atol=1e-6):
         violations = np.where(~np.isclose(clipped, arm_pose_14d, atol=1e-6))[0]
         log.warning(
-            "[keyframe_extras] %s: clipped %d arm joints to envelope "
+            "[keyframe_extras] %s: clipped %d arm joints to physical limit "
             "(idx %s; abs deltas %s)",
             label or "unnamed",
             len(violations),

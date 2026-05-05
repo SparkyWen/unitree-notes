@@ -420,6 +420,27 @@
     <motor name="right_wrist_yaw" joint="right_wrist_yaw_joint" ctrlrange="-5 5" />
   </actuator>
 
+  <!--
+    Trained "home" pose. qpos layout: free-joint (3 pos + 4 quat) + 29 motor
+    joints, in the SAME ORDER as <actuator>. Values copied from
+      unitree_rl_mjlab/.../velocity/v0/params/deploy.yaml :: default_joint_pos
+    so the viewer's "Load keyframe" button (and any mj_resetDataKeyframe call)
+    drops the robot directly into the policy's offset/default pose. This is
+    what the simulator initialises to at startup (see unitree_mujoco.py
+    :: _set_g1_default_qpos) — without it, all-zero joints leave the legs
+    fully straight and the unactuated robot collapses before any controller
+    has a chance to take over.
+  -->
+  <keyframe>
+    <key name="home"
+         qpos="0 0 0.793 1 0 0 0
+               -0.1 0 0 0.3 -0.2 0
+               -0.1 0 0 0.3 -0.2 0
+               0 0 0
+               0.35 0.18 0 0.87 0 0 0
+               0.35 -0.18 0 0.87 0 0 0"/>
+  </keyframe>
+
   <sensor>
     <jointpos name="left_hip_pitch_pos" joint="left_hip_pitch_joint" />
     <jointpos name="left_hip_roll_pos" joint="left_hip_roll_joint" />

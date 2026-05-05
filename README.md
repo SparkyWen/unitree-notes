@@ -38,7 +38,7 @@
 
 ## 🇬🇧 English
 
-> A complete, opinionated workspace for studying, simulating, and deploying control & cognition stacks on the **Unitree G1** humanoid — bundling **ten upstream reference repos** (SDK, MuJoCo, RL, ROS, IsaacLab, LeRobot, VLA, WMA, XR teleop, image server) alongside three hand-written deliverables: `g1_sim_demo/` (sim demos from sine wave to RL+gestures), `g1_real_demo/` (real-robot deployment), and `va-demo/` (a voice + vision agent that talks to G1 via OpenAI Realtime).
+> A complete, opinionated workspace for studying, simulating, and deploying control & cognition stacks on the **Unitree G1** humanoid — bundling **ten upstream reference repos** (SDK, MuJoCo, RL, ROS, IsaacLab, LeRobot, VLA, WMA, XR teleop, image server) alongside four hand-written deliverables: [`g1_sim_demo/`](g1_sim_demo/) (sim demos from sine wave to RL+gestures), [`g1_real_demo/`](g1_real_demo/) (real-robot deployment), [`va-demo/`](va-demo/) (a voice + vision agent that talks to G1 via OpenAI Realtime), and [`g1_brain/`](g1_brain/) (a Slow-Brain + Fast-Reflex + Safe-Skill three-layer cognitive agent extending va-demo with perception, an 11-rule safety supervisor, and ~16 LLM-callable skills).
 
 ### 📑 Table of Contents
 
@@ -51,6 +51,7 @@
   - [🎬 `g1_sim_demo/` — MuJoCo demo catalogue](#-g1_sim_demo--mujoco-demo-catalogue)
   - [🦿 `g1_real_demo/` — real-robot deployment](#-g1_real_demo--real-robot-deployment)
   - [🎙️ `va-demo/` — voice + vision agent](#%EF%B8%8F-va-demo--voice--vision-agent)
+  - [🧠 `g1_brain/` — Slow Brain + Fast Reflex + Safe Skill agent](#-g1_brain--slow-brain--fast-reflex--safe-skill-agent)
 - [📡 Upstream Reference Repos](#-upstream-reference-repos)
 - [🧱 Architecture Overview](#-architecture-overview)
 - [📚 Documentation Index](#-documentation-index)
@@ -69,6 +70,7 @@
 | 🎮 **Five turn-key G1 sim demos** | From a 70-line "send a sine wave" warm-up to a 1000-line RL+gesture combo controller, every script is heavily commented and runs **out of the box** against the Python MuJoCo bridge. |
 | 🦿 **Real-robot deployment harness** | `g1_real_demo/g1_real_rl_combo.py` adds the `MotionSwitcher` release, bounded `lowstate` wait, and a `lying`-mode CLI for wiring/DDS verification before you ever stand the robot up. |
 | 🎙️ **Voice + Vision Realtime agent** | `va-demo/` ships a wake-word ("Hi Sparky") gated, full-duplex Realtime voice agent that can **describe scenes via vision** *and* tool-call `walk` / `gesture` / `stop` against the running RL policy — confirm / observe / active / vision-only run modes. |
+| 🧠 **Slow Brain + Fast Reflex + Safe Skill** | `g1_brain/` extends `va-demo` with a 3-layer agent — first-person MuJoCo head cam + YOLO11 + MediaPipe-Pose fused into a thread-safe `SceneState`, an **11-rule SafetySupervisor** + 7-state FSM + independent E-stop process, and ~**16 LLM-callable skills** (`walk` / `turn` / `gesture` / `static_pose` / `look_at` / `approach` / `mock_imitate` / `describe_scene` / …). See [`g1_brain/README.md`](g1_brain/README.md). |
 | 🧠 **Real ONNX policy in the loop** | `g1_sim_rl_walk.py`, `g1_sim_rl_combo.py`, and `g1_real_rl_combo.py` all load the official `unitree_rl_mjlab` velocity-tracking ONNX checkpoint and execute the **exact same observation / action pipeline** end-to-end on sim and on hardware. |
 | 🧷 **Sim-friendly fixes baked in** | Upstream `g1_low_level_example.py` deadlocks on `MotionSwitcherClient.CheckMode()` and assumes DDS domain 0 — every script in `g1_sim_demo/` ships with the proven domain-1 + skip-MotionSwitcher patch and a `mode_machine` handshake. |
 | 🐍 **One unified conda env** | `agi` env reconciles 7 mutually-conflicting upstreams (numpy 1.26.4 + torch 2.11.0+cu130 + mujoco 3.5.0 + tyro 1.0.13 + …) — full compatibility matrix in [`docs/libs_compatible.md`](docs/libs_compatible.md). A leaner `unitree` env exists for sim+RL only. |
@@ -112,6 +114,26 @@ unitree-notes/
 │   │                                   video-design / video-use
 │   └── requirements.txt             ·  openai · sounddevice · faster-whisper ·
 │                                       webrtcvad-wheels · pyzmq · opencv-python
+│
+├── 📂 g1_brain/                     ← 🧠 Slow Brain + Fast Reflex + Safe Skill agent
+│   ├── g1_brain/perception/         ·  CameraHub · USB cam · MuJoCo head cam (EGL) ·
+│   │                                   YOLO11 · MediaPipe-Pose · depth · derivations
+│   ├── g1_brain/scene_state/        ·  SceneState/RobotState dataclasses + RLock bus
+│   ├── g1_brain/safety/             ·  7-state FSM · SafetySupervisor (11 rules) ·
+│   │                                   watchdogs · independent E-stop process
+│   ├── g1_brain/skills/             ·  SkillServer · ~16 OpenAI tool schemas ·
+│   │                                   keyframe_extras · compound_skills
+│   ├── g1_brain/brain/              ·  BrainRealtimeAgent (extends va-demo) +
+│   │                                   scene-aware system prompt
+│   ├── g1_brain/mock_imitation/     ·  user gesture → MIRRORABLE robot gesture (Phase 5)
+│   ├── g1_brain/apps/               ·  agent_main + perception/safety/skill/estop debug
+│   ├── configs/g1_brain.yaml        ·  Single source of truth (robot · cameras ·
+│   │                                   perception · safety · openai · audio · wakeword)
+│   ├── docs/                        ·  architecture · how_to_run · extending_skills ·
+│   │                                   g1_brain_QA1 · g1-fix-phase{1,2,3,5}
+│   ├── tests/                       ·  pytest: 11-rule supervisor · FSM · scene bus ·
+│   │                                   skill server · vertical slice · watchdogs · …
+│   └── pyproject.toml               ·  ultralytics · mediapipe · openai · pyyaml · pynput
 │
 ├── 📡 Upstream reference repos (read-only snapshots) ─────────────────────
 │
@@ -411,6 +433,58 @@ python -m va_demo.main                    # default: --mode confirm
 >
 > 🔉 WSL2 audio fix: symlink `$CONDA_PREFIX/lib/alsa-lib` → `/usr/lib/x86_64-linux-gnu/alsa-lib` so ALSA finds the pulse plugin — see [`docs/wsl2_audio.md`](docs/wsl2_audio.md).
 
+#### 🧠 `g1_brain/` — Slow Brain + Fast Reflex + Safe Skill agent
+
+> A new top-level package that **imports** (never modifies) [`va-demo/`](va-demo/) and [`g1_sim_demo/`](g1_sim_demo/) and adds three layers on top: **Perception · Safety · Skills**. The G1 needs three time-scales of cognition simultaneously and OpenAI Realtime alone can't hit all of them — this package separates them cleanly and routes everything through a single safety-validated skill server.
+
+📂 **Read first:** [`g1_brain/README.md`](g1_brain/README.md) · [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) · [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) · [`docs/g1_plan.md`](docs/g1_plan.md) (full 1500+-line design)
+
+**The three layers**
+
+| Layer | Rate | Owner | Job |
+|---|---|---|---|
+| 🧠 **Slow Brain** | 0.2–2 Hz | OpenAI Realtime + GPT-5.5 Vision | Plan, talk, decide which skill to call |
+| 🛡️ **Safe Skill** | per-call | `SafetySupervisor` + `SkillServer` | Validate (11 rules), clamp, route, abort |
+| ⚡ **Fast Reflex** | 5–30 Hz | Cameras + YOLO11 + MediaPipe-Pose + depth | Build a `SceneState` the safety layer reads |
+
+**Skill catalog (~16 LLM-callable tools)**
+
+| Class | Tools |
+|---|---|
+| 🗣️ I/O | `say` · `describe_scene` · `query_scene_state` · `ask_human` |
+| 🦿 Motion | `walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` · `stop` · `release_arms` |
+| 🤖 Real-only stubs | `loco_high` · `arm_action_high` · `audio_tts_robot` (rejected in sim) |
+
+**Three run modes** — `--mode observe` (no motion) · `--mode confirm` *(default — y/N gate)* · `--mode active` (autonomous within safety bounds). Plus `--vision-only` to drop DDS for laptop-only dev.
+
+**Run order (4 terminals, `agi` env)**
+
+```bash
+# ── Terminal 1 — MuJoCo simulator ─────────────────────────────────
+conda activate unitree
+export MUJOCO_GL=glfw
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py
+
+# ── Terminal 2 — TeleImager USB cam service ──────────────────────
+conda activate unitree
+cd ~/unitree/unitree-notes/teleimager
+python -m teleimager.image_server
+
+# ── Terminal 3 — Independent E-stop listener (ESC → kill) ─────────
+conda activate agi
+python -m g1_brain.safety.estop_listener
+
+# ── Terminal 4 — agent ───────────────────────────────────────────
+conda activate agi
+export OPENAI_API_KEY=sk-...
+python -m g1_brain.apps.agent_main --mode confirm
+```
+
+**Built-in debug entries** — `python -m g1_brain.apps.{perception_debug, safety_debug, skill_debug, estop_test}` — each tests one layer in isolation.
+
+> 🛡️ **Key invariant:** every tool call goes through `SafetySupervisor.validate()` (whitelist · FSM gating · run_mode · 4 watchdogs · pose check · param clamp · scene checks · E-stop). The LLM never touches motors. The independent E-stop process keeps a panic-button exit even if the agent deadlocks.
+
 ---
 
 ### 📡 Upstream Reference Repos
@@ -557,6 +631,22 @@ python -m va_demo.main                    # default: --mode confirm
 | [`va-demo/docs/video-design.md`](va-demo/docs/video-design.md) | Vision-only mode design. |
 | [`va-demo/docs/video-use.md`](va-demo/docs/video-use.md) | Vision-only mode operator guide. |
 
+#### 🧠 g1_brain
+
+| Doc | Scope |
+|---|---|
+| [`g1_brain/README.md`](g1_brain/README.md) | 📍 Package landing page — highlights, layout, install, run, modes, skills, safety, perception, mock imitation, configuration, debug entries, tests, troubleshooting. |
+| [`docs/g1_plan.md`](docs/g1_plan.md) | The full 1500+-line design that motivated `g1_brain` (Slow Brain + Fast Reflex + Safe Skill, Phases 0–7). |
+| [`docs/vlm_audio_mock.md`](docs/vlm_audio_mock.md) · [`vlm_audio_mock_deep.md`](docs/vlm_audio_mock_deep.md) | Architecture-level research notes that fed the design — VLM + audio + human-mimic primer. |
+| [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) | ~330-line cliffs-notes architecture (3 layers, frequency table, FSM, perception threading, process model). |
+| [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) | Operator guide — prereqs, 4-terminal startup, debug entries, run modes, common errors, sim → real switch, WSL2 specifics. |
+| [`g1_brain/docs/extending_skills.md`](g1_brain/docs/extending_skills.md) | The 4 places to touch when adding a new tool, plus a checklist. |
+| [`g1_brain/docs/g1_brain_QA1.md`](g1_brain/docs/g1_brain_QA1.md) | Q&A round 1 — gotchas around `how_to_run.md`. |
+| [`g1_brain/docs/g1-fix-phase1.md`](g1_brain/docs/g1-fix-phase1.md) | Fix log: post-boot pose oscillation. |
+| [`g1_brain/docs/g1-fix-phase2.md`](g1_brain/docs/g1-fix-phase2.md) | Fix log: RL ramp + watchdog grace + recovery hold. |
+| [`g1_brain/docs/g1-fix-phase3.md`](g1_brain/docs/g1-fix-phase3.md) | Fix log: head-cam EGL threading + DDS subscription order. |
+| [`g1_brain/docs/g1-fix-phase5.md`](g1_brain/docs/g1-fix-phase5.md) | Fix log: USB watchdog locking gestures even when USB cam disabled. |
+
 #### 📡 Upstream deep-dives
 
 | Doc | Scope |
@@ -672,6 +762,7 @@ Contributions are welcome — especially:
 
 - 🆕 **New demos** under `g1_sim_demo/` or `g1_real_demo/` (e.g. teleoperation via `pygame`, ROS 2 bridge, MoCap retargeting).
 - 🎙️ **va-demo skills** (new tool calls — e.g. `look_at(target)`, `count_steps_to(object)`).
+- 🧠 **`g1_brain/` skills, safety rules, or perception derivations** — see [`g1_brain/docs/extending_skills.md`](g1_brain/docs/extending_skills.md) for the 4-step recipe.
 - 📝 **Documentation translations** (English versions of the `docs/*.md` deep-dives).
 - 🐛 **Bug fixes** in any of the in-house scripts.
 
@@ -704,7 +795,7 @@ This repository contains code under multiple licenses:
 
 | Path | License | Source |
 |---|---|---|
-| `g1_sim_demo/`, `g1_real_demo/`, `va-demo/`, `docs/`, `instructions.md`, `requirements.txt`, `README.md` | **Apache 2.0** | This repository |
+| `g1_sim_demo/`, `g1_real_demo/`, `va-demo/`, `g1_brain/`, `docs/`, `instructions.md`, `requirements.txt`, `README.md` | **Apache 2.0** | This repository |
 | `unitree_sdk2_python/`, `unitree_mujoco/`, `unitree_rl_mjlab/`, `unitree_ros/`, `unitree_ros2/`, `unitree_sim_isaaclab/`, `unitree_lerobot/`, `xr_teleoperate/`, `teleimager/` | See each repo's `LICENSE` | © Unitree Robotics |
 | `unifolm-vla/`, `unifolm-world-model-action/` | See each repo's `LICENSE` | © Unitree Robotics / UnifoLM |
 
@@ -734,7 +825,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 
 ## 🇨🇳 简体中文
 
-> 一个为 **宇树 G1 人形机器人** 量身打造的、完整的、有观点的研究 / 仿真 / 真机部署工作区。仓库里同时包含 **十份上游参考代码快照**（SDK / MuJoCo / RL / ROS / IsaacLab / LeRobot / VLA / WMA / XR 遥操 / 图像服务器）和三套自研交付物：`g1_sim_demo/`（从正弦波到 RL+手势的仿真 demo）、`g1_real_demo/`（真机部署）、`va-demo/`（基于 OpenAI Realtime 的语音 + 视觉智能体）。
+> 一个为 **宇树 G1 人形机器人** 量身打造的、完整的、有观点的研究 / 仿真 / 真机部署工作区。仓库里同时包含 **十份上游参考代码快照**（SDK / MuJoCo / RL / ROS / IsaacLab / LeRobot / VLA / WMA / XR 遥操 / 图像服务器）和四套自研交付物：[`g1_sim_demo/`](g1_sim_demo/)（从正弦波到 RL+手势的仿真 demo）、[`g1_real_demo/`](g1_real_demo/)（真机部署）、[`va-demo/`](va-demo/)（基于 OpenAI Realtime 的语音 + 视觉智能体）和 [`g1_brain/`](g1_brain/)（在 va-demo 之上叠加感知 / 11 条安全规则 / ~16 个 LLM 工具的"慢脑 + 快反射 + 安全技能"三层认知智能体）。
 
 ### 📑 目录
 
@@ -747,6 +838,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
   - [🎬 `g1_sim_demo/` — MuJoCo Demo 一览](#-g1_sim_demo--mujoco-demo-一览)
   - [🦿 `g1_real_demo/` — 真机部署](#-g1_real_demo--真机部署)
   - [🎙️ `va-demo/` — 语音 + 视觉智能体](#%EF%B8%8F-va-demo--语音--视觉智能体)
+  - [🧠 `g1_brain/` — 慢脑 + 快反射 + 安全技能 智能体](#-g1_brain--慢脑--快反射--安全技能-智能体)
 - [📡 上游参考仓库](#-上游参考仓库)
 - [🧱 架构总览](#-架构总览)
 - [📚 文档索引](#-文档索引)
@@ -765,6 +857,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🎮 **五个开箱即用的 G1 仿真 demo** | 从 70 行的"发一段正弦波"热身脚本，到 1000 行的 RL+手势 combo 控制器，每个脚本都写满了 inline 注释，对着 Python MuJoCo 桥接器 **直接就能跑**。 |
 | 🦿 **真机部署脚手架** | `g1_real_demo/g1_real_rl_combo.py` 在 sim 版本基础上加了 `MotionSwitcher` 释放、有界 `lowstate` 等待和 `lying` 检线模式——在让机器人站起来之前就能验证 DDS 通路。 |
 | 🎙️ **语音 + 视觉 Realtime 智能体** | `va-demo/` 自带"嗨 Sparky"唤醒词的 OpenAI Realtime 全双工语音智能体，可以**调用视觉**描述场景，也能**工具调用** `walk` / `gesture` / `stop` 直接驱动 RL 策略——支持 confirm / observe / active / vision-only 四种运行模式。 |
+| 🧠 **慢脑 + 快反射 + 安全技能** | `g1_brain/` 在 `va-demo` 之上加 3 层智能体——MuJoCo 头摄第一视角 + YOLO11 + MediaPipe-Pose 融合成线程安全的 `SceneState`；**11 条安全规则**的 SafetySupervisor + 7 状态 FSM + 独立进程 E-stop；以及 ~**16 个 LLM 可调用技能**（`walk` / `turn` / `gesture` / `static_pose` / `look_at` / `approach` / `mock_imitate` / `describe_scene` / …）。详见 [`g1_brain/README.md`](g1_brain/README.md)。 |
 | 🧠 **真 ONNX 策略闭环跑** | `g1_sim_rl_walk.py`、`g1_sim_rl_combo.py`、`g1_real_rl_combo.py` 全部直接加载 `unitree_rl_mjlab` 官方的速度跟踪 ONNX checkpoint——sim 和真机走的是同一条 obs/action 流水线。 |
 | 🧷 **针对仿真的修复内置** | 上游 `g1_low_level_example.py` 在仿真里会卡死在 `MotionSwitcherClient.CheckMode()`，且 DDS domain 写死为 0。本仓库脚本默认走 domain 1、跳过 MotionSwitcher、并补上 `mode_machine` 握手。 |
 | 🐍 **统一的一份 conda 环境** | `agi` env 调和了 7 个互相冲突的上游（numpy 1.26.4 + torch 2.11.0+cu130 + mujoco 3.5.0 + tyro 1.0.13 + …），完整兼容性矩阵见 [`docs/libs_compatible.md`](docs/libs_compatible.md)；只跑 sim+RL 时可用更精简的 `unitree` env。 |
@@ -808,6 +901,26 @@ unitree-notes/
 │   │                                   video-design / video-use
 │   └── requirements.txt             ·  openai · sounddevice · faster-whisper ·
 │                                       webrtcvad-wheels · pyzmq · opencv-python
+│
+├── 📂 g1_brain/                     ← 🧠 慢脑 + 快反射 + 安全技能 智能体
+│   ├── g1_brain/perception/         ·  CameraHub · USB 摄像头 · MuJoCo 头摄（EGL）·
+│   │                                   YOLO11 · MediaPipe-Pose · 深度 · 派生量
+│   ├── g1_brain/scene_state/        ·  SceneState/RobotState 数据类 + RLock 共享总线
+│   ├── g1_brain/safety/             ·  7 状态 FSM · SafetySupervisor（11 条规则）·
+│   │                                   watchdog · 独立进程 E-stop
+│   ├── g1_brain/skills/             ·  SkillServer · ~16 个 OpenAI 工具 schema ·
+│   │                                   keyframe_extras · compound_skills
+│   ├── g1_brain/brain/              ·  BrainRealtimeAgent（继承 va-demo）+
+│   │                                   场景感知 system prompt
+│   ├── g1_brain/mock_imitation/     ·  用户手势 → MIRRORABLE 机器人手势（Phase 5）
+│   ├── g1_brain/apps/               ·  agent_main + perception/safety/skill/estop debug
+│   ├── configs/g1_brain.yaml        ·  唯一配置（机器人 · 摄像头 · 感知 ·
+│   │                                   安全 · openai · 音频 · 唤醒词）
+│   ├── docs/                        ·  architecture · how_to_run · extending_skills ·
+│   │                                   g1_brain_QA1 · g1-fix-phase{1,2,3,5}
+│   ├── tests/                       ·  pytest：11 条规则 · FSM · 场景总线 ·
+│   │                                   skill server · 端到端纵切片 · watchdog · …
+│   └── pyproject.toml               ·  ultralytics · mediapipe · openai · pyyaml · pynput
 │
 ├── 📡 上游参考仓库（只读快照）─────────────────────────────────────────────
 │
@@ -1106,6 +1219,58 @@ python -m va_demo.main                    # 默认 --mode confirm
 >
 > 🔉 WSL2 音频修复：把 `$CONDA_PREFIX/lib/alsa-lib` 软链到 `/usr/lib/x86_64-linux-gnu/alsa-lib`，让 ALSA 能找到 pulse 插件——见 [`docs/wsl2_audio.md`](docs/wsl2_audio.md)。
 
+#### 🧠 `g1_brain/` — 慢脑 + 快反射 + 安全技能 智能体
+
+> 一个新建的顶层包，**只 import 不修改** [`va-demo/`](va-demo/) 与 [`g1_sim_demo/`](g1_sim_demo/)，在它们之上叠加 **感知 · 安全 · 技能** 三层。OpenAI Realtime 一个回路无法同时覆盖三个时间尺度，本包把它们彻底分开，并把所有下行命令统一过一道安全验证后路由到唯一的技能服务器。
+
+📂 **必读：** [`g1_brain/README.md`](g1_brain/README.md) · [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) · [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) · [`docs/g1_plan.md`](docs/g1_plan.md)（完整 1500+ 行设计稿）
+
+**三层心智模型**
+
+| 层级 | 频率 | 谁来做 | 做什么 |
+|---|---|---|---|
+| 🧠 **慢脑（Slow Brain）** | 0.2–2 Hz | OpenAI Realtime + GPT-5.5 Vision | 规划、对话、决定调用哪个技能 |
+| 🛡️ **安全技能（Safe Skill）** | 每次调用 | `SafetySupervisor` + `SkillServer` | 验证（11 条规则）、裁剪、路由、中止 |
+| ⚡ **快反射（Fast Reflex）** | 5–30 Hz | 摄像头 + YOLO11 + MediaPipe-Pose + 深度 | 构建供安全层读取的 `SceneState` |
+
+**技能目录（~16 个 LLM 可调用工具）**
+
+| 类别 | 工具 |
+|---|---|
+| 🗣️ I/O | `say` · `describe_scene` · `query_scene_state` · `ask_human` |
+| 🦿 运动 | `walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` · `stop` · `release_arms` |
+| 🤖 仅真机 | `loco_high` · `arm_action_high` · `audio_tts_robot`（仿真模式拒绝） |
+
+**三种运行模式** — `--mode observe`（禁动）· `--mode confirm`（默认 — y/N 关卡）· `--mode active`（在安全包络内自主执行）。`--vision-only` 跳过 DDS 用作笔记本独立开发。
+
+**启动顺序（4 个终端，全部 `agi` env）**
+
+```bash
+# ── 终端 1：MuJoCo 仿真器 ──────────────────────────────────────
+conda activate unitree
+export MUJOCO_GL=glfw
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py
+
+# ── 终端 2：TeleImager 图像服务 ────────────────────────────────
+conda activate unitree
+cd ~/unitree/unitree-notes/teleimager
+python -m teleimager.image_server
+
+# ── 终端 3：独立 E-stop 监听（按 ESC 即灭车） ───────────────────
+conda activate agi
+python -m g1_brain.safety.estop_listener
+
+# ── 终端 4：智能体本体 ─────────────────────────────────────────
+conda activate agi
+export OPENAI_API_KEY=sk-...
+python -m g1_brain.apps.agent_main --mode confirm
+```
+
+**内置调试入口** — `python -m g1_brain.apps.{perception_debug, safety_debug, skill_debug, estop_test}`，每个都把一层独立验出来。
+
+> 🛡️ **关键不变量：** 每一次工具调用都要过 `SafetySupervisor.validate()`（白名单 · FSM 关卡 · run_mode · 4 个 watchdog · 姿态检查 · 参数裁剪 · 场景检查 · E-stop）。LLM 永远碰不到电机；独立的 E-stop 进程保证就算主进程死锁也能切电。
+
 ---
 
 ### 📡 上游参考仓库
@@ -1251,6 +1416,22 @@ python -m va_demo.main                    # 默认 --mode confirm
 | [`va-demo/docs/video-design.md`](va-demo/docs/video-design.md) | Vision-only 模式设计。 |
 | [`va-demo/docs/video-use.md`](va-demo/docs/video-use.md) | Vision-only 模式操作手册。 |
 
+#### 🧠 g1_brain
+
+| 文档 | 内容 |
+|---|---|
+| [`g1_brain/README.md`](g1_brain/README.md) | 📍 包总览——亮点、目录、安装、运行、模式、技能、安全、感知、模仿、配置、调试、测试、故障排查。 |
+| [`docs/g1_plan.md`](docs/g1_plan.md) | 推动 `g1_brain` 落地的 1500+ 行设计稿（慢脑 + 快反射 + 安全技能，Phase 0–7）。 |
+| [`docs/vlm_audio_mock.md`](docs/vlm_audio_mock.md) · [`vlm_audio_mock_deep.md`](docs/vlm_audio_mock_deep.md) | 设计前置的架构级研究笔记——VLM + 音频 + human-mimic 入门。 |
+| [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) | ~330 行的精简架构（三层、频率表、FSM、感知线程、进程模型）。 |
+| [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) | 操作员手册——前置依赖、4 个终端启动、调试入口、运行模式、常见错误、sim → real 切换、WSL2 注意。 |
+| [`g1_brain/docs/extending_skills.md`](g1_brain/docs/extending_skills.md) | 加新工具时要改的 4 个地方 + checklist。 |
+| [`g1_brain/docs/g1_brain_QA1.md`](g1_brain/docs/g1_brain_QA1.md) | Q&A 第一轮——`how_to_run.md` 周边的疑问。 |
+| [`g1_brain/docs/g1-fix-phase1.md`](g1_brain/docs/g1-fix-phase1.md) | 修复日志：启动后姿态震荡。 |
+| [`g1_brain/docs/g1-fix-phase2.md`](g1_brain/docs/g1-fix-phase2.md) | 修复日志：RL ramp + watchdog 宽限期 + 恢复 hold。 |
+| [`g1_brain/docs/g1-fix-phase3.md`](g1_brain/docs/g1-fix-phase3.md) | 修复日志：头摄 EGL 线程 + DDS 订阅时序。 |
+| [`g1_brain/docs/g1-fix-phase5.md`](g1_brain/docs/g1-fix-phase5.md) | 修复日志：USB watchdog 在 USB 关闭时仍锁住手势。 |
+
 #### 📡 上游深度笔记
 
 | 文档 | 内容 |
@@ -1366,6 +1547,7 @@ pip install --force-reinstall "numpy==1.26.4"
 
 - 🆕 **新 demo**（`g1_sim_demo/` 或 `g1_real_demo/` 下，例如 `pygame` 遥控、ROS 2 桥、动捕重定向）。
 - 🎙️ **va-demo 新技能**（新工具调用——例如 `look_at(target)`、`count_steps_to(object)`）。
+- 🧠 **`g1_brain/` 新技能、安全规则、感知派生量**——按 [`g1_brain/docs/extending_skills.md`](g1_brain/docs/extending_skills.md) 的 4 步配方走。
 - 📝 **文档英译**（把 `docs/*.md` 的深度解读翻译成英文）。
 - 🐛 **bug 修复**（任意自研脚本）。
 
@@ -1398,7 +1580,7 @@ git push origin feature/my-cool-demo
 
 | 路径 | 许可证 | 来源 |
 |---|---|---|
-| `g1_sim_demo/`、`g1_real_demo/`、`va-demo/`、`docs/`、`instructions.md`、`requirements.txt`、`README.md` | **Apache 2.0** | 本仓库 |
+| `g1_sim_demo/`、`g1_real_demo/`、`va-demo/`、`g1_brain/`、`docs/`、`instructions.md`、`requirements.txt`、`README.md` | **Apache 2.0** | 本仓库 |
 | `unitree_sdk2_python/`、`unitree_mujoco/`、`unitree_rl_mjlab/`、`unitree_ros/`、`unitree_ros2/`、`unitree_sim_isaaclab/`、`unitree_lerobot/`、`xr_teleoperate/`、`teleimager/` | 见各仓库 `LICENSE` | © 宇树科技 |
 | `unifolm-vla/`、`unifolm-world-model-action/` | 见各仓库 `LICENSE` | © 宇树科技 / UnifoLM |
 

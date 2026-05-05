@@ -307,18 +307,13 @@ async def _run(args: argparse.Namespace) -> int:
     mic.start()
     speaker.start()
 
-    # ---- camera hub ----
-    CameraHub = _try_import_camera_hub()
-    camera_hub = None
-    if CameraHub is not None:
-        try:
-            camera_hub = CameraHub(cfg)
-        except Exception as e:  # noqa: BLE001
-            log.warning("CameraHub construction failed: %s", e)
-            camera_hub = None
-
     # ---- combo controller (optional) ----
+    # IMPORTANT: ChannelFactoryInitialize must run before CameraHub, because
+    # MuJoCoHeadCamera subscribes to rt/lowstate / rt/sportmodestate in its
+    # constructor — without the factory, those Init() calls explode with
+    # "'NoneType' object has no attribute '_ref'".
     combo_ctl = None
+    dds_ready = False
     if not args.no_skills:
         try:
             from unitree_sdk2py.core.channel import ChannelFactoryInitialize  # noqa: WPS433
@@ -331,6 +326,25 @@ async def _run(args: argparse.Namespace) -> int:
                                  str(cfg["robot"]["interface"]))
         log.info("DDS initialized: domain=%d iface=%s",
                  int(cfg["robot"]["domain_id"]), str(cfg["robot"]["interface"]))
+        dds_ready = True
+
+    # ---- camera hub ----
+    # Built after DDS init so the head camera can subscribe successfully when
+    # we have skills enabled; in --no-skills / --vision-only modes we render
+    # from default qpos and skip DDS entirely.
+    CameraHub = _try_import_camera_hub()
+    camera_hub = None
+    if CameraHub is not None:
+        try:
+            camera_hub = CameraHub(
+                cfg.get("cameras", {}) or {},
+                subscribe_dds=dds_ready,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("CameraHub construction failed: %s", e)
+            camera_hub = None
+
+    if not args.no_skills:
         combo_mod = _try_import_combo()
         if combo_mod is None:
             log.error("combo controller unavailable; continuing with --no-skills")

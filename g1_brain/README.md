@@ -10,9 +10,10 @@ A new top-level package that **imports** (does not modify) the existing
 `va-demo/` (Realtime audio + GPT-5.5 vision) and `g1_sim_demo/` (RL combo
 controller + keyframe library) demos, and adds three new layers on top:
 
-1. **Perception (Fast Reflex)** — dual cameras (USB user-facing + MuJoCo
-   first-person head cam), YOLO11, MediaPipe-Pose, depth, fused into a
-   `SceneState`.
+1. **Perception (Fast Reflex)** — dual cameras (USB user-facing via
+   teleimager + MuJoCo first-person head cam, EGL-rendered offscreen,
+   camera synthesized onto `torso_link` when the MJCF doesn't ship
+   one), YOLO11, MediaPipe-Pose, depth, fused into a `SceneState`.
 2. **Safety** — extended SafetySupervisor with 11 validation rules, a
    7-state FSM, and an independent E-stop process.
 3. **Skills** — ~16 LLM-callable tools covering walk, turn, gesture,

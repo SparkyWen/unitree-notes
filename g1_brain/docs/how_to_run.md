@@ -53,6 +53,35 @@ MuJoCo runs in `unitree` (NOT `agi`) because it pins
 each repo's README for setup; both are git clones in
 `~/unitree/unitree-notes/`.
 
+The G1 simulator uses MuJoCo's GLFW backend for its on-screen viewer, so
+Terminal 1 still needs `MUJOCO_GL=glfw`. The agent process (Terminal 4),
+on the other hand, only does **off-screen** rendering for its head
+camera, and `g1_brain.perception.mujoco_head_cam` sets
+`MUJOCO_GL=egl` automatically at import time so it works on WSL2/WSLg
+without crashing on `X_GLXMakeCurrent` (see §5.2). Override only if you
+need software (`MUJOCO_GL=osmesa`) or you have a real X session and
+want GLFW (`MUJOCO_GL=glfw`).
+
+### 1.5 Head camera mounting
+
+The stock G1 MJCFs (`unitree_mujoco/unitree_robots/g1/scene_*.xml`) ship
+**without any `<camera>` element**. `MuJoCoHeadCamera` notices this and
+splices one onto a body via `mujoco.MjSpec` at construction time — by
+default `head_camera` on `torso_link` looking forward (+X) at 60° vFov.
+The defaults live in `g1_brain.perception.mujoco_head_cam` and are
+overridable per-deployment under `cameras.head.*`:
+
+| YAML key | Purpose | Default |
+| --- | --- | --- |
+| `attach_body` | body that the camera rigidly follows | `torso_link` |
+| `attach_pos` | mount position in that body's frame (m) | `[0.08, 0.0, 0.45]` |
+| `attach_xyaxes` | camera orientation (`x`, then `y` axis in body frame) | `[0,-1,0, 0,0,1]` (look +X) |
+| `attach_fovy` | vertical field of view (deg) | `60.0` |
+
+If the MJCF *does* already define a camera with the requested name (real
+robot, or a custom scene), the synthesis path is skipped and that camera
+is used as-is.
+
 ---
 
 ## 2. The 4-terminal startup sequence
@@ -90,8 +119,16 @@ python -m g1_brain.apps.agent_main --mode confirm
 You can omit Terminal 3 if you only want soft safety (the supervisor still
 gates everything; you just lose the panic-button exit).
 
-You can omit Terminal 2 if you pass `cameras.usb.source: cv2` in
-`configs/g1_brain.yaml` and have a webcam.
+Terminal 2 (teleimager) is the recommended path for the USB camera,
+because the same client code works in sim and on the real robot — only
+`cameras.usb.teleimager_host` changes between the two. If you don't want
+to run teleimager (laptop dev, no webcam server), set
+`cameras.usb.source: cv2` and `UsbCamera` will open `/dev/video0`
+directly. The `cv2` and `teleimager` backends both fight over the same
+device, so don't run them concurrently.
+
+Terminal 4 no longer needs an `MUJOCO_GL` export — `mujoco_head_cam`
+defaults to `egl`, which is what WSLg expects.
 
 ---
 
@@ -178,13 +215,31 @@ Causes / fixes:
 - `interface: lo` doesn't exist on this system → set to your loopback
   alias (Linux is usually `lo`; on macOS `lo0`).
 
-### 5.2 MuJoCo: `OpenGL renderer null`
+### 5.2 MuJoCo / OpenGL errors
 
-Symptoms: MuJoCo errors out with a renderer / GLFW error on launch.
+There are two MuJoCo processes in this stack and they want different
+GL backends:
 
-Fix: `export MUJOCO_GL=glfw` *before* launching MuJoCo. On WSL2, also
-make sure WSLg is active (`echo $DISPLAY` should print `:0` or similar).
-If you're SSHing in, prefer `MUJOCO_GL=egl` for headless rendering.
+**(a) The simulator (Terminal 1)** opens an on-screen viewer window.
+On WSL2/WSLg use `MUJOCO_GL=glfw` and confirm WSLg is up
+(`echo $DISPLAY` should print `:0`). When SSH'ing in headless, use
+`MUJOCO_GL=osmesa` (software) — `egl` works on bare-metal Linux but is
+fragile under WSLg for GUI windows.
+
+**(b) The agent's head camera (Terminal 4)** renders off-screen only.
+`g1_brain.perception.mujoco_head_cam` sets `MUJOCO_GL=egl` at import
+time. You should not need to set it. The override order is the same
+`os.environ.setdefault` pattern — anything you exported before launch
+wins.
+
+Diagnostic mapping:
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| Terminal 1 dies with "OpenGL renderer null" | WSLg not exposing GLX, or MUJOCO_GL not set | export `MUJOCO_GL=glfw`, check `echo $DISPLAY` |
+| Terminal 4 dies with `X Error: BadAccess … X_GLXMakeCurrent` | g1_brain head cam fell back to GLFW under WSLg | should not happen anymore — confirm `MUJOCO_GL` is empty or `egl` before launching agent_main; if explicitly set to `glfw`, unset it |
+| Head cam silent + debug log shows `EGL_BAD_ACCESS on eglMakeCurrent` | a `mujoco.Renderer` was constructed on the main thread but used from another (legacy bug) | should not happen anymore — `MuJoCoHeadCamera` now lazy-builds renderers inside its render thread; pull latest |
+| Head cam silent on a remote box without a GPU | EGL has no driver | `export MUJOCO_GL=osmesa` before agent_main (slower, software fallback) |
 
 ### 5.3 CUDA out-of-memory on the 4060
 
@@ -233,6 +288,43 @@ Causes:
 - The boot ramp aborted because lowstate stopped midway. Watch
   Terminal 1 for an error.
 
+### 5.7 Head camera renders an empty / sky-only frame
+
+Symptoms: `latest_head_bgr()` returns a frame that's all sky / blue
+gradient with a checkered floor far away. The "synthesized head camera"
+INFO log line *did* appear at startup.
+
+This means the synthesized camera is mounted correctly but the robot
+isn't visible because it's too far away from the camera origin (i.e.
+the camera is sitting at `(0.08, 0, 0.45)` in `torso_link`'s frame
+looking forward — it's *inside* the robot's head looking outward, which
+is correct). When the simulator starts the robot at the origin and
+hasn't been kicked off yet, the only thing in front is the floor.
+
+Sanity checks:
+- Press `8` in the MuJoCo viewer window a few times to drop the robot
+  onto the floor and let it stand.
+- Confirm `cameras.head.subscribe_dds` is true (default) and that DDS
+  is up — otherwise the head cam renders from the model's keyframe
+  pose, not the live pose. With `--no-skills` / `--vision-only` we
+  intentionally fall back to keyframe pose.
+- If you're testing against a non-G1 MJCF, override `attach_body` to a
+  body that exists in *that* model.
+
+### 5.8 Head camera DDS subscribers fail with `'NoneType' object has no attribute '_ref'`
+
+Should not happen anymore. Historical cause: `CameraHub` was being
+constructed before `ChannelFactoryInitialize`, so
+`ChannelSubscriber.Init('rt/lowstate')` raced the factory. Fixed in
+`apps/agent_main.py` — camera_hub is now built after DDS init and
+inherits `subscribe_dds=False` automatically when `--no-skills` /
+`--vision-only` is passed (no DDS init at all).
+
+If you somehow see this error, you're probably on an older checkout, or
+you're constructing `MuJoCoHeadCamera` directly in your own script
+before calling `ChannelFactoryInitialize`. Either reorder, or pass
+`subscribe_dds=False` to render from keyframe pose only.
+
 ---
 
 ## 6. Switching from sim to real robot
@@ -245,10 +337,46 @@ checklist. Highlights:
 - `mode: real` in the YAML — Safety stops rejecting `loco_high` /
   `arm_action_high` / `audio_tts_robot` and SkillServer routes those to
   `LocoClient` / `G1ArmActionClient` / `AudioClient`.
-- Replace `cameras.head` with a `RealSenseCamera` adapter (interface
-  identical: `latest_bgr / latest_depth / frame_age_seconds`).
+- `cameras.usb`: keep `source: teleimager`, change
+  `teleimager_host` from `127.0.0.1` to the robot's IP. The on-robot
+  teleimager service exposes the real RGB camera the same way the
+  laptop's local instance does in sim.
+- `cameras.head`: in sim this is the synthesized MuJoCo first-person
+  view of the robot in its own simulated world. On the real robot you
+  have two reasonable options:
+  - **Disable it** (`cameras.head.enabled: false`) and rely on the
+    onboard depth/RGB camera fed through teleimager.
+  - **Replace** the `MuJoCoHeadCamera` with a `RealSenseCamera` adapter
+    exposing the same interface
+    (`latest_bgr / latest_depth_meters / frame_age_seconds /
+    hfov_deg / vfov_deg`). Plug it in by editing
+    `perception/cameras.py::CameraHub._build_head` to branch on
+    `cfg.get("real")` (or `cfg.mode`).
 - `safety.estop` stays the same file-based flag; additionally bind a real
   hardware E-stop (handheld remote button) to write the same flag.
 - Walk safety bounds: keep them at the v1 levels until you've validated
   the chassis on real hardware. Do *not* loosen `vx_max` until a human
   has run a 30-minute supervised loop without incident.
+
+---
+
+## 7. WSL2 / WSLg specifics (current dev box)
+
+This repo is being developed against Linux on WSL2 (Ubuntu in WSLg).
+A few pitfalls have already been worked around in code; if you move to
+native Linux, you'll be unaffected by all of them.
+
+- **GLX BadAccess in the agent**: WSLg's GLX bridge can't keep two
+  MuJoCo `Renderer` GLFW contexts current from a worker thread. The
+  head cam now defaults to EGL (see §5.2). If you ever set
+  `MUJOCO_GL=glfw` for the agent on WSL, expect the crash back.
+- **EGL context affinity**: `MuJoCoHeadCamera` constructs its
+  renderers inside the render thread, not the main thread, because
+  EGL contexts can only be made current from the thread that created
+  them. Don't reorder this if you refactor.
+- **Webcam under WSLg**: `usbipd-win` mounts the laptop webcam at
+  `/dev/video0`. teleimager's `image_server` opens it; `cv2.VideoCapture(0)`
+  will then fail because the device is busy. Pick one consumer.
+- **ALSA underrun warnings** during startup are cosmetic and come from
+  PulseAudio buffer alignment under WSLg. They do not indicate dropped
+  audio.

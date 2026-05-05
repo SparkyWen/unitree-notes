@@ -14,11 +14,30 @@ import logging
 import os
 import threading
 import time
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
+# WSLg's GLX bridge crashes (BadAccess on glXMakeCurrent) when MuJoCo's GLFW
+# backend juggles two renderer contexts from a worker thread. EGL goes through
+# Mesa directly without GLX, which is the WSL-safe choice. User can still
+# override by exporting MUJOCO_GL=glfw|osmesa before launch.
+os.environ.setdefault("MUJOCO_GL", "egl")
+
 log = logging.getLogger(__name__)
+
+# Default head-camera mount when the MJCF doesn't ship one. G1's "head" is a
+# static mesh hanging off torso_link at offset (0.004, 0, -0.054); the eyes sit
+# roughly at +X 0.08, +Z 0.45 in torso_link's frame. xyaxes rotates the camera's
+# default -Z look direction onto the robot's +X (forward) axis: cam-X = world-Y
+# (left), cam-Y = world-Z (up), so cam-Z = -X (looking backwards along -X means
+# the camera looks forward along +X).
+DEFAULT_ATTACH_BODY = "torso_link"
+DEFAULT_ATTACH_POS: Tuple[float, float, float] = (0.08, 0.0, 0.45)
+DEFAULT_ATTACH_XYAXES: Tuple[float, float, float, float, float, float] = (
+    0.0, -1.0, 0.0, 0.0, 0.0, 1.0,
+)
+DEFAULT_ATTACH_FOVY = 60.0
 
 # G1 has 29 actuated joints in g1_29dof.xml; the floating base adds 7 qpos
 # (xyz + quat). We don't hardcode this — we read mj_model.nu / nq instead.
@@ -36,21 +55,32 @@ class MuJoCoHeadCamera:
         poll_hz: float = 20.0,
         jpeg_quality: int = 85,
         subscribe_dds: bool = True,
+        attach_body: str = DEFAULT_ATTACH_BODY,
+        attach_pos: Sequence[float] = DEFAULT_ATTACH_POS,
+        attach_xyaxes: Sequence[float] = DEFAULT_ATTACH_XYAXES,
+        attach_fovy: float = DEFAULT_ATTACH_FOVY,
     ):
         # Heavy import is intentionally inside __init__ so derivation tests
         # never need MuJoCo on the path.
         import mujoco
 
         self._mujoco = mujoco
-        # Honor MUJOCO_GL via env (user picks glfw/egl/osmesa); just respect
-        # whatever they exported.
-        os.environ.setdefault("MUJOCO_GL", os.environ.get("MUJOCO_GL", "glfw"))
 
-        self._model = mujoco.MjModel.from_xml_path(mjcf_path)
+        self._model = self._load_or_synthesize_model(
+            mjcf_path,
+            camera_name=camera_name,
+            attach_body=attach_body,
+            attach_pos=attach_pos,
+            attach_xyaxes=attach_xyaxes,
+            attach_fovy=attach_fovy,
+        )
         self._data = mujoco.MjData(self._model)
-        self._renderer = mujoco.Renderer(self._model, height=height, width=width)
-        self._depth_renderer = mujoco.Renderer(self._model, height=height, width=width)
-        self._depth_renderer.enable_depth_rendering()
+        # Renderers are NOT built here. EGL/GLFW GL contexts are owned by the
+        # thread that creates them — making them current from another thread
+        # errors with EGL_BAD_ACCESS / GLX BadAccess. We lazy-build inside the
+        # render thread instead.
+        self._renderer: Optional["mujoco.Renderer"] = None
+        self._depth_renderer: Optional["mujoco.Renderer"] = None
         self._width = width
         self._height = height
         self._jpeg_quality = jpeg_quality
@@ -81,12 +111,57 @@ class MuJoCoHeadCamera:
         )
         self._render_thread.start()
 
+    # ---------------- model loading ----------------
+
+    def _load_or_synthesize_model(
+        self,
+        mjcf_path: str,
+        *,
+        camera_name: str,
+        attach_body: str,
+        attach_pos: Sequence[float],
+        attach_xyaxes: Sequence[float],
+        attach_fovy: float,
+    ):
+        """Compile the MJCF; if no usable camera exists, splice one onto
+        ``attach_body`` via MjSpec so we don't render from world origin."""
+        mujoco = self._mujoco
+        spec = mujoco.MjSpec.from_file(mjcf_path)
+
+        # Walk the spec to see if the requested camera is already defined.
+        # MjSpec.cameras returns every <camera> in the model.
+        existing = {c.name for c in spec.cameras}
+        if camera_name in existing:
+            return spec.compile()
+
+        body = spec.body(attach_body)
+        if body is None:
+            log.warning(
+                "attach_body %r not found in MJCF; falling back to free "
+                "camera at origin (renders will be useless until you set "
+                "cameras.head.attach_body to a real body name)",
+                attach_body,
+            )
+            return spec.compile()
+
+        body.add_camera(
+            name=camera_name,
+            pos=list(attach_pos),
+            xyaxes=list(attach_xyaxes),
+            fovy=float(attach_fovy),
+        )
+        log.info(
+            "synthesized head camera %r on body %r at pos=%s fovy=%.1f°",
+            camera_name, attach_body, tuple(attach_pos), float(attach_fovy),
+        )
+        return spec.compile()
+
     # ---------------- camera resolution ----------------
 
     def _resolve_camera(self, name: str) -> int:
-        """Find a named camera in the MJCF; fall back to the first defined
-        camera if the requested one is missing. Falls back to -1 (the free
-        camera at the model origin) if no camera is defined at all."""
+        """Find a named camera in the compiled model. After
+        _load_or_synthesize_model the requested name should exist; fall
+        through to first camera or free-cam only as a last resort."""
         cam_id = self._mujoco.mj_name2id(
             self._model, self._mujoco.mjtObj.mjOBJ_CAMERA, name
         )
@@ -94,11 +169,11 @@ class MuJoCoHeadCamera:
             return cam_id
         if self._model.ncam > 0:
             log.warning(
-                "head camera %r not found in MJCF; using first camera idx=0", name
+                "head camera %r missing after compile; using camera idx=0", name
             )
             return 0
         log.warning(
-            "no <camera> defined in MJCF; falling back to free camera at origin"
+            "no <camera> available; falling back to free camera at origin"
         )
         return -1
 
@@ -221,9 +296,32 @@ class MuJoCoHeadCamera:
             log.debug("render error: %s", e)
 
     def _render_loop(self) -> None:
-        while not self._stop.is_set():
-            self._render_once()
-            self._stop.wait(self._poll_interval_s)
+        # Build the GL-backed renderers here so their EGL/GLFW contexts are
+        # owned by this thread (see __init__).
+        try:
+            self._renderer = self._mujoco.Renderer(
+                self._model, height=self._height, width=self._width
+            )
+            self._depth_renderer = self._mujoco.Renderer(
+                self._model, height=self._height, width=self._width
+            )
+            self._depth_renderer.enable_depth_rendering()
+        except Exception as e:  # noqa: BLE001
+            log.error("head cam renderer init failed: %s", e)
+            return
+        try:
+            while not self._stop.is_set():
+                self._render_once()
+                self._stop.wait(self._poll_interval_s)
+        finally:
+            for r in (self._renderer, self._depth_renderer):
+                try:
+                    if r is not None:
+                        r.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._renderer = None
+            self._depth_renderer = None
 
     # ---------------- public API ----------------
 
@@ -259,9 +357,13 @@ class MuJoCoHeadCamera:
             return time.monotonic() - self._last_t
 
     def close(self) -> None:
+        # Signal the render thread; it owns the GL contexts and frees them
+        # in its own finally block. Closing them from this thread would error
+        # with EGL_BAD_ACCESS for the same reason renderer construction had to
+        # be moved into the worker.
         self._stop.set()
         try:
-            self._render_thread.join(timeout=1.0)
+            self._render_thread.join(timeout=2.0)
         except Exception:
             pass
         for s in self._subs:
@@ -273,11 +375,3 @@ class MuJoCoHeadCamera:
                     close()
             except Exception:
                 pass
-        try:
-            self._renderer.close()
-        except Exception:
-            pass
-        try:
-            self._depth_renderer.close()
-        except Exception:
-            pass

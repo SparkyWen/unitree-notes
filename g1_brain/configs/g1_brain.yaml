@@ -9,6 +9,12 @@ robot:
 cameras:
   usb:
     enabled: true
+    # In sim mode, run unitree-notes/teleimager/image_server locally — it
+    # captures /dev/video0 (laptop webcam) and serves frames on
+    # teleimager_request_port. On the real robot, point teleimager_host at
+    # the robot. Switch source to "cv2" if you want to bypass teleimager and
+    # have UsbCamera open /dev/video0 directly (only valid when nothing else
+    # — including teleimager — already holds the device).
     source: "teleimager"        # teleimager / cv2
     teleimager_host: "127.0.0.1"
     teleimager_request_port: 60000
@@ -16,10 +22,16 @@ cameras:
     poll_hz: 20
   head:
     enabled: true
-    camera_name: "head_camera"  # falls back to first <camera> in the MJCF if missing
+    camera_name: "head_camera"  # synthesized on attach_body if missing in MJCF
     width: 640
     height: 480
     poll_hz: 20
+    # When the included MJCF has no <camera>, MuJoCoHeadCamera attaches one
+    # via MjSpec onto this body. Defaults match unitree_mujoco's G1 torso.
+    attach_body: "torso_link"
+    attach_pos: [0.08, 0.0, 0.45]
+    attach_xyaxes: [0.0, -1.0, 0.0, 0.0, 0.0, 1.0]   # look forward (+X)
+    attach_fovy: 60.0
 
 perception:
   device: "auto"                # cuda / cpu / auto

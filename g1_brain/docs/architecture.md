@@ -28,7 +28,10 @@ in [`../../docs/g1_plan.md`](../../docs/g1_plan.md).
                                 ↕            (skill call)
 ┌────────────────────────────────────────────────────────────────────┐
 │  FAST REFLEX  (g1_brain/perception/ + scene_state/)    5-30 Hz     │
-│  - Dual cameras: USB (user) + MuJoCo head cam (robot view)         │
+│  - Dual cameras:                                                   │
+│      USB    — laptop/robot RGB via teleimager (or cv2 fallback)    │
+│      head   — MuJoCo offscreen RGB+depth, EGL-backed, own thread,  │
+│               camera synthesized onto torso_link if MJCF lacks one │
 │  - YOLO11, MediaPipe-Pose, MuJoCo native depth                     │
 │  - Fused into SceneState (clear_path / nearest_obstacle / ...)     │
 │  - Safety reads SceneState before every motion skill               │
@@ -276,14 +279,41 @@ Single main process running asyncio + many background threads + one
 independent E-stop process.
 
 - Main process: asyncio loop running BrainRealtimeAgent + WS uplink/downlink
-- Background threads: MicStream, SpeakerStream, Camera (×2), YOLO, Pose,
-  ComboController (50 Hz), watchdogs (20 Hz), RobotStateProducer (20 Hz),
-  GestureAutoTrigger
+- Background threads: MicStream, SpeakerStream, UsbCamera, MuJoCoHeadCamera
+  (own EGL context — see below), YOLO, Pose, ComboController (50 Hz),
+  watchdogs (20 Hz), RobotStateProducer (20 Hz), GestureAutoTrigger
 - Independent process: `safety/estop_listener.py` — only thing that can
   publish lowcmd if the main process deadlocks
 
 This is enough for v1. Phase 6+ (real robot) may move some of this to ROS2
 or ZMQ; v1 keeps it intentionally small.
+
+### 9.1 MuJoCo head camera — startup and threading
+
+Two facts that drive the implementation in `perception/mujoco_head_cam.py`:
+
+1. **DDS subscribers must outlive `ChannelFactoryInitialize`.** The head
+   camera subscribes to `rt/lowstate` and `rt/sportmodestate` so its
+   private `MjData` tracks the live robot. `agent_main.py` therefore
+   constructs `CameraHub` **after** the DDS factory is initialized, and
+   passes `subscribe_dds=False` automatically when running with
+   `--no-skills` / `--vision-only` (no DDS at all). Subscribing before
+   the factory is up raises `'NoneType' object has no attribute '_ref'`.
+2. **GL contexts are pinned to the thread that created them.** EGL
+   raises `EGL_BAD_ACCESS` (and GLX raises `BadAccess`) if a context is
+   made current on a different thread than it was created on. The
+   render-thread therefore *constructs* its own RGB and depth
+   `mujoco.Renderer` instances at the top of its loop, not in
+   `__init__`. `close()` only signals stop and joins; teardown of the
+   GL contexts happens in the worker's `finally` block.
+
+Camera synthesis: stock G1 MJCFs (`scene_29dof.xml`, `scene_23dof.xml`)
+do not define any `<camera>`. `MuJoCoHeadCamera._load_or_synthesize_model`
+loads the MJCF as an `MjSpec`, walks its existing cameras, and only if
+the requested `camera_name` is missing, it `add_camera`s one onto
+`attach_body` (default `torso_link`) before compiling. This keeps the
+upstream `unitree_mujoco/` checkout untouched while still giving the
+head a sensible first-person view.
 
 ---
 

@@ -15,12 +15,21 @@ log = logging.getLogger(__name__)
 
 
 class CameraHub:
-    """Owns both the USB and MuJoCo head camera; either may be disabled."""
+    """Owns both the USB and MuJoCo head camera; either may be disabled.
 
-    def __init__(self, cameras_cfg: dict):
-        self._cfg = cameras_cfg or {}
+    Pass the ``cameras:`` subsection of g1_brain.yaml. If a top-level cfg dict
+    (one with ``cameras`` inside) is passed by mistake we unwrap it once so old
+    callers keep working — but new code should pass the subsection.
+    """
+
+    def __init__(self, cameras_cfg: dict, *, subscribe_dds: bool = True):
+        cfg = cameras_cfg or {}
+        if "cameras" in cfg and "usb" not in cfg and "head" not in cfg:
+            cfg = cfg.get("cameras", {}) or {}
+        self._cfg = cfg
         usb_cfg = self._cfg.get("usb", {}) or {}
         head_cfg = self._cfg.get("head", {}) or {}
+        self._subscribe_dds = bool(subscribe_dds)
 
         self._usb = None
         self._head = None
@@ -55,7 +64,13 @@ class CameraHub:
             return None
 
     def _build_head(self, cfg: dict):
-        from .mujoco_head_cam import MuJoCoHeadCamera
+        from .mujoco_head_cam import (
+            DEFAULT_ATTACH_BODY,
+            DEFAULT_ATTACH_FOVY,
+            DEFAULT_ATTACH_POS,
+            DEFAULT_ATTACH_XYAXES,
+            MuJoCoHeadCamera,
+        )
 
         mjcf = cfg.get("mjcf_path") or os.path.expanduser(
             os.environ.get(
@@ -63,6 +78,10 @@ class CameraHub:
                 "~/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml",
             )
         )
+        # head.subscribe_dds in yaml may explicitly disable; otherwise inherit
+        # the hub-wide flag (set False when agent_main runs without DDS).
+        cfg_sub = cfg.get("subscribe_dds", None)
+        sub_dds = self._subscribe_dds if cfg_sub is None else bool(cfg_sub)
         try:
             return MuJoCoHeadCamera(
                 mjcf_path=os.path.expanduser(os.path.expandvars(mjcf)),
@@ -70,7 +89,11 @@ class CameraHub:
                 width=int(cfg.get("width", 640)),
                 height=int(cfg.get("height", 480)),
                 poll_hz=float(cfg.get("poll_hz", 20.0)),
-                subscribe_dds=bool(cfg.get("subscribe_dds", True)),
+                subscribe_dds=sub_dds,
+                attach_body=str(cfg.get("attach_body", DEFAULT_ATTACH_BODY)),
+                attach_pos=list(cfg.get("attach_pos", DEFAULT_ATTACH_POS)),
+                attach_xyaxes=list(cfg.get("attach_xyaxes", DEFAULT_ATTACH_XYAXES)),
+                attach_fovy=float(cfg.get("attach_fovy", DEFAULT_ATTACH_FOVY)),
             )
         except Exception as e:
             log.warning("MuJoCo head camera init failed: %s", e)

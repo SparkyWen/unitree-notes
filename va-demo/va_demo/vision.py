@@ -16,7 +16,7 @@ class VisionClient:
         self,
         client,
         model: str = "gpt-5.5",
-        default_detail: str = "medium",
+        default_detail: str = "auto",
         timeout_s: float = 15.0,
     ):
         self._client = client

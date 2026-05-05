@@ -75,6 +75,14 @@ safety:
     lowstate_max_age_s: 0.5
     head_frame_max_age_s: 2.0
     usb_frame_max_age_s: 3.0
+    # Watchdogs may set/clear flags but never promote to EMERGENCY_STOP
+    # during this grace window — covers combo's 5 s pose ramp and the
+    # initial camera-frame startup transient.
+    boot_grace_s: 5.0
+    # When in EMERGENCY_STOP and all motion-blocking watchdogs (lowstate,
+    # head_frame, pose) have been continuously clear for this long, walk
+    # EMERGENCY_STOP -> RECOVERING -> STANDING automatically.
+    recovery_hold_s: 2.0
   say:
     max_chars: 200
   estop:
@@ -88,7 +96,7 @@ openai:
   tts_model: "gpt-4o-mini-tts"
   tts_voice: "alloy"
   realtime_voice: "alloy"
-  vision_detail: "medium"
+  vision_detail: "auto"          # OpenAI accepts low/high/auto/original
 
 audio:
   samplerate: 24000

@@ -114,7 +114,17 @@ class _RobotStateProducer:
 
     This avoids subscribing to ``rt/lowstate`` a second time (combo already
     does it). The watchdogs read from RobotStateBus, not directly from combo.
+
+    Also drives the operational FSM transition STANDING -> ENGAGED once the
+    RL policy has been continuously active for ``engage_hold_s``. Without
+    this auto-promotion the FSM would sit in STANDING forever and motion
+    tools (walk/turn/gesture/...) would always fail rule-2 ("not allowed in
+    state STANDING"). When the watchdog manager auto-recovers from
+    EMERGENCY_STOP back to STANDING, we re-arm and ENGAGE again.
     """
+
+    # Sustained policy_active needed before we promote STANDING -> ENGAGED.
+    _ENGAGE_HOLD_S = 0.3
 
     def __init__(self, combo_ctl, robot_bus, fsm, hz: float = 20.0):
         from ..safety.pose_check import gravity_proj_z_from_quat
@@ -126,6 +136,9 @@ class _RobotStateProducer:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._gravity_proj_z_from_quat = gravity_proj_z_from_quat
+        # Monotonic time at which policy first went active continuously, or
+        # None when it is currently inactive / has just dropped.
+        self._policy_active_since: Optional[float] = None
 
     def start(self) -> None:
         from ..scene_state.types import RobotState
@@ -172,15 +185,47 @@ class _RobotStateProducer:
             )
         except Exception:  # noqa: BLE001
             ang_vel = (0.0, 0.0, 0.0)
+        policy_active = bool(getattr(self._combo, "policy_active", False))
         rs = self._RobotState(
-            standing=bool(getattr(self._combo, "policy_active", False)),
+            standing=policy_active,
             gravity_proj_z=gz,
             base_ang_vel_xyz=ang_vel,
-            rl_policy_active=bool(getattr(self._combo, "policy_active", False)),
+            rl_policy_active=policy_active,
             last_lowstate_age_s=max(0.0, time.monotonic() - last_t),
             mode_machine=int(getattr(self._combo, "mode_machine", 0)),
         )
         self._bus.update(rs)
+        self._maybe_engage(policy_active)
+
+    def _maybe_engage(self, policy_active: bool) -> None:
+        """Promote STANDING -> ENGAGED when policy_active is sustained.
+
+        Without this the FSM would sit in STANDING and the SafetySupervisor
+        would reject every motion tool with "not allowed in state STANDING".
+        We only promote *out of STANDING*; the watchdog manager's
+        auto-recovery brings us back to STANDING after EMERGENCY_STOP, at
+        which point the next sustained policy_active sample re-engages.
+        """
+        from ..safety.state_machine import (  # noqa: WPS433 (late import)
+            IllegalTransitionError,
+            RobotFsmState,
+        )
+
+        if not policy_active:
+            self._policy_active_since = None
+            return
+        now = time.monotonic()
+        if self._policy_active_since is None:
+            self._policy_active_since = now
+            return
+        if (now - self._policy_active_since) < self._ENGAGE_HOLD_S:
+            return
+        if self._fsm.state != RobotFsmState.STANDING:
+            return
+        try:
+            self._fsm.transition(RobotFsmState.ENGAGED, "policy active")
+        except IllegalTransitionError:
+            log.debug("STANDING -> ENGAGED refused", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -356,9 +401,18 @@ async def _shutdown_step(name: str, fn, timeout: float = 3.0) -> None:
     Each subsystem's stop()/close() can in principle hang (DDS shutdown,
     audio close, ML thread joins). Without a timeout the user has to
     SIGKILL the process — which leaks the audio device for the next run.
+
+    Handles both sync callables (run via ``asyncio.to_thread`` so a hang
+    inside C-level code can still time out) and async / coroutine-returning
+    callables (awaited directly). Without the async branch, async stops
+    like ``GestureAutoTrigger.stop`` produced "coroutine was never awaited"
+    warnings and the task leaked.
     """
     try:
-        await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
+        if asyncio.iscoroutinefunction(fn):
+            await asyncio.wait_for(fn(), timeout=timeout)
+        else:
+            await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
     except asyncio.TimeoutError:
         log.warning("%s timed out after %.1fs; continuing shutdown", name, timeout)
     except Exception:  # noqa: BLE001

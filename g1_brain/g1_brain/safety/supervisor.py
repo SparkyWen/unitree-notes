@@ -348,12 +348,14 @@ class SafetySupervisor:
                 text = text[:max_chars]
             return {"text": text}
         if tool == "describe_scene":
+            # OpenAI's Responses API only accepts these four values for
+            # input_image.detail — passing anything else 400's the request.
             return {
                 "question": str(args.get("question", "")).strip(),
                 "detail": (
                     args.get("detail")
-                    if args.get("detail") in ("low", "medium", "high")
-                    else "medium"
+                    if args.get("detail") in ("low", "high", "auto", "original")
+                    else "auto"
                 ),
             }
         if tool == "query_scene_state":

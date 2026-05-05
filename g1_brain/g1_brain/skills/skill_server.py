@@ -249,7 +249,7 @@ class SkillServer:
         return {"ok": True, "skill": "say", "spoken": text}
 
     async def _skill_describe_scene(
-        self, question: str = "", detail: str = "medium",
+        self, question: str = "", detail: str = "auto",
     ) -> Dict[str, Any]:
         jpeg_b64 = self._latest_jpeg_b64_preferring_head()
         if jpeg_b64 is None:

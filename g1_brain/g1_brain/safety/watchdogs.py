@@ -55,13 +55,28 @@ class _WatchdogThread(threading.Thread):
 
 
 class WatchdogManager:
-    """Owns 5 watchdog threads.
+    """Owns 5 watchdog threads + an auto-recovery thread.
 
     Trip semantics:
       * lowstate / head-frame trips set a supervisor flag immediately and
         promote to EMERGENCY_STOP after a hold-down (`hold_down_s`).
-      * pose / RL-policy trips go EMERGENCY_STOP immediately.
+      * pose / RL-policy trips go EMERGENCY_STOP after their hold-down too
+        (pose has a small hold-down so a single transient IMU sample at
+        startup does not emergency the robot).
       * USB-frame trip is informational (sets a flag but does not promote).
+
+    Boot grace:
+      For ``boot_grace_s`` after :meth:`start`, watchdogs still set/clear
+      their local + supervisor flags but DO NOT promote to EMERGENCY_STOP.
+      This prevents false trips while the combo controller is ramping the
+      robot to its default pose (~5 s) and while camera frames are still
+      flowing.
+
+    Auto-recovery:
+      When the FSM is in EMERGENCY_STOP and all motion-blocking watchdogs
+      (lowstate, head_frame, pose) have been continuously clear for
+      ``recovery_hold_s``, walk EMERGENCY_STOP → RECOVERING → STANDING so
+      the operator does not need to manually reset the system.
     """
 
     def __init__(
@@ -87,6 +102,13 @@ class WatchdogManager:
         self.gravity_z_min = float(
             ((cfg.get("safety") or {}).get("pose") or {}).get("gravity_z_min", -0.85)
         )
+        # Grace window (after start) during which trips never promote to
+        # EMERGENCY_STOP. Default 5 s covers combo's "ramping to default
+        # pose over 5.0 s" startup transient.
+        self.boot_grace_s = float(wd.get("boot_grace_s", 5.0))
+        # How long all motion-blocking watchdogs must be clear before we
+        # auto-recover from EMERGENCY_STOP back to STANDING.
+        self.recovery_hold_s = float(wd.get("recovery_hold_s", 2.0))
 
         # When a trip first appeared (monotonic). None == not currently tripped.
         self._trip_since: Dict[str, Optional[float]] = {
@@ -101,9 +123,17 @@ class WatchdogManager:
             "lowstate": 2.0,
             "head_frame": 5.0,
             "usb_frame": float("inf"),  # never auto-emergency
-            "pose": 0.0,
+            # Pose: 0.5 s hold-down avoids tripping on a single transient
+            # IMU sample (e.g. during the combo pose ramp) while still
+            # catching real falls — those produce sustained bad readings.
+            "pose": 0.5,
             "rl_policy": 0.0,
         }
+        # Monotonic timestamp at which all motion-blocking watchdogs have
+        # been clear continuously (None == something is tripped right now).
+        self._all_clear_since: Optional[float] = None
+        # Set in start() so the boot-grace window is measured from there.
+        self._started_at: float = 0.0
         self._threads: Dict[str, _WatchdogThread] = {}
         self._started = False
         self._lock = threading.RLock()
@@ -113,6 +143,7 @@ class WatchdogManager:
     def start(self) -> None:
         if self._started:
             return
+        self._started_at = time.monotonic()
         self._threads["lowstate"] = _WatchdogThread(
             "wd_lowstate", 0.1, self._tick_lowstate
         )
@@ -126,10 +157,16 @@ class WatchdogManager:
         self._threads["rl_policy"] = _WatchdogThread(
             "wd_rl_policy", 0.1, self._tick_rl_policy
         )
+        self._threads["recovery"] = _WatchdogThread(
+            "wd_recovery", 0.2, self._tick_recovery
+        )
         for t in self._threads.values():
             t.start()
         self._started = True
-        log.info("watchdogs: started %d threads", len(self._threads))
+        log.info(
+            "watchdogs: started %d threads (boot_grace=%.1fs, recovery_hold=%.1fs)",
+            len(self._threads), self.boot_grace_s, self.recovery_hold_s,
+        )
 
     def stop(self) -> None:
         for t in self._threads.values():
@@ -141,6 +178,10 @@ class WatchdogManager:
 
     # ----- helpers ----------------------------------------------------------
 
+    def _in_boot_grace(self, now: float) -> bool:
+        """True while we are inside the post-start grace window."""
+        return (now - self._started_at) < self.boot_grace_s
+
     def _set_trip(self, name: str, reason: str, *, emergency: bool) -> None:
         with self._lock:
             now = time.monotonic()
@@ -148,13 +189,14 @@ class WatchdogManager:
                 self._trip_since[name] = now
                 log.warning("watchdog %s tripped: %s", name, reason)
             elapsed = now - self._trip_since[name]
+            in_grace = self._in_boot_grace(now)
         if self.supervisor is not None:
             try:
                 self.supervisor.set_watchdog_trip(name, reason)
             except Exception:  # noqa: BLE001
                 log.exception("watchdog: supervisor set_watchdog_trip raised")
         hold = self._hold_down_s.get(name, 0.0)
-        if emergency and elapsed >= hold:
+        if emergency and elapsed >= hold and not in_grace:
             try:
                 self.fsm.transition(
                     RobotFsmState.EMERGENCY_STOP,
@@ -218,6 +260,64 @@ class WatchdogManager:
             self._set_trip("rl_policy", "policy_active=False", emergency=True)
         else:
             self._clear_trip("rl_policy")
+
+    # Watchdogs that, when clear, indicate the robot is safe to leave
+    # EMERGENCY_STOP. usb_frame is informational; rl_policy is only enforced
+    # while ENGAGED/ACTING (which we can't be in EMERGENCY_STOP anyway).
+    _MOTION_BLOCKING_TRIPS = ("lowstate", "head_frame", "pose")
+
+    def _tick_recovery(self) -> None:
+        """Auto-recover EMERGENCY_STOP → RECOVERING → STANDING when safe.
+
+        We only attempt the transition when:
+          * the FSM is in EMERGENCY_STOP (and not in BOOT or FAULT);
+          * every motion-blocking watchdog has been clear continuously
+            for at least ``recovery_hold_s``.
+
+        FAULT is terminal so we never try to leave it. RECOVERING is
+        transient: we hop straight through it to STANDING.
+        """
+        if self.fsm.state != RobotFsmState.EMERGENCY_STOP:
+            # Reset the timer whenever we are not in EMERGENCY_STOP — we
+            # only count "all-clear time" toward recovery while stopped.
+            self._all_clear_since = None
+            return
+        with self._lock:
+            now = time.monotonic()
+            any_tripped = any(
+                self._trip_since.get(name) is not None
+                for name in self._MOTION_BLOCKING_TRIPS
+            )
+            if any_tripped:
+                self._all_clear_since = None
+                return
+            if self._all_clear_since is None:
+                self._all_clear_since = now
+                return
+            elapsed = now - self._all_clear_since
+        if elapsed < self.recovery_hold_s:
+            return
+        # All clear long enough — attempt the recovery walk.
+        try:
+            self.fsm.transition(
+                RobotFsmState.RECOVERING,
+                f"watchdogs clear for {elapsed:.1f}s",
+            )
+        except IllegalTransitionError:
+            return
+        try:
+            self.fsm.transition(
+                RobotFsmState.STANDING,
+                "auto-recovery complete",
+            )
+        except IllegalTransitionError:
+            log.warning(
+                "auto-recovery: RECOVERING -> STANDING refused; "
+                "leaving FSM in RECOVERING for caller to resolve"
+            )
+        finally:
+            with self._lock:
+                self._all_clear_since = None
 
 
 __all__ = ["WatchdogManager"]

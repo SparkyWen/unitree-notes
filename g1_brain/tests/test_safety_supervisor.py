@@ -436,7 +436,9 @@ async def test_describe_scene_default_detail(env):
         "describe_scene", {"question": "what's there?", "detail": "ultra"}
     )
     assert ok is True
-    assert sanitized["detail"] == "medium"
+    # Modern OpenAI Responses API only accepts low/high/auto/original; we
+    # fall back to "auto" when the caller passes anything else (or omits it).
+    assert sanitized["detail"] == "auto"
 
 
 async def test_watchdog_trip_flag_blocks_motion(env):

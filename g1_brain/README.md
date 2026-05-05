@@ -41,6 +41,9 @@ conda activate unitree
 export MUJOCO_GL=glfw
 cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 python unitree_mujoco.py
+# G1 lands on the floor immediately (ELASTIC_BAND_INIT_LENGTH=2.0
+# leaves the band slack at standing height); press '9' to toggle the
+# band off entirely, '7' / '8' to nudge length by ±0.1 m.
 
 # Terminal 2: USB camera service
 conda activate unitree

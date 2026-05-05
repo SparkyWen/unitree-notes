@@ -92,9 +92,11 @@ conda activate unitree
 export MUJOCO_GL=glfw
 cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 python unitree_mujoco.py
-# In the viewer window:
-#   press 8 a few times to drop the G1 onto the floor
-#   press 9 to release the elastic band
+# config.py now ships ELASTIC_BAND_INIT_LENGTH=2.0, which makes the band
+# slack at the standing pose, so the G1 sits on the floor right away —
+# no key presses required. In the viewer you can still:
+#   press 9 to toggle the band off entirely (clean fall test)
+#   press 7 / 8 to nudge the band length by ±0.1 m
 
 # Terminal 2 — USB camera service
 conda activate unitree
@@ -302,8 +304,9 @@ is correct). When the simulator starts the robot at the origin and
 hasn't been kicked off yet, the only thing in front is the floor.
 
 Sanity checks:
-- Press `8` in the MuJoCo viewer window a few times to drop the robot
-  onto the floor and let it stand.
+- Confirm the simulator's `ELASTIC_BAND_INIT_LENGTH` is at the new
+  default (2.0) — older checkouts with `0.0` suspend the robot above
+  the floor and the head cam will see only sky.
 - Confirm `cameras.head.subscribe_dds` is true (default) and that DDS
   is up — otherwise the head cam renders from the model's keyframe
   pose, not the live pose. With `--no-skills` / `--vision-only` we

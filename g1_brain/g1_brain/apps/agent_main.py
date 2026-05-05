@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
+import fcntl
 import logging
 import os
 import signal
@@ -279,6 +281,91 @@ def _try_build_gesture_auto_trigger(scene_bus, brain_agent, cfg):
 
 
 # ---------------------------------------------------------------------------
+# Single-instance lock
+# ---------------------------------------------------------------------------
+
+
+def _acquire_instance_lock(lock_path: Path) -> Optional[int]:
+    """flock-based single-instance guard.
+
+    A previous agent_main that died ungracefully (SIGKILL, OOM, terminal
+    closed) can leave the PulseAudio output device exclusively held —
+    sounddevice's RawOutputStream.start() then blocks forever on the next
+    launch. Holding an OS-level flock on a shared file lets us detect that
+    case and fail fast with an actionable message instead of hanging.
+
+    Returns the open fd (caller must keep alive for the program lifetime)
+    or None on failure (caller should still proceed; the lock is advisory).
+    """
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
+    except OSError as e:
+        log.warning("could not open instance lock %s: %s", lock_path, e)
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as e:
+        if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+            try:
+                with open(lock_path) as fh:
+                    other_pid = (fh.read() or "").strip() or "?"
+            except OSError:
+                other_pid = "?"
+            log.error(
+                "another g1_brain agent_main is already running "
+                "(pid=%s, lock=%s). Kill it first:\n"
+                "    kill %s   # then if needed: kill -9 %s",
+                other_pid, lock_path, other_pid, other_pid,
+            )
+            os.close(fd)
+            return -1  # signal "locked by other"
+        log.warning("flock(%s) failed: %s", lock_path, e)
+        os.close(fd)
+        return None
+    try:
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()}\n".encode())
+    except OSError:
+        pass
+    return fd
+
+
+def _release_instance_lock(fd: Optional[int], lock_path: Path) -> None:
+    if fd is None or fd < 0:
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+    try:
+        # Best-effort cleanup; safe even if another process is about to
+        # acquire — they'll just recreate it.
+        lock_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+async def _shutdown_step(name: str, fn, timeout: float = 3.0) -> None:
+    """Run a shutdown callable with a finite timeout.
+
+    Each subsystem's stop()/close() can in principle hang (DDS shutdown,
+    audio close, ML thread joins). Without a timeout the user has to
+    SIGKILL the process — which leaks the audio device for the next run.
+    """
+    try:
+        await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
+    except asyncio.TimeoutError:
+        log.warning("%s timed out after %.1fs; continuing shutdown", name, timeout)
+    except Exception:  # noqa: BLE001
+        log.exception("%s failed", name)
+
+
+# ---------------------------------------------------------------------------
 # Main async run
 # ---------------------------------------------------------------------------
 
@@ -287,25 +374,76 @@ async def _run(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
     run_mode = args.mode or cfg.get("run_mode", "confirm")
 
+    # Fail fast on missing OpenAI key — checking this AFTER initializing
+    # mic/DDS/cameras would leak audio handles when the user just forgot
+    # to export the key. Note: --no-realtime alone is NOT enough to skip
+    # this check because vision (GPT-5.5) and TTS still construct an
+    # OpenAI() client which itself errors when the key is missing.
+    if not os.environ.get("OPENAI_API_KEY"):
+        log.error(
+            "OPENAI_API_KEY is not set. Export it before launching:\n"
+            "    export OPENAI_API_KEY=sk-...\n"
+            "It is required for the Realtime websocket, TTS, and vision."
+        )
+        return 2
+
+    # Single-instance lock: refuse to start if another agent_main is already
+    # holding the audio device. The lock file lives next to agent.log so
+    # users find it via the same path they already know.
+    log_dir_str = (cfg.get("logging", {}) or {}).get("log_dir") or "/tmp"
+    lock_path = Path(log_dir_str) / "agent_main.lock"
+    instance_fd = _acquire_instance_lock(lock_path)
+    if instance_fd == -1:
+        return 4
+
     if args.vision_only and not args.no_skills:
         log.info("--vision-only implies --no-skills; skipping DDS / RL init")
         args.no_skills = True
 
     # ---- audio ----
+    # Pass the running loop explicitly so MicStream.start() can be safely
+    # invoked from a worker thread (asyncio.get_event_loop() inside a
+    # non-main thread is unreliable). Audio open is a sounddevice C call
+    # that occasionally hangs on a bad pulse/alsa state in WSL2; wrapping
+    # in asyncio.to_thread + wait_for ensures Ctrl-C still works there.
     from va_demo import audio_io  # noqa: WPS433
     sr = int(cfg["audio"]["samplerate"])
+    running_loop = asyncio.get_running_loop()
     mic = audio_io.MicStream(
         samplerate=sr,
         block_ms=int(cfg["audio"]["block_ms"]),
         device=cfg["audio"].get("input_device"),
+        loop=running_loop,
     )
     speaker = audio_io.SpeakerStream(
         samplerate=sr,
         device=cfg["audio"].get("output_device"),
         buffer_ms=int(cfg["audio"]["speaker_buffer_ms"]),
     )
-    mic.start()
-    speaker.start()
+    try:
+        await asyncio.wait_for(asyncio.to_thread(mic.start), timeout=5.0)
+    except asyncio.TimeoutError:
+        log.error(
+            "mic.start() timed out after 5 s. Audio backend (PulseAudio/ALSA) "
+            "is not responding. Check that WSLg audio is up; see memory note "
+            "wsl2_audio.md for the alsa-lib symlink fix."
+        )
+        _release_instance_lock(instance_fd, lock_path)
+        return 3
+    try:
+        await asyncio.wait_for(asyncio.to_thread(speaker.start), timeout=5.0)
+    except asyncio.TimeoutError:
+        log.error(
+            "speaker.start() timed out after 5 s. Audio backend not responding. "
+            "If this persists after a fresh process tree, run: "
+            "`pulseaudio --kill || systemctl --user restart pulseaudio` then retry."
+        )
+        try:
+            mic.close()
+        except Exception:  # noqa: BLE001
+            pass
+        _release_instance_lock(instance_fd, lock_path)
+        return 3
 
     # ---- combo controller (optional) ----
     # IMPORTANT: ChannelFactoryInitialize must run before CameraHub, because
@@ -322,11 +460,31 @@ async def _run(args: argparse.Namespace) -> int:
             args.no_skills = True
 
     if not args.no_skills:
-        ChannelFactoryInitialize(int(cfg["robot"]["domain_id"]),
-                                 str(cfg["robot"]["interface"]))
-        log.info("DDS initialized: domain=%d iface=%s",
-                 int(cfg["robot"]["domain_id"]), str(cfg["robot"]["interface"]))
-        dds_ready = True
+        # Run the C++ DDS init in a thread with a finite timeout. A bad
+        # interface name or unreachable participant can otherwise hang here
+        # forever, and because we're on a sync call inside an async coroutine
+        # the SIGINT handler registered on the loop never gets a chance to
+        # fire — Ctrl-C would appear dead.
+        domain_id = int(cfg["robot"]["domain_id"])
+        iface = str(cfg["robot"]["interface"])
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(ChannelFactoryInitialize, domain_id, iface),
+                timeout=10.0,
+            )
+            log.info("DDS initialized: domain=%d iface=%s", domain_id, iface)
+            dds_ready = True
+        except asyncio.TimeoutError:
+            log.error(
+                "ChannelFactoryInitialize timed out after 10 s "
+                "(domain=%d iface=%s). Check that the network interface "
+                "exists and DDS is reachable. Falling back to --no-skills.",
+                domain_id, iface,
+            )
+            args.no_skills = True
+        except Exception as e:  # noqa: BLE001
+            log.exception("ChannelFactoryInitialize failed: %s", e)
+            args.no_skills = True
 
     # ---- camera hub ----
     # Built after DDS init so the head camera can subscribe successfully when
@@ -356,12 +514,83 @@ async def _run(args: argparse.Namespace) -> int:
                 deploy_cfg = combo_mod.DeployCfg(policy_yaml)
                 policy = combo_mod.Policy(policy_onnx)
                 combo_ctl = combo_mod.ComboController(deploy_cfg, policy)
-                combo_ctl.init_dds()
-                combo_ctl.start()
             except Exception as e:  # noqa: BLE001
-                log.exception("ComboController init failed: %s", e)
+                log.exception("ComboController construction failed: %s", e)
                 combo_ctl = None
                 args.no_skills = True
+
+            # init_dds() is a synchronous DDS subscriber init; defensive timeout.
+            if combo_ctl is not None:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(combo_ctl.init_dds), timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    log.error(
+                        "combo_ctl.init_dds() timed out after 5 s — DDS layer "
+                        "is unhealthy. Falling back to --no-skills."
+                    )
+                    combo_ctl = None
+                    args.no_skills = True
+                except Exception as e:  # noqa: BLE001
+                    log.exception("combo_ctl.init_dds() failed: %s", e)
+                    combo_ctl = None
+                    args.no_skills = True
+
+            # combo_ctl.start() upstream spins on `while not first_state_received:
+            # time.sleep(0.05)`. If MuJoCo isn't publishing rt/lowstate that loop
+            # never returns, and because we're inside an async coroutine the
+            # asyncio SIGINT handler can never fire either (the loop never gets
+            # to iterate) — so Ctrl-C silently does nothing. Do the wait
+            # ourselves with await asyncio.sleep so the loop stays responsive,
+            # and emit an actionable error on timeout.
+            if combo_ctl is not None:
+                log.info(
+                    "waiting for first /rt/lowstate "
+                    "(MuJoCo simulator must be running) ..."
+                )
+                t_loop = asyncio.get_running_loop()
+                deadline = t_loop.time() + 10.0
+                while not getattr(combo_ctl, "first_state_received", False):
+                    if t_loop.time() > deadline:
+                        log.error(
+                            "Timed out after 10 s waiting for /rt/lowstate. "
+                            "The MuJoCo simulator does not appear to be "
+                            "running.\n"
+                            "  -> Start it in another terminal:\n"
+                            "       conda activate unitree && export MUJOCO_GL=glfw\n"
+                            "       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python\n"
+                            "       python unitree_mujoco.py\n"
+                            "  -> Or rerun with --no-skills (or --vision-only) "
+                            "to bypass the RL controller."
+                        )
+                        combo_ctl = None
+                        args.no_skills = True
+                        break
+                    await asyncio.sleep(0.1)
+
+            # first_state_received is now True, so combo_ctl.start() will fall
+            # straight through its wait loop and just spin up the control
+            # thread. Wrap in to_thread anyway: the bit that runs (numpy
+            # snapshot + RecurrentThread.Start) is fast, but doing it off the
+            # event-loop thread keeps the loop iterating just in case.
+            if combo_ctl is not None:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(combo_ctl.start), timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    log.error(
+                        "combo_ctl.start() unexpectedly timed out after 5 s "
+                        "even though first_state_received was set. Falling "
+                        "back to --no-skills."
+                    )
+                    combo_ctl = None
+                    args.no_skills = True
+                except Exception as e:  # noqa: BLE001
+                    log.exception("combo_ctl.start() failed: %s", e)
+                    combo_ctl = None
+                    args.no_skills = True
 
     if combo_ctl is not None:
         log.info("waiting for ComboController policy_active ...")
@@ -486,10 +715,8 @@ async def _run(args: argparse.Namespace) -> int:
         )
 
     # ---- brain realtime agent ----
+    # OPENAI_API_KEY presence already validated at the top of _run.
     api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key and not args.no_realtime:
-        log.error("OPENAI_API_KEY is not set; either export it or pass --no-realtime")
-        return 2
 
     brain_agent = None
     if not args.no_realtime:
@@ -559,49 +786,33 @@ async def _run(args: argparse.Namespace) -> int:
             await brain_agent.run()
     finally:
         log.info("shutting down ...")
+        # sm.stop() is a coroutine; the rest are sync. Each step is bounded
+        # by a finite timeout so a single hung subsystem (e.g. DDS that
+        # never returns) can't trap the user into SIGKILL territory — which
+        # is what leaks the PulseAudio handle for the next launch.
         if sm is not None:
             try:
-                await sm.stop()
+                await asyncio.wait_for(sm.stop(), timeout=3.0)
+            except asyncio.TimeoutError:
+                log.warning("conversation sm.stop timed out after 3s")
             except Exception:  # noqa: BLE001
                 log.exception("conversation sm.stop failed")
         if auto_trigger is not None:
-            try:
-                auto_trigger.stop()
-            except Exception:  # noqa: BLE001
-                log.exception("auto_trigger.stop failed")
+            await _shutdown_step("auto_trigger.stop", auto_trigger.stop)
         if perception is not None:
-            try:
-                perception.stop()
-            except Exception:  # noqa: BLE001
-                log.exception("perception.stop failed")
+            await _shutdown_step("perception.stop", perception.stop)
         if watchdogs is not None:
-            try:
-                watchdogs.stop()
-            except Exception:  # noqa: BLE001
-                log.exception("watchdogs.stop failed")
+            await _shutdown_step("watchdogs.stop", watchdogs.stop)
         if robot_state_producer is not None:
-            try:
-                robot_state_producer.stop()
-            except Exception:  # noqa: BLE001
-                log.exception("robot_state_producer.stop failed")
+            await _shutdown_step("robot_state_producer.stop", robot_state_producer.stop)
         if combo_ctl is not None:
-            try:
-                combo_ctl.stop_and_settle()
-            except Exception:  # noqa: BLE001
-                log.exception("combo.stop_and_settle failed")
+            # stop_and_settle includes a 1.2s sleep + Kp ramp; give it 5s.
+            await _shutdown_step("combo.stop_and_settle", combo_ctl.stop_and_settle, timeout=5.0)
         if camera_hub is not None:
-            try:
-                camera_hub.close()
-            except Exception:  # noqa: BLE001
-                log.exception("camera_hub.close failed")
-        try:
-            mic.close()
-        except Exception:  # noqa: BLE001
-            log.exception("mic.close failed")
-        try:
-            speaker.close()
-        except Exception:  # noqa: BLE001
-            log.exception("speaker.close failed")
+            await _shutdown_step("camera_hub.close", camera_hub.close)
+        await _shutdown_step("mic.close", mic.close, timeout=2.0)
+        await _shutdown_step("speaker.close", speaker.close, timeout=2.0)
+        _release_instance_lock(instance_fd, lock_path)
     return 0
 
 
@@ -752,8 +963,9 @@ def main() -> int:
 
     sup_task = loop.create_task(_supervise())
 
+    rc = 0
     try:
-        loop.run_until_complete(main_task)
+        rc = loop.run_until_complete(main_task) or 0
     except asyncio.CancelledError:
         pass
     except KeyboardInterrupt:
@@ -765,7 +977,7 @@ def main() -> int:
         except Exception:  # noqa: BLE001
             pass
         loop.close()
-    return 0
+    return int(rc)
 
 
 if __name__ == "__main__":

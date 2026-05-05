@@ -1,6 +1,7 @@
 import time
 import mujoco
 import mujoco.viewer
+import numpy as np
 from threading import Thread
 import threading
 
@@ -14,6 +15,40 @@ locker = threading.Lock()
 
 mj_model = mujoco.MjModel.from_xml_path(config.ROBOT_SCENE)
 mj_data = mujoco.MjData(mj_model)
+
+
+def _set_g1_default_qpos():
+    """Initialise mj_data.qpos to the trained G1 default pose.
+
+    Without this the simulator opens with all-zero joints (legs fully
+    straight, knees locked) and the robot is then either yanked to the
+    elastic-band anchor or collapses under gravity before any controller
+    is running. By writing the policy's `default_joint_pos` directly into
+    mj_data.qpos at startup, the very first viewer frame already shows
+    the robot in the in-distribution trained pose — and once the bridge
+    seeds the default-pose holding PD (see `_maybe_seed_default_hold_cmd`
+    in unitree_sdk2py_bridge.py), the robot stays in that pose until the
+    external controller takes over.
+    """
+    if getattr(config, "ROBOT", None) != "g1":
+        return
+    q_def = getattr(config, "G1_DEFAULT_JOINT_POS", None)
+    if q_def is None:
+        return
+    nq_motors = mj_model.nu
+    if mj_data.qpos.shape[0] != 7 + nq_motors:
+        return
+    mj_data.qpos[7:7 + nq_motors] = np.asarray(q_def, dtype=np.float64)
+    # Identity orientation; default torso height is whatever the MJCF set
+    # (pelvis pos="0 0 0.793" for the g1_29dof model). The elastic band
+    # will lift the robot toward the anchor when ELASTIC_BAND_INIT_LENGTH
+    # < distance, or hold it on the ground when length is large.
+    if np.linalg.norm(mj_data.qpos[3:7]) < 1e-6:
+        mj_data.qpos[3:7] = (1.0, 0.0, 0.0, 0.0)
+    mujoco.mj_forward(mj_model, mj_data)
+
+
+_set_g1_default_qpos()
 
 
 if config.ENABLE_ELASTIC_BAND:

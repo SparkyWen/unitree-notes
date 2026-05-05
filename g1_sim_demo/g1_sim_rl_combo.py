@@ -19,36 +19,48 @@ Architecture
 - Legs (0..11) and waist (12..14) are *always* under the RL policy.
 - Only ONE publisher writes to rt/lowcmd, so no DDS race.
 
-Why arm gestures must stay inside the policy-tolerant envelope
-  See docs/demo-QA5.md for the long version. Short version:
-  the policy was trained with `actuator_names=(".*",)` and per-joint
-  action_scale (shoulder=0.44, elbow=0.44, wrist_pitch/yaw=0.07). With
-  scale=0.44 and a weak default-pose deviation reward, during training
-  the arms typically stay within ~±0.44 rad of default — i.e. the
-  observed `joint_pos_rel[15:29]` distribution is concentrated around 0
-  with magnitude on the order of `action_scale`. If we forcibly drive
-  an arm joint to `default ± 1.6 rad` (e.g. hands_up shoulder_pitch =
-  -1.6 vs default 0.35) the policy sees `joint_pos_rel ≈ -1.95`,
-  ~4.4× the training scale. That input is OOD; an MLP on OOD inputs
-  produces garbage on every output dim — including legs. Robot
-  collapses. Wrist_pitch/yaw are even tighter (action_scale=0.07): a
-  -0.3 rad salute wrist tilt is already ~4× scale.
+Why arm gestures don't break the policy
+  Earlier versions clamped every gesture to ``default ± K*action_scale``
+  (K=2.0) to keep arm `joint_pos_rel` inside the policy's training
+  distribution. With shoulder action_scale=0.44 that capped each arm
+  joint at ±0.88 rad — too narrow to express recognisable gestures
+  (no real T-pose, no real overhead reach). The user's complaint
+  "无法把动作做到正确的位置 / 失衡" (gestures can't reach the proper
+  position; robot easily loses balance) was a direct consequence.
 
-  Two safety nets are applied to every gesture frame:
-  1. `clamp_arm_to_safe`  -- bounds each arm joint to
-                             default_q[i] ± ARM_GESTURE_K * action_scale[i]
-                             (default K=2.0). Visually-recognizable
-                             gestures still come through; OOD spikes
-                             are clipped at the source.
-  2. `_synthesize_last_action_for_arms` -- when we override arm
-                             q_target, we also rewrite the arm slice of
-                             `last_raw_action` to `(arm_q - offset)/scale`
-                             so the next obs has a self-consistent
-                             (joint_pos_rel, last_action) pair. Without
-                             this, even a small clipped override would
-                             leave the action and the achieved pose
-                             pointing in different directions, which is
-                             still OOD for the policy.
+  The current approach removes that envelope and instead **masks the
+  arm slice of the policy observation** while a gesture is active.
+  Specifically, `_build_obs` zeroes `joint_pos_rel[15:29]`,
+  `joint_vel_rel[15:29]`, and `last_raw_action[15:29]` whenever
+  ``_arm_obs_masked == True``. The policy then sees "arms at default,
+  not moving" and produces in-distribution leg/waist outputs, even
+  while the arms physically swing all the way through the joint
+  range. The arms themselves are still safety-clamped — but only to
+  their *physical* MJCF limits (`ARM_JOINT_LIMITS`) and per-tick rate
+  limit (`ARM_GESTURE_RATE_K_PER_SEC`).
+
+Why only arms can be temporarily overridden
+  Legs are responsible for balance; waist orientation feeds directly
+  into the projected_gravity observation, so a commanded waist tilt
+  would make the policy think "I'm falling" and drive the wrong
+  recovery torques. Arms are mass-light and the obs-masking trick
+  above keeps the legs' obs distribution clean regardless of arm pose,
+  so brief gesture overlays are safe.
+
+Anti-flying engagement gates
+  When the controller starts (e.g. `g1_brain.apps.agent_main` boots),
+  it does not hand control to the policy as soon as the boot ramp
+  finishes. It first enters STANDBY, holds the trained default joint
+  pose at full Kp, and waits until the robot is measurably settled
+  (joint pose tol ENGAGE_POSE_TOL, joint velocity tol ENGAGE_VEL_TOL,
+  body upright per ENGAGE_GRAV_Z, all true continuously for
+  ENGAGE_HOLD_S). Only then is the policy engaged, and even its first
+  POLICY_WARMUP_S of output is clipped + cosine-blended with the held
+  default action so a single bad first inference can't slingshot a
+  leg. Without this gate, agent_main used to engage the policy while
+  the robot was still mid-air on the elastic band and the resulting
+  OOD-ish obs caused the "robot flies away" behaviour the user kept
+  having to work around with repeated MuJoCo resets.
 
 Why only arms can be temporarily overridden:
   Legs are responsible for balance; waist orientation feeds directly
@@ -64,13 +76,22 @@ Run order
       conda activate unitree
       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
       python unitree_mujoco.py
-      # press 8 a few times to lower elastic band; optionally 9 to disable
+      # robot starts at the trained default pose, suspended high up
+      # by the elastic band (anchor at z=3, length=0). To bring it to
+      # the ground:
+      #   - press 8 a few times to lengthen the band (lower the robot);
+      #   - press 7 if you over-shoot and want to lift it back up;
+      #   - press 9 once on the ground to disable the band entirely.
+      # The simulator's default-pose holding PD keeps the joints at
+      # the trained pose throughout, so you never see the "robot
+      # collapses to a sitting heap before I can launch the controller"
+      # behaviour the older config produced.
 
   Terminal 2:
       conda activate unitree
       cd ~/unitree/unitree-notes/g1_sim_demo
       python g1_sim_rl_combo.py
-      # wait for "[combo] policy ready" then press keys
+      # wait for "[combo] policy engaged" then press keys
 
 Walking keys:   w/s, a/d, q/e, r (stop), f (full forward)
 Arm gestures:   1 wave R, 2 wave L, 3 hands up, 4 T-pose,
@@ -258,126 +279,140 @@ GRAVITY_W = np.array([0.0, 0.0, -1.0], dtype=np.float64)
 # ---------------------------------------------------------------------------
 # Arm gesture poses.
 #
-# Each gesture is built as a *delta from the policy's default arm pose*,
-# scaled by per-joint `action_scale`. Concretely:
+# Each gesture is encoded as a 14-D *absolute* target for the arm slice
+# (joints 15..28). Targets only set the joints the gesture actually moves;
+# unset joints stay at the policy's arm_rest. Values were chosen to
+# reproduce the recognisable poses from the legacy g1_sim_keyboard.py demo
+# (which the user remembers as "the gestures looked right") and are
+# clamped at runtime by `_clamp_arm_to_safe_envelope` to stay inside the
+# physical joint limits.
 #
-#     arm_pose = arm_rest + k * action_scale[15:29]
-#
-# where `k` is a 14-D unit-ish vector (each entry ~[-2, +2]). This keeps
-# every gesture inside the same envelope the policy saw at training time
-# (joint_pos_rel ≈ k * action_scale, so |joint_pos_rel|/action_scale ≈ |k|).
-#
-# Why not absolute joint angles?
-#   The previous version used absolute targets like shoulder_pitch=-1.6 rad.
-#   With action_scale=0.44, that's ~4.4× outside the training distribution
-#   for that joint, and instantly puts both `joint_pos_rel` and the policy's
-#   internal state OOD. Absolute targets that happen to be inside one
-#   joint's envelope can still wreck another joint with a smaller scale
-#   (e.g. wrist_pitch action_scale=0.07 — a "small" 0.3 rad tilt is 4×
-#   that joint's scale). Encoding poses as scale-multiples removes that
-#   foot-gun: a vector of ±2's is uniformly safe across all 14 arm DOFs.
+# The previous delta-encoded version capped each joint at ±2 * action_scale
+# from default. action_scale for the shoulder is 0.44 rad, so a "full"
+# gesture only moved the shoulder by 0.88 rad — too small to actually
+# raise the arm overhead or do a real T-pose. The user observed
+# "无法把动作做到正确的位置" (can't reach the proper position). Switching
+# to absolute targets fixes that. To prevent the larger arm deviations
+# from putting the *policy* observation OOD, `_build_obs` masks the arm
+# slice of joint_pos_rel / joint_vel_rel / last_raw_action with zeros
+# while a gesture override is active — see ``_arm_obs_masked`` flag.
+# Sign convention (matches the MJCF):
+#   shoulder_pitch  − = arm forward/up
+#   shoulder_roll   + = arm out (left side; mirrored on right)
+#   elbow           + = elbow bent
+#   wrist_pitch     − = palm down / forward
 # ---------------------------------------------------------------------------
-def _arm_zero_delta() -> np.ndarray:
-    """Zero-delta = policy's arm_rest."""
-    return np.zeros(ARM_DIM, dtype=np.float64)
-
-
 def _slot(j: int) -> int:
     """Map global joint index (15..28) to arm-local index (0..13)."""
     return j - ARM_START
 
 
-# Each gesture below returns a 14-D *delta* in units of action_scale,
-# i.e. final_pose = arm_rest + delta * action_scale[15:29]. Magnitudes
-# are kept |delta| <= 2.0 per joint to stay inside the policy envelope.
-# Sign convention follows the absolute-pose conventions of the legacy
-# g1_sim_keyboard: shoulder_pitch -negative = arm forward/up,
-# shoulder_roll +positive = arm out (left side; mirrored on right),
-# elbow +positive = bent.
-def wave_right_delta() -> np.ndarray:
-    p = _arm_zero_delta()
-    p[_slot(J.RightShoulderPitch)] = -2.0   # -0.88 rad delta -> arm slightly forward
-    p[_slot(J.RightShoulderRoll)]  = -2.0   # -0.88 rad delta -> arm out to the right
-    p[_slot(J.RightElbow)]         =  1.0   #  0.44 rad delta -> elbow bent
+def _abs_pose_from(arm_rest: np.ndarray, **overrides: float) -> np.ndarray:
+    """Start from the policy's arm_rest and override the named joints.
+
+    `overrides` keys must be attribute names on `J` (e.g. RightShoulderPitch).
+    Returns a fresh 14-D pose; arm_rest is not mutated.
+    """
+    p = arm_rest.copy()
+    for name, value in overrides.items():
+        idx = getattr(J, name)
+        p[_slot(idx)] = float(value)
     return p
 
 
-def wave_left_delta() -> np.ndarray:
-    p = _arm_zero_delta()
-    p[_slot(J.LeftShoulderPitch)] = -2.0
-    p[_slot(J.LeftShoulderRoll)]  =  2.0
-    p[_slot(J.LeftElbow)]         =  1.0
+def wave_right_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Right arm out and bent to the side, ready to wave."""
+    return _abs_pose_from(
+        arm_rest,
+        RightShoulderPitch=-0.4,
+        RightShoulderRoll=-1.2,
+        RightElbow=1.4,
+    )
+
+
+def wave_left_pose(arm_rest: np.ndarray) -> np.ndarray:
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-0.4,
+        LeftShoulderRoll=1.2,
+        LeftElbow=1.4,
+    )
+
+
+def hands_up_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Both arms straight up overhead. shoulder_pitch ≈ -π/2 sends the arm
+    from "down by side" (positive default 0.35) all the way overhead."""
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-1.6,
+        RightShoulderPitch=-1.6,
+        LeftElbow=0.0,
+        RightElbow=0.0,
+    )
+
+
+def t_pose_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Both arms out to the sides at shoulder height."""
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderRoll=1.5,
+        RightShoulderRoll=-1.5,
+        LeftElbow=0.0,
+        RightElbow=0.0,
+    )
+
+
+def salute_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Right hand to forehead."""
+    return _abs_pose_from(
+        arm_rest,
+        RightShoulderPitch=-0.6,
+        RightShoulderRoll=-0.4,
+        RightElbow=1.55,
+        RightWristPitch=-0.3,
+    )
+
+
+def clap_pose(arm_rest: np.ndarray) -> np.ndarray:
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-0.8,
+        LeftShoulderRoll=0.4,
+        LeftElbow=1.2,
+        RightShoulderPitch=-0.8,
+        RightShoulderRoll=-0.4,
+        RightElbow=1.2,
+    )
+
+
+def guard_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Boxer guard: both fists in front of face."""
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-0.6,
+        LeftShoulderRoll=0.5,
+        LeftElbow=1.4,
+        RightShoulderPitch=-0.6,
+        RightShoulderRoll=-0.5,
+        RightElbow=1.4,
+    )
+
+
+def punch_right_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Right arm extended forward (jab), left arm in guard."""
+    p = guard_pose(arm_rest)
+    p[_slot(J.RightShoulderPitch)] = -1.0
+    p[_slot(J.RightShoulderRoll)]  = -0.1
+    p[_slot(J.RightElbow)]         =  0.1
     return p
 
 
-def hands_up_delta() -> np.ndarray:
-    """Both arms reach forward / upward as far as the envelope allows."""
-    p = _arm_zero_delta()
-    p[_slot(J.LeftShoulderPitch)]  = -2.0   # default 0.35 + (-2*0.44) = -0.53 rad
-    p[_slot(J.RightShoulderPitch)] = -2.0
-    p[_slot(J.LeftElbow)]          = -1.0   # straighter than default 0.87
-    p[_slot(J.RightElbow)]         = -1.0
+def punch_left_pose(arm_rest: np.ndarray) -> np.ndarray:
+    p = guard_pose(arm_rest)
+    p[_slot(J.LeftShoulderPitch)] = -1.0
+    p[_slot(J.LeftShoulderRoll)]  =  0.1
+    p[_slot(J.LeftElbow)]         =  0.1
     return p
-
-
-def t_pose_delta() -> np.ndarray:
-    p = _arm_zero_delta()
-    p[_slot(J.LeftShoulderRoll)]   =  2.0   # default 0.18 + 0.88 = 1.06 rad
-    p[_slot(J.RightShoulderRoll)]  = -2.0   # default -0.18 - 0.88 = -1.06 rad
-    return p
-
-
-def salute_delta() -> np.ndarray:
-    p = _arm_zero_delta()
-    p[_slot(J.RightShoulderPitch)] = -1.5
-    p[_slot(J.RightShoulderRoll)]  = -1.0
-    p[_slot(J.RightElbow)]         =  1.5   # bent toward forehead
-    p[_slot(J.RightWristPitch)]    = -2.0   # action_scale 0.07 -> -0.14 rad
-    return p
-
-
-def clap_delta() -> np.ndarray:
-    p = _arm_zero_delta()
-    p[_slot(J.LeftShoulderPitch)]  = -1.5
-    p[_slot(J.LeftShoulderRoll)]   =  0.5
-    p[_slot(J.LeftElbow)]          =  1.0
-    p[_slot(J.RightShoulderPitch)] = -1.5
-    p[_slot(J.RightShoulderRoll)]  = -0.5
-    p[_slot(J.RightElbow)]         =  1.0
-    return p
-
-
-def guard_delta() -> np.ndarray:
-    p = _arm_zero_delta()
-    p[_slot(J.LeftShoulderPitch)]  = -1.2
-    p[_slot(J.LeftShoulderRoll)]   =  1.0
-    p[_slot(J.LeftElbow)]          =  1.5
-    p[_slot(J.RightShoulderPitch)] = -1.2
-    p[_slot(J.RightShoulderRoll)]  = -1.0
-    p[_slot(J.RightElbow)]         =  1.5
-    return p
-
-
-def punch_right_delta() -> np.ndarray:
-    p = guard_delta()
-    p[_slot(J.RightShoulderPitch)] = -2.0
-    p[_slot(J.RightShoulderRoll)]  =  0.5     # tuck toward midline a bit
-    p[_slot(J.RightElbow)]         = -1.5     # arm extended
-    return p
-
-
-def punch_left_delta() -> np.ndarray:
-    p = guard_delta()
-    p[_slot(J.LeftShoulderPitch)] = -2.0
-    p[_slot(J.LeftShoulderRoll)]  = -0.5
-    p[_slot(J.LeftElbow)]         = -1.5
-    return p
-
-
-def materialize(delta: np.ndarray, arm_rest: np.ndarray,
-                arm_scale: np.ndarray) -> np.ndarray:
-    """Convert a unit-scale delta to an absolute 14-D arm pose."""
-    return arm_rest + delta * arm_scale
 
 
 # ---------------------------------------------------------------------------
@@ -400,52 +435,60 @@ def hold(pose: np.ndarray, t: float) -> Tuple[float, np.ndarray]:
 
 def build_arm_actions(arm_rest: np.ndarray,
                       arm_scale: np.ndarray) -> List[ArmAction]:
-    """Build the gesture table. Each pose is `arm_rest + delta*arm_scale`,
-    with delta magnitudes capped at ~2.0 per joint to stay inside the
-    policy's training envelope.
+    """Build the gesture table.
 
-    Durations are deliberately conservative (>=1.0s for big swings) so
-    joint_vel_rel during the blend stays within training distribution.
+    Each pose is an *absolute* 14-D arm target (see the gesture pose
+    builders above). Targets are clamped at runtime by
+    `_clamp_arm_to_safe_envelope` to physical joint limits, and the
+    policy obs has its arm slice masked while the override is active so
+    expressive arm motion does not put the policy OOD on legs.
+
+    Static poses (hands_up, T-pose, salute, guard) use 2.0–2.5s blends so
+    joint_vel during the swing is moderate and the legs have time to
+    redistribute load. Dynamic poses (clap, punch) keep their snappy
+    timing because they're inside the per-tick rate limit anyway.
+
+    The `arm_scale` argument is kept for backward compatibility but is
+    no longer used to scale gesture amplitudes.
     """
-    def m(d: np.ndarray) -> np.ndarray:
-        return materialize(d, arm_rest, arm_scale)
+    del arm_scale  # unused — gestures are absolute now
 
-    wave_r  = m(wave_right_delta())
-    wave_l  = m(wave_left_delta())
-    hands_u = m(hands_up_delta())
-    t_p     = m(t_pose_delta())
-    sal     = m(salute_delta())
-    clp     = m(clap_delta())
-    grd     = m(guard_delta())
-    pr      = m(punch_right_delta())
-    pl      = m(punch_left_delta())
+    wave_r  = wave_right_pose(arm_rest)
+    wave_l  = wave_left_pose(arm_rest)
+    hands_u = hands_up_pose(arm_rest)
+    t_p     = t_pose_pose(arm_rest)
+    sal     = salute_pose(arm_rest)
+    clp     = clap_pose(arm_rest)
+    grd     = guard_pose(arm_rest)
+    pr      = punch_right_pose(arm_rest)
+    pl      = punch_left_pose(arm_rest)
 
     return [
         ArmAction("1", "wave right arm",
-                  [(1.5, wave_r), hold(wave_r, 0.6),
-                   (1.5, arm_rest)]),
-        ArmAction("2", "wave left arm",
-                  [(1.5, wave_l), hold(wave_l, 0.6),
-                   (1.5, arm_rest)]),
-        ArmAction("3", "hands up (cheer)",
-                  [(1.5, hands_u), hold(hands_u, 0.8),
-                   (1.5, arm_rest)]),
-        ArmAction("4", "T-pose",
-                  [(1.8, t_p), hold(t_p, 1.0),
+                  [(1.8, wave_r), hold(wave_r, 0.8),
                    (1.8, arm_rest)]),
+        ArmAction("2", "wave left arm",
+                  [(1.8, wave_l), hold(wave_l, 0.8),
+                   (1.8, arm_rest)]),
+        ArmAction("3", "hands up (cheer)",
+                  [(2.0, hands_u), hold(hands_u, 1.0),
+                   (2.0, arm_rest)]),
+        ArmAction("4", "T-pose",
+                  [(2.2, t_p), hold(t_p, 1.2),
+                   (2.2, arm_rest)]),
         ArmAction("5", "salute",
-                  [(1.2, sal), hold(sal, 1.2),
-                   (1.2, arm_rest)]),
+                  [(1.5, sal), hold(sal, 1.5),
+                   (1.5, arm_rest)]),
         ArmAction("6", "clap (twice)",
-                  [(1.1, clp), (0.5, arm_rest),
-                   (0.5, clp), (1.1, arm_rest)]),
+                  [(1.2, clp), (0.6, arm_rest),
+                   (0.6, clp), (1.2, arm_rest)]),
         ArmAction("7", "boxer guard",
-                  [(1.2, grd), hold(grd, 0.6),
-                   (1.2, arm_rest)]),
+                  [(1.5, grd), hold(grd, 0.8),
+                   (1.5, arm_rest)]),
         ArmAction("8", "punch combo (jab L+R)",
-                  [(0.8, grd),
-                   (0.35, pr), (0.30, grd),
-                   (0.35, pl), (0.30, grd),
+                  [(1.0, grd),
+                   (0.4, pr), (0.35, grd),
+                   (0.4, pl), (0.35, grd),
                    (1.2, arm_rest)]),
     ]
 
@@ -456,14 +499,46 @@ def build_arm_actions(arm_rest: np.ndarray,
 class ComboController:
     LOWSTATE_TIMEOUT = 0.2     # seconds; if no lowstate, hold default pose
 
-    # Maximum arm joint deviation from `default` we are willing to command,
-    # measured in units of action_scale. The policy was trained where
-    # `joint_pos_rel ≈ scale * raw_action` and raw_action lives in roughly
-    # [-1, 1], so |joint_pos_rel|/scale on the order of 1.0 is in-distribution
-    # and <=2.0 is a reasonable safety margin (slightly outside but still
-    # close enough that the MLP's output stays sane on legs/waist). Above
-    # ~3.0 the policy starts producing garbage on every dim. See QA5.
-    ARM_GESTURE_K = 2.0
+    # Per-arm-joint physical limits (rad). Sourced from g1_29dof.xml's
+    # <joint range=...> attributes, then shrunk by ~5% on each side so the
+    # commanded target never sits *exactly* on the soft-stop (which causes
+    # the actuator to fight a hard wall and emit large reaction forces).
+    # Indices 0..13 correspond to ARM_START..ARM_START+13 (i.e. left arm
+    # then right arm in the same order as the deploy.yaml joint table).
+    ARM_JOINT_LIMITS: tuple = (
+        (-3.05, 2.65),   # 15 LeftShoulderPitch  (xml -3.0892, 2.6704)
+        (-1.55, 2.20),   # 16 LeftShoulderRoll   (xml -1.5882, 2.2515)
+        (-2.55, 2.55),   # 17 LeftShoulderYaw    (xml -2.618 , 2.618 )
+        (-1.00, 2.05),   # 18 LeftElbow          (xml -1.0472, 2.0944)
+        (-1.95, 1.95),   # 19 LeftWristRoll      (xml -1.9722, 1.9722)
+        (-1.55, 1.55),   # 20 LeftWristPitch     (xml -1.6144, 1.6144)
+        (-1.55, 1.55),   # 21 LeftWristYaw       (xml -1.6144, 1.6144)
+        (-3.05, 2.65),   # 22 RightShoulderPitch
+        (-2.20, 1.55),   # 23 RightShoulderRoll  (xml -2.2515, 1.5882)
+        (-2.55, 2.55),   # 24 RightShoulderYaw
+        (-1.00, 2.05),   # 25 RightElbow
+        (-1.95, 1.95),   # 26 RightWristRoll
+        (-1.55, 1.55),   # 27 RightWristPitch
+        (-1.55, 1.55),   # 28 RightWristYaw
+    )
+
+    # `ARM_GESTURE_K` previously gated the *gesture amplitude* itself (clamp
+    # commanded arm pose to default ± K*action_scale). That envelope is too
+    # tight to express recognisable gestures (shoulder action_scale=0.44,
+    # so K=2 caps the shoulder at ±0.88 rad — not enough for a real T-pose
+    # or hands-up). Now gestures are clamped only to the *physical* joint
+    # range (ARM_JOINT_LIMITS); the OOD risk this used to guard against is
+    # eliminated by masking the arm slice of the policy's observation
+    # while a gesture is active (see `_arm_obs_masked` and `_build_obs`).
+    #
+    # ARM_GESTURE_K is still used for one thing: clipping the value we
+    # write into `last_raw_action[15:29]` so the next obs's last_action
+    # entry stays in roughly the same magnitude range as the policy's own
+    # outputs (raw_action ∈ ~[-1, 1]). Capping at K=4 keeps the
+    # reverse-mapped action bounded even when the commanded arm pose
+    # exceeds default ± 4*scale. Since the policy itself is fed zero in
+    # those slots when the override is active, this is mostly cosmetic.
+    ARM_GESTURE_K = 4.0
 
     # Per-tick maximum *change* in commanded arm angle, in units of
     # action_scale. Even if the gesture target is within the safe envelope,
@@ -471,6 +546,43 @@ class ComboController:
     # was never trained on. Cap the rate; the gesture's stated duration is
     # still respected unless it would violate this cap.
     ARM_GESTURE_RATE_K_PER_SEC = 4.0
+
+    # ---- Engagement gating (anti-"flying" net) ------------------------
+    # Boot ramp duration (measured pose -> default_q with reduced Kp).
+    BOOT_DUR_S = 5.0
+    # Kp scale at the start of the boot ramp; reaches 1.0 by the end.
+    BOOT_KP_FLOOR = 0.3
+    # After boot ramp finishes, the controller does NOT immediately hand
+    # control to the policy. Instead it requires the robot to be:
+    #   - at default_q within `ENGAGE_POSE_TOL` rad (per joint),
+    #   - quiescent (|dq| < ENGAGE_VEL_TOL rad/s per joint) for at least
+    #     ENGAGE_HOLD_S seconds,
+    #   - upright (gravity_proj_z < ENGAGE_GRAV_Z, more negative = more upright).
+    # Until those gates pass, the controller keeps publishing the held
+    # default pose at full Kp instead of activating the policy. This
+    # eliminates the "flying" startup transient where the policy was
+    # activated while the robot was still mid-air on the elastic band, or
+    # mid-recovery from a partial collapse.
+    ENGAGE_POSE_TOL = 0.08    # rad (per joint)
+    ENGAGE_VEL_TOL = 0.30     # rad/s (per joint)
+    ENGAGE_HOLD_S = 0.8
+    ENGAGE_GRAV_Z = -0.85
+    # Hard ceiling on time spent in the "holding default_q, waiting to
+    # engage" state. After this many seconds since boot ramp finished we
+    # engage the policy regardless, so the robot can't stall forever in
+    # held-pose mode if the user never reaches a perfect quiescent state.
+    # NOTE: this is generous on purpose — operators normally lower the
+    # elastic band manually before launching agent_main, and this timer
+    # only kicks in if everything else is wedged.
+    ENGAGE_TIMEOUT_S = 30.0
+
+    # During the first POLICY_WARMUP_S after engagement, the raw policy
+    # output is hard-clipped to ±POLICY_WARMUP_CLIP and blended with the
+    # held default action with a cosine ease-in. This protects against a
+    # bad first action from a still-settling state estimator (e.g. IMU
+    # gyro spike at hand-off) propagating into a runaway leg torque.
+    POLICY_WARMUP_S = 0.6
+    POLICY_WARMUP_CLIP = 0.8
 
     def __init__(self, cfg: DeployCfg, policy: Policy):
         self.cfg = cfg
@@ -495,16 +607,31 @@ class ComboController:
         self.last_raw_action = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
         self.global_phase = 0.0
 
-        # Boot ramp (measured pose -> default_q). 5 s instead of 3 s gives the
-        # robot time to settle (e.g. when the elastic band is still engaged or
-        # the initial pose is far from default_q). Kp is also ramped from
-        # boot_kp_floor*kp to full kp over the ramp so an aggressive PD pull
-        # can't slingshot the robot before the policy takes over.
+        # Boot ramp (measured pose -> default_q). The controller goes
+        # through these phases in order:
+        #
+        #   BOOT (boot_dur seconds): blend measured pose -> default_q with
+        #     Kp ramped from BOOT_KP_FLOOR -> 1.0 (cosine ease).
+        #   STANDBY: hold default_q at full Kp, waiting for the engagement
+        #     gates (pose / velocity / gravity / hold-time) to pass. This
+        #     is the new "anti-flying" gate — without it the policy used
+        #     to take over while the robot was still mid-air on the
+        #     elastic band, fed garbage actions to the legs, and the
+        #     robot "flew around" needing repeated MuJoCo resets.
+        #   POLICY: policy controls all 29 joints. The first POLICY_WARMUP_S
+        #     blends policy output with the held default action and clips
+        #     raw_action to ±POLICY_WARMUP_CLIP so a single bad inference
+        #     can't slingshot a leg.
         self.boot_q_from: Optional[np.ndarray] = None
         self.boot_t = 0.0
-        self.boot_dur = 5.0
-        self.boot_kp_floor = 0.3
+        self.boot_dur = self.BOOT_DUR_S
+        self.boot_kp_floor = self.BOOT_KP_FLOOR
         self.policy_active = False
+        # Phase tracking for STANDBY / POLICY logic.
+        self._boot_done = False
+        self._standby_since: Optional[float] = None
+        self._engage_quiet_since: Optional[float] = None
+        self._engage_at: Optional[float] = None    # time policy was engaged
 
         # Arm gesture state.
         # arm_rest is the policy's default arm pose; final fall-back target
@@ -524,6 +651,19 @@ class ComboController:
         # Snapshot of the last 14-D arm slice we actually wrote to lowcmd;
         # used by _rate_limit_arm_step. Seeded lazily in _tick.
         self._last_arm_q_published: Optional[np.ndarray] = None
+        # While an arm gesture is active the policy obs has its arm slice
+        # masked (joint_pos_rel / joint_vel_rel / last_raw_action all set
+        # to 0 for the 14 arm joints). This lets gestures be expressive
+        # in absolute joint space without putting the policy OOD on legs.
+        self._arm_obs_masked = False
+        # Cached arm slice of action_offset / action_scale (== default_q
+        # for arms / per-joint action scale). Used by the override math.
+        self._arm_lo = np.array(
+            [lo for (lo, _) in self.ARM_JOINT_LIMITS], dtype=np.float64
+        )
+        self._arm_hi = np.array(
+            [hi for (_, hi) in self.ARM_JOINT_LIMITS], dtype=np.float64
+        )
 
         # Soft Kp scale.
         self.kp_scale = 1.0
@@ -566,8 +706,10 @@ class ComboController:
 
         Every keyframe target is run through `_clamp_arm_to_safe_envelope`
         before queueing — defense-in-depth so even hand-built gesture
-        tables that don't go through `materialize()` can't push the policy
-        OOD."""
+        tables can't drive an arm joint past its physical limit. The
+        policy obs is also masked while the override is active, so any
+        arm motion within the joint range is OOD-safe by construction.
+        """
         with self._arm_lock:
             # Seed arm_q_target with where the arms actually are right now,
             # otherwise (if the policy was controlling them and had them
@@ -626,6 +768,10 @@ class ComboController:
         # Seed the arm overlay so it matches the boot ramp endpoint.
         self.arm_q_target = self.cfg.default_q[ARM_START:ARM_END].copy()
         self.boot_t = 0.0
+        self._boot_done = False
+        self._standby_since = None
+        self._engage_quiet_since = None
+        self._engage_at = None
         self.policy_active = False
         self.last_raw_action[:] = 0.0
         self.global_phase = 0.0
@@ -638,7 +784,11 @@ class ComboController:
         self._thread.Start()
         print(
             f"[combo] mode_machine={self.mode_machine}. "
-            f"Ramping to default pose over {self.boot_dur:.1f} s ..."
+            f"Ramping to default pose over {self.boot_dur:.1f} s, "
+            f"then waiting for the robot to settle (pose tol "
+            f"{self.ENGAGE_POSE_TOL:.2f} rad / vel tol "
+            f"{self.ENGAGE_VEL_TOL:.2f} rad·s, hold "
+            f"{self.ENGAGE_HOLD_S:.1f} s) before engaging the policy."
         )
 
     def stop_and_settle(self):
@@ -664,26 +814,72 @@ class ComboController:
             self._publish(self.cfg.default_q)
             return
 
-        # Boot ramp before policy takes over.
-        if not self.policy_active:
+        # ---- BOOT phase: blend from measured pose to default_q with
+        # gradually increasing Kp.
+        if not self._boot_done:
             self.boot_t += self.cfg.step_dt
             if self.boot_t >= self.boot_dur:
-                self.policy_active = True
+                self._boot_done = True
+                self._standby_since = time.monotonic()
                 self.kp_scale = 1.0
-                print("[combo] policy ready. wsadqe to walk; 1-8 arm gestures; 0 release.")
                 self._publish(self.cfg.default_q)
                 return
             s = 0.5 - 0.5 * np.cos(np.pi * (self.boot_t / self.boot_dur))
             q_des = (1.0 - s) * self.boot_q_from + s * self.cfg.default_q
-            # Ramp Kp from boot_kp_floor -> 1.0 with the same easing so the
-            # robot is pulled toward default_q gently at first.
             self.kp_scale = self.boot_kp_floor + (1.0 - self.boot_kp_floor) * s
             self._publish(q_des)
             return
 
-        # ---- Policy step (all 29 joints) ----
+        # ---- STANDBY phase: hold default_q at full Kp until the robot
+        # is settled enough to safely hand off to the policy. This is the
+        # critical fix for the "robot flies away when agent_main starts"
+        # issue: previously the policy activated 5 s after the first
+        # lowstate regardless of pose / velocity / orientation, so if the
+        # robot was still mid-air on the elastic band or recovering from
+        # a partial collapse, the policy was fed garbage and produced
+        # garbage. Now we require a measurable quiescent period first.
+        if not self.policy_active:
+            if self._can_engage_policy():
+                self.policy_active = True
+                self._engage_at = time.monotonic()
+                self.kp_scale = 1.0
+                # Reset last_raw_action so the first obs after engagement
+                # has a clean self-consistent (joint_pos_rel ≈ 0,
+                # last_action == 0) baseline.
+                self.last_raw_action[:] = 0.0
+                self.global_phase = 0.0
+                print(
+                    "[combo] policy engaged. wsadqe to walk; "
+                    "1-8 arm gestures; 0 release."
+                )
+                self._publish(self.cfg.default_q)
+                return
+            # Not yet eligible — keep holding default pose.
+            self._publish(self.cfg.default_q)
+            return
+
+        # ---- POLICY phase ----
         obs = self._build_obs()
         raw_action = self.policy(obs)
+
+        # Warm-up gating: during the first POLICY_WARMUP_S after engagement,
+        # blend the raw policy action with the held default action with a
+        # cosine ease-in, and clip its magnitude. A bad first inference
+        # (e.g. from a still-settling state estimator) can otherwise spike
+        # a leg torque large enough to launch the robot.
+        if self._engage_at is not None:
+            t_since_engage = time.monotonic() - self._engage_at
+            if t_since_engage < self.POLICY_WARMUP_S:
+                w = 0.5 - 0.5 * np.cos(
+                    np.pi * (t_since_engage / self.POLICY_WARMUP_S)
+                )
+                clipped = np.clip(
+                    raw_action,
+                    -self.POLICY_WARMUP_CLIP, self.POLICY_WARMUP_CLIP,
+                )
+                # Held action is implicitly zero (default_q == offset).
+                raw_action = w * clipped
+
         q_target = raw_action * self.cfg.action_scale + self.cfg.action_offset
         # Default: feed back exactly what the policy commanded.
         self.last_raw_action[:] = raw_action
@@ -703,36 +899,119 @@ class ComboController:
             arm_q = self._rate_limit_arm_step(arm_q)
             q_target[ARM_START:ARM_END] = arm_q
 
-            # ---- CRITICAL: keep last_raw_action consistent with what we
-            # actually published. The policy's own raw_action[15:29] would
-            # imply a different q_target than the override; feeding that
-            # mismatched action back into next tick's `last_action` obs
-            # decouples joint_pos_rel from last_action, which is the OOD
-            # state the policy was *never* trained against. By rewriting
-            # the arm slice of last_raw_action to the inverse map of the
-            # override, the (joint_pos_rel ≈ scale*last_action) invariant
-            # holds and the obs stays in distribution. See QA5 §3.2.
-            arm_raw = (arm_q - self.arm_offset) / self.arm_scale
-            # Clip to a slightly wider range than [-1, 1] so we don't lie
-            # too hard if a clamp boundary is hit; the policy's own actions
-            # occasionally exceed [-1, 1] in training too.
-            arm_raw = np.clip(arm_raw, -self.ARM_GESTURE_K, self.ARM_GESTURE_K)
-            self.last_raw_action[ARM_START:ARM_END] = arm_raw
+            # The policy obs has the arm slice masked (see _build_obs),
+            # so it sees joint_pos_rel == 0 / last_action == 0 for all
+            # arm joints regardless of the actual gesture amplitude.
+            # That keeps the leg outputs in-distribution. We still write
+            # `last_raw_action[ARM_START:ARM_END]` for diagnostics, but
+            # use the *masked* value (0) so the next obs stays consistent
+            # with what the policy was fed.
+            self.last_raw_action[ARM_START:ARM_END] = 0.0
+            self._arm_obs_masked = True
+        else:
+            self._arm_obs_masked = False
 
         self._publish(q_target)
         # Stash what we just published; rate limiter and restart-from-live
         # logic both want it.
         self._last_arm_q_published = q_target[ARM_START:ARM_END].copy()
 
-    def _clamp_arm_to_safe_envelope(self, arm_q: np.ndarray) -> np.ndarray:
-        """Clamp a 14-D arm pose to `default ± K * action_scale` per joint.
+    def _can_engage_policy(self) -> bool:
+        """Decide if it's safe to hand control to the policy.
 
-        This is the structural safety net that keeps every gesture inside
-        the policy's training distribution regardless of how the gesture
-        was authored. K is `ARM_GESTURE_K` (default 2.0)."""
-        lo = self.arm_offset - self.ARM_GESTURE_K * self.arm_scale
-        hi = self.arm_offset + self.ARM_GESTURE_K * self.arm_scale
-        return np.clip(arm_q, lo, hi)
+        Required conditions:
+          - measured joint pose within ENGAGE_POSE_TOL of default_q;
+          - measured joint velocities within ENGAGE_VEL_TOL;
+          - body upright (gravity_proj_z < ENGAGE_GRAV_Z);
+          - all of the above true continuously for ENGAGE_HOLD_S.
+
+        If those gates haven't passed within ENGAGE_TIMEOUT_S of entering
+        STANDBY we engage anyway — better to try than to stall forever
+        when the user has set things up but happens to be just outside
+        tolerance. Returns True when the controller should switch to the
+        policy on the *next* tick.
+        """
+        s = self.low_state
+        if s is None:
+            return False
+        now = time.monotonic()
+
+        try:
+            q = np.fromiter(
+                (s.motor_state[i].q for i in range(G1_NUM_MOTOR)),
+                dtype=np.float64, count=G1_NUM_MOTOR,
+            )
+            dq = np.fromiter(
+                (s.motor_state[i].dq for i in range(G1_NUM_MOTOR)),
+                dtype=np.float64, count=G1_NUM_MOTOR,
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        # Pose / vel: only judge legs and waist (joints 0..14). Arms get
+        # held by the same default-pose PD as the legs but their absolute
+        # angles matter much less to balance, and the elastic band
+        # transient sometimes leaves wrists in an odd offset that we don't
+        # want to use as a reason to refuse engagement forever.
+        pose_err = np.abs(q[:15] - self.cfg.default_q[:15]).max()
+        vel_err = np.abs(dq[:15]).max()
+
+        try:
+            quat = np.array([
+                s.imu_state.quaternion[0],
+                s.imu_state.quaternion[1],
+                s.imu_state.quaternion[2],
+                s.imu_state.quaternion[3],
+            ], dtype=np.float64)
+            if np.linalg.norm(quat) < 1e-6:
+                grav_z = -1.0
+            else:
+                grav_z = float(quat_rotate_inverse(quat, GRAVITY_W)[2])
+        except Exception:  # noqa: BLE001
+            grav_z = -1.0
+
+        gates_ok = (
+            pose_err <= self.ENGAGE_POSE_TOL
+            and vel_err <= self.ENGAGE_VEL_TOL
+            and grav_z <= self.ENGAGE_GRAV_Z
+        )
+        if gates_ok:
+            if self._engage_quiet_since is None:
+                self._engage_quiet_since = now
+            elif now - self._engage_quiet_since >= self.ENGAGE_HOLD_S:
+                return True
+        else:
+            self._engage_quiet_since = None
+
+        # Timeout fallback so we never stall forever in STANDBY. Logged
+        # once with the final failure mode so the operator can tune.
+        if (
+            self._standby_since is not None
+            and now - self._standby_since > self.ENGAGE_TIMEOUT_S
+        ):
+            print(
+                f"[combo] STANDBY -> POLICY by timeout ({self.ENGAGE_TIMEOUT_S:.1f}s); "
+                f"last gate state: pose_err={pose_err:.3f} (tol "
+                f"{self.ENGAGE_POSE_TOL:.3f}), vel_err={vel_err:.3f} "
+                f"(tol {self.ENGAGE_VEL_TOL:.3f}), gravity_z={grav_z:.2f} "
+                f"(tol {self.ENGAGE_GRAV_Z:.2f})"
+            )
+            return True
+        return False
+
+    def _clamp_arm_to_safe_envelope(self, arm_q: np.ndarray) -> np.ndarray:
+        """Clamp a 14-D arm pose to the physical joint limits.
+
+        The previous implementation clamped to `default ± K*action_scale`
+        which kept every gesture inside the policy's training
+        distribution but also crushed the gesture amplitude (shoulder
+        action_scale=0.44, K=2 gave only ±0.88 rad swing). Recognisable
+        gestures need more range. The OOD risk that envelope used to
+        guard against is now eliminated by `_build_obs` masking the
+        arm slice while the override is active, so we only need to
+        protect the *physical* joint limits here. ARM_JOINT_LIMITS is
+        copied from the MJCF with a small safety margin on each side.
+        """
+        return np.clip(arm_q, self._arm_lo, self._arm_hi)
 
     def _rate_limit_arm_step(self, arm_q: np.ndarray) -> np.ndarray:
         """Cap the per-tick arm-joint delta so we never produce a
@@ -816,7 +1095,22 @@ class ComboController:
             dtype=np.float64, count=G1_NUM_MOTOR,
         )
         joint_pos_rel = q - self.cfg.default_q
-        joint_vel_rel = dq
+        joint_vel_rel = dq.copy()
+        last_action_obs = self.last_raw_action.copy()
+
+        # ---- Mask the arm slice while a gesture override is active.
+        # The actual arm position and velocity are wherever the gesture
+        # has driven them, which can be far outside the policy's
+        # training distribution. Feeding that into the policy used to
+        # corrupt its leg outputs even though the leg observations
+        # themselves were fine. By zeroing the arm slice we tell the
+        # policy "arms are at default and stationary" — the legs then
+        # stay in their walking/standing distribution and the policy
+        # can ignore the gesture entirely.
+        if self._arm_obs_masked:
+            joint_pos_rel[ARM_START:ARM_END] = 0.0
+            joint_vel_rel[ARM_START:ARM_END] = 0.0
+            last_action_obs[ARM_START:ARM_END] = 0.0
 
         ang_vel = np.array(
             [s.imu_state.gyroscope[0],
@@ -853,7 +1147,7 @@ class ComboController:
             gait,                     # 2
             joint_pos_rel,            # 29
             joint_vel_rel,            # 29
-            self.last_raw_action,     # 29
+            last_action_obs,          # 29
         ])  # -> 98
 
     def _publish(self, q_des: np.ndarray):

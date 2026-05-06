@@ -9,7 +9,9 @@ the first subscriber so existing single-consumer code keeps working.
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import logging
+import sys
 import threading
 from typing import List, Optional
 
@@ -18,8 +20,60 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
+# --- ALSA stderr silencer ----------------------------------------------------
+#
+# libasound prints "ALSA lib pcm.c:NNNN:(snd_pcm_recover) [error.pcm] underrun
+# occurred" directly to stderr through snd_lib_error_default. On WSL2 +
+# PulseAudio those auto-recovered cosmetic warnings spam the agent's terminal
+# at 5–20 Hz and bury actual log output. snd_lib_error_set_handler() lets us
+# replace the default handler with a no-op while leaving recovery itself
+# untouched. Held at module scope because libasound stores a raw pointer.
+_ALSA_ERROR_HANDLER = None
+
+
+def _silence_libasound_errors() -> None:
+    global _ALSA_ERROR_HANDLER
+    if _ALSA_ERROR_HANDLER is not None or not sys.platform.startswith("linux"):
+        return
+    try:
+        proto = ctypes.CFUNCTYPE(
+            None,
+            ctypes.c_char_p,  # filename
+            ctypes.c_int,     # line
+            ctypes.c_char_p,  # function
+            ctypes.c_int,     # err
+            ctypes.c_char_p,  # fmt
+        )
+
+        def _noop(*_args, **_kwargs):
+            return
+
+        handler = proto(_noop)
+        for libname in ("libasound.so.2", "libasound.so"):
+            try:
+                lib = ctypes.cdll.LoadLibrary(libname)
+            except OSError:
+                continue
+            try:
+                lib.snd_lib_error_set_handler(handler)
+            except (AttributeError, OSError):
+                continue
+            _ALSA_ERROR_HANDLER = handler
+            return
+    except Exception:
+        # Silencing is best-effort; never break process startup.
+        return
+
+
+_silence_libasound_errors()
+
+
 class MicStream:
     """Captures PCM16 mono frames; supports multiple async listeners (fan-out)."""
+
+    # Same rationale as SpeakerStream.DEFAULT_LATENCY_S: the WSL2 ALSA-pulse
+    # plugin is happier when both directions request a generous buffer.
+    DEFAULT_LATENCY_S = 0.10
 
     def __init__(
         self,
@@ -28,6 +82,7 @@ class MicStream:
         device: Optional[int] = None,
         loop: Optional[asyncio.AbstractEventLoop] = None,
         max_queue: int = 32,
+        latency_s: Optional[float] = None,
     ):
         import sounddevice as sd
 
@@ -37,6 +92,9 @@ class MicStream:
         self.device = device
         self.loop = loop
         self._max_queue = max_queue
+        self._latency = (
+            self.DEFAULT_LATENCY_S if latency_s is None else float(latency_s)
+        )
         self._listeners: List[asyncio.Queue[bytes]] = []
         self._listeners_lock = threading.Lock()
         self._stream: Optional["sd.RawInputStream"] = None
@@ -95,13 +153,15 @@ class MicStream:
             channels=1,
             device=self.device,
             callback=self._callback,
+            latency=self._latency,
         )
         self._stream.start()
         log.info(
-            "mic started: samplerate=%d, block_frames=%d, device=%s",
+            "mic started: samplerate=%d, block_frames=%d, device=%s, latency=%.3fs",
             self.samplerate,
             self.block_frames,
             self.device,
+            self._latency,
         )
 
     def close(self):
@@ -131,11 +191,26 @@ class SpeakerStream:
 
     SANITY_CAP_SECONDS = 60
 
+    # WSL2's PulseAudio bridge underruns aggressively when the Python
+    # callback is delayed by GIL contention from perception/DDS/ML threads
+    # in the same process. A non-trivial requested latency gives the
+    # ALSA-pulse plugin a buffer big enough to hide those stalls so the
+    # user actually hears a clean reply instead of a stuttering one.
+    DEFAULT_LATENCY_S = 0.20
+
+    # 20 ms blocks: a fixed blocksize gives PortAudio a predictable
+    # callback cadence (a stark improvement over blocksize=0 on PulseAudio,
+    # which produced highly variable callback intervals on WSL2). 20 ms is
+    # short enough that `clear()` for barge-in still feels instant.
+    DEFAULT_BLOCKSIZE_MS = 20
+
     def __init__(
         self,
         samplerate: int = 24000,
         device: Optional[int] = None,
         buffer_ms: int = 200,  # accepted for back-compat; not used as a hard cap
+        latency_s: Optional[float] = None,
+        blocksize_frames: Optional[int] = None,
     ):
         import sounddevice as sd
 
@@ -147,6 +222,23 @@ class SpeakerStream:
         self._lock = threading.Lock()
         self._buf = bytearray()
         self._stream: Optional["sd.RawOutputStream"] = None
+        self._latency = (
+            self.DEFAULT_LATENCY_S if latency_s is None else float(latency_s)
+        )
+        self._blocksize = (
+            int(samplerate * self.DEFAULT_BLOCKSIZE_MS / 1000)
+            if blocksize_frames is None
+            else int(blocksize_frames)
+        )
+
+    def pending_bytes(self) -> int:
+        """How many bytes of audio are still queued to play out."""
+        with self._lock:
+            return len(self._buf)
+
+    def pending_seconds(self) -> float:
+        denom = max(1, self.samplerate * self.bytes_per_sample)
+        return self.pending_bytes() / float(denom)
 
     def _callback(self, outdata, frames, time_info, status):
         if status:
@@ -165,14 +257,18 @@ class SpeakerStream:
     def start(self):
         self._stream = self._sd.RawOutputStream(
             samplerate=self.samplerate,
-            blocksize=0,
+            blocksize=self._blocksize,
             dtype="int16",
             channels=1,
             device=self.device,
             callback=self._callback,
+            latency=self._latency,
         )
         self._stream.start()
-        log.info("speaker started: samplerate=%d, device=%s", self.samplerate, self.device)
+        log.info(
+            "speaker started: samplerate=%d, device=%s, latency=%.3fs, blocksize=%d",
+            self.samplerate, self.device, self._latency, self._blocksize,
+        )
 
     def write(self, pcm_bytes: bytes):
         if not pcm_bytes:

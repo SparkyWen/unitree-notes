@@ -268,6 +268,86 @@ async def test_head_frame_watchdog_does_not_block_gesture(env):
     assert ok is True
 
 
+async def test_head_frame_inf_age_does_not_block_walk(env):
+    """Regression: with --no-perception (or while head camera is still
+    warming up), `head_frame_age_s()` returns float('inf'). The supervisor
+    must mirror the watchdog policy — warming-up is not motion-blocking,
+    only finite-but-stale ages reject walk. Otherwise --no-perception is
+    unusable: every walk fails with `head frame age infs > 2.00s` even
+    though the operator explicitly opted out of vision.
+    """
+    env["scene_bus"]._head_age = float("inf")
+    ok, reason, _ = await env["sup"].validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is True, f"walk rejected with reason: {reason!r}"
+
+
+async def test_perception_disabled_skips_ground_constraint(tmp_path):
+    """With perception_enabled=False (operator passed --no-perception),
+    Rule 9's `if ground is None` must NOT block walk/approach. Without
+    this carve-out, --no-perception is a dead-end mode: every walk gets
+    "scene: no ground constraint yet" and the only motion calls left are
+    gestures. Regression for the 2026-05-06 incident where the operator
+    fell back to --no-perception to escape the perception-induced control
+    instability and then could not move at all.
+    """
+    cfg = _cfg()
+    scene_bus = _StubSceneBus()
+    robot_bus = _StubRobotBus()
+    fsm = RobotFsm()
+    fsm.transition(RobotFsmState.STANDING, "boot done")
+    fsm.transition(RobotFsmState.ENGAGED, "wake")
+    estop = EstopClient(tmp_path / "estop_flag")
+    sup = SafetySupervisor(
+        cfg,
+        scene_bus=scene_bus,
+        robot_bus=robot_bus,
+        fsm=fsm,
+        estop=estop,
+        run_mode="active",
+        perception_enabled=False,
+    )
+    robot_bus.update(_good_robot_state())
+    # Deliberately do NOT call scene_bus.update_ground(...) — that mirrors
+    # the production state when no PerceptionRunner is running.
+
+    ok, reason, _ = await sup.validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is True, f"walk rejected with reason: {reason!r}"
+
+
+async def test_perception_disabled_still_honors_other_rules(tmp_path):
+    """Belt + suspenders: even with perception_enabled=False, the other
+    rules (lowstate watchdog, RL policy active, pose check, parameter
+    clamp) must still fire. perception_enabled is a Rule 9 carve-out
+    only, not a blanket bypass."""
+    cfg = _cfg()
+    scene_bus = _StubSceneBus()
+    robot_bus = _StubRobotBus()
+    fsm = RobotFsm()
+    fsm.transition(RobotFsmState.STANDING, "boot done")
+    fsm.transition(RobotFsmState.ENGAGED, "wake")
+    estop = EstopClient(tmp_path / "estop_flag")
+    sup = SafetySupervisor(
+        cfg,
+        scene_bus=scene_bus,
+        robot_bus=robot_bus,
+        fsm=fsm,
+        estop=estop,
+        run_mode="active",
+        perception_enabled=False,
+    )
+    # Stale lowstate must still reject motion even with perception off.
+    robot_bus._age = 1.0
+    ok, reason, _ = await sup.validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is False, "perception_enabled=False must not bypass lowstate"
+    assert "lowstate" in reason
+
+
 # Rule 6: RL policy active
 async def test_rl_policy_inactive_rejects_motion(env):
     env["robot_bus"].update(_good_robot_state(rl_policy_active=False))
@@ -465,88 +545,139 @@ def test_invalid_run_mode_raises(tmp_path):
         )
 
 
-# ----- _confirm_in_terminal: stale-stdin handling ---------------------------
-# Regression for "operator typed `y` but the walk was declined": when the
-# terminal is in canonical mode and the operator presses arrow keys (or any
-# other Enter-terminated noise) between prompts, those bytes sit unread in
-# stdin's line buffer. Without flushing, the next prompt's `readline` returns
-# the stale bytes and the operator's actual `y` ends up queued for nobody.
-# The fix flushes stdin inside the executor right before readline, so only
-# fresh post-prompt input is honored.
+# ----- _confirm_in_terminal: single-keypress cbreak prompt ------------------
+# Regression for two real-world failures (see `_confirm_in_terminal` docstring
+# in supervisor.py): (a) stale arrow-key bytes in the line buffer caused
+# readline to return non-`y` strings; (b) operators pressed `y` without
+# Enter and the 10 s timeout decline-fired with their `y` still queued.
+# cbreak mode reads each keypress immediately and avoids both.
+
+class _FakeTermios:
+    TCIFLUSH = 0
+    TCSADRAIN = 0
+    error = type("error", (Exception,), {})
+
+    def __init__(self):
+        self.tcflush_calls = 0
+        self.tcgetattr_calls = 0
+        self.tcsetattr_calls = 0
+
+    def tcflush(self, _fd, _what):
+        self.tcflush_calls += 1
+
+    def tcgetattr(self, _fd):
+        self.tcgetattr_calls += 1
+        return ["dummy_attrs"]
+
+    def tcsetattr(self, _fd, _when, _attr):
+        self.tcsetattr_calls += 1
+
+
+class _FakeTty:
+    def __init__(self):
+        self.cbreak_calls = 0
+
+    def setcbreak(self, _fd):
+        self.cbreak_calls += 1
+
+
+class _FakeStdin:
+    """Simulates one keypress at a time; supports escape sequences."""
+
+    def __init__(self, sequence):
+        self._buf = list(sequence)
+
+    def fileno(self):
+        return 0
+
+    def read(self, n):
+        out = []
+        for _ in range(n):
+            if not self._buf:
+                return ""
+            out.append(self._buf.pop(0))
+        return "".join(out)
+
+    def readline(self):
+        # Fallback path (no termios). Drain to newline.
+        out = []
+        while self._buf:
+            ch = self._buf.pop(0)
+            out.append(ch)
+            if ch == "\n":
+                break
+        return "".join(out)
+
 
 @pytest.mark.asyncio
-async def test_confirm_in_terminal_flushes_stdin_before_read(monkeypatch):
-    """tcflush must be called before readline so stale bytes are dropped."""
+async def test_confirm_in_terminal_accepts_single_y_keypress(monkeypatch):
+    """`y` alone (no Enter) must accept — that is the entire point of the
+    cbreak rewrite. Earlier readline-based code timed out on this path."""
     from g1_brain.safety import supervisor as sup_mod
 
-    call_order: list[str] = []
-
-    class _FakeTermios:
-        TCIFLUSH = 0
-        @staticmethod
-        def tcflush(_fd, _what):
-            call_order.append("tcflush")
-
-    class _FakeStdin:
-        def fileno(self):
-            return 0
-        def readline(self):
-            call_order.append("readline")
-            return "y\n"
-
-    monkeypatch.setitem(__import__("sys").modules, "termios", _FakeTermios)
-    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin())
+    fake_term = _FakeTermios()
+    fake_tty = _FakeTty()
+    monkeypatch.setitem(__import__("sys").modules, "termios", fake_term)
+    monkeypatch.setitem(__import__("sys").modules, "tty", fake_tty)
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("y"))
 
     ok = await sup_mod._confirm_in_terminal("walk", {"vx": 0.1})
     assert ok is True
-    assert call_order == ["tcflush", "readline"], call_order
+    # We must have entered cbreak (else we are back in line mode).
+    assert fake_tty.cbreak_calls == 1
+    # And we must have flushed pre-prompt bytes before reading.
+    assert fake_term.tcflush_calls == 1
+    # And we must have restored the original tty state on exit.
+    assert fake_term.tcsetattr_calls == 1
 
 
 @pytest.mark.asyncio
 async def test_confirm_in_terminal_decline_on_non_yes(monkeypatch):
-    """Anything that isn't y/yes after strip+lower must decline."""
+    """Any non-`y` keypress declines — including arrow keys (escape
+    sequence) followed by a stray character."""
     from g1_brain.safety import supervisor as sup_mod
 
-    class _FakeTermios:
-        TCIFLUSH = 0
-        @staticmethod
-        def tcflush(_fd, _what):
-            pass
+    fake_term = _FakeTermios()
+    fake_tty = _FakeTty()
+    monkeypatch.setitem(__import__("sys").modules, "termios", fake_term)
+    monkeypatch.setitem(__import__("sys").modules, "tty", fake_tty)
 
-    class _FakeStdin:
-        def __init__(self, line):
-            self._line = line
-        def fileno(self):
-            return 0
-        def readline(self):
-            return self._line
-
-    monkeypatch.setitem(__import__("sys").modules, "termios", _FakeTermios)
-
-    # Stale escape sequence (right-arrow + Enter) — exactly what the live
-    # 2026-05-06 incident produced.
-    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("\x1b[C\n"))
+    # `n` declines.
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("n"))
     assert await sup_mod._confirm_in_terminal("walk", {}) is False
 
-    # EOF (closed stdin) returns empty string — must also decline.
-    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin(""))
+    # Right-arrow (\x1b[C) followed by `n` — the operator hit an arrow
+    # key first, then the actual decline. Escape sequence is drained
+    # transparently, so the `n` is what we evaluate.
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("\x1b[Cn"))
     assert await sup_mod._confirm_in_terminal("walk", {}) is False
 
 
 @pytest.mark.asyncio
+async def test_confirm_in_terminal_falls_back_when_not_tty(monkeypatch):
+    """When termios.tcgetattr raises (piped stdin / sub-process), fall
+    back to readline so CI and pytest still work."""
+    from g1_brain.safety import supervisor as sup_mod
+
+    class _FailingTermios(_FakeTermios):
+        def tcgetattr(self, _fd):
+            raise _FailingTermios.error("Inappropriate ioctl for device")
+
+    fake_term = _FailingTermios()
+    monkeypatch.setitem(__import__("sys").modules, "termios", fake_term)
+    monkeypatch.setitem(__import__("sys").modules, "tty", _FakeTty())
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("y\n"))
+
+    assert await sup_mod._confirm_in_terminal("walk", {}) is True
+
+
+@pytest.mark.asyncio
 async def test_confirm_in_terminal_survives_no_termios(monkeypatch):
-    """On platforms without termios (e.g. piped stdin) we must still read."""
+    """Without termios (Windows / piped stdin) we still readline so the
+    function never crashes."""
     from g1_brain.safety import supervisor as sup_mod
     import sys as _sys
 
-    # Hide termios so the inner import fails like a non-TTY environment.
     monkeypatch.setitem(_sys.modules, "termios", None)
-
-    class _FakeStdin:
-        def fileno(self):
-            return 0
-        def readline(self):
-            return "y\n"
-
-    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin())
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("y\n"))
     assert await sup_mod._confirm_in_terminal("walk", {}) is True

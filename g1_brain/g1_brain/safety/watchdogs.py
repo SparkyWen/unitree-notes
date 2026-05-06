@@ -294,15 +294,36 @@ class WatchdogManager:
             self._clear_trip("lowstate")
 
     def _tick_head_frame(self) -> None:
+        # `age=inf` means we have never received a frame yet (camera is still
+        # spinning up). Production logs show MuJoCo + perception take ~30 s to
+        # produce the first head frame, while `boot_grace_s` is only 5 s — so
+        # the watchdog used to promote head_frame to EMERGENCY_STOP at
+        # t≈boot_grace+head_max_age and stay there until cameras came online,
+        # ~25 s of FSM flap (ENGAGED↔EMERGENCY_STOP) for no actual safety
+        # benefit. Only treat staleness as motion-blocking once we have seen
+        # at least one frame; before that, log + track locally so a bus
+        # re-init still flips back to "tripped" cleanly when frames arrive
+        # but stop, and so the operator still sees the warning at startup.
         age = self.scene_bus.head_frame_age_s()
+        warming_up = age == float("inf")
         if age > self.head_max_age:
-            self._set_trip("head_frame", f"age={age:.2f}s", emergency=True)
+            self._set_trip(
+                "head_frame", f"age={age:.2f}s",
+                emergency=not warming_up,
+            )
         else:
             self._clear_trip("head_frame")
 
     def _tick_usb_frame(self) -> None:
+        # USB frame watchdog is informational (emergency=False). The same
+        # `age=inf` rule still applies: while the camera has never sent a
+        # frame, we are in the startup transient — log it once but don't
+        # accumulate an active trip on the supervisor that any downstream
+        # consumer might react to. This keeps the supervisor's view of
+        # watchdog state consistent with head_frame.
         age = self.scene_bus.usb_frame_age_s()
-        if age > self.usb_max_age:
+        warming_up = age == float("inf")
+        if age > self.usb_max_age and not warming_up:
             self._set_trip("usb_frame", f"age={age:.2f}s", emergency=False)
         else:
             self._clear_trip("usb_frame")

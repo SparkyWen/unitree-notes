@@ -224,8 +224,23 @@ class ComboProxy:
         self._first_state_v = self._CTX.Value("b", False, lock=True)
 
         # Command pipe (parent -> child). Pickled tuples.
-        self._cmd_parent, self._cmd_child = self._CTX.Pipe(duplex=False)
-        # Constants pipe (child -> parent). One-shot.
+        # `duplex=True` is intentional: with `duplex=False` Pipe returns
+        # ``(reader, writer)`` and the parent's end is the reader — but we
+        # want the parent to *send* commands and the child to *receive*
+        # them, which is the reverse. `duplex=True` gives both ends full
+        # send + recv so the variable name (``_cmd_parent`` / ``_cmd_child``)
+        # reflects ownership rather than direction. Bug history: the
+        # original duplex=False wiring made the child's first recv() raise
+        # ``OSError: connection is write-only`` and immediately exit, which
+        # fell back to "no controller" while agent_main kept running and
+        # the robot toppled under the simulator's seed PD.
+        self._cmd_parent, self._cmd_child = self._CTX.Pipe(duplex=True)
+        # Constants pipe (child -> parent). One-shot, child-writes-once.
+        # duplex=False is correct here because data flows child -> parent:
+        # ``Pipe(duplex=False)`` returns ``(reader, writer)``, and the
+        # ``_const_parent`` end is the reader (parent reads), the
+        # ``_const_child`` end is the writer (child writes) — this matches
+        # variable names AND data direction.
         self._const_parent, self._const_child = self._CTX.Pipe(duplex=False)
 
         self._proc: Optional[mp.process.BaseProcess] = None
@@ -238,11 +253,26 @@ class ComboProxy:
 
     # ----- lifecycle --------------------------------------------------------
 
-    def start(self, *, ready_timeout_s: float = 30.0) -> None:
+    def start(
+        self,
+        *,
+        ready_timeout_s: float = 30.0,
+        target=None,
+    ) -> None:
+        """Spawn the subprocess and block until constants arrive.
+
+        ``target`` defaults to :func:`_combo_main` (the production entry
+        point that imports ``g1_sim_rl_combo`` and runs the real
+        controller). Tests pass a stub callable matching the same
+        signature so they can exercise the IPC plumbing without DDS or
+        the full controller. The override must be picklable through the
+        ``spawn`` start method (i.e. defined at module top level).
+        """
         if self._proc is not None and self._proc.is_alive():
             return
+        target = target or _combo_main
         self._proc = self._CTX.Process(
-            target=_combo_main,
+            target=target,
             name="g1-combo-proc",
             args=(
                 self._cmd_child,
@@ -262,16 +292,49 @@ class ComboProxy:
         self._cmd_child.close()
         self._const_child.close()
 
-        # Block until constants arrive. The subprocess only sends after
-        # it has received its first rt/lowstate, which means by the time
-        # this returns the controller is publishing lowcmd.
-        if not self._const_parent.poll(ready_timeout_s):
-            self.stop_and_settle()
-            raise TimeoutError(
-                f"combo subprocess did not signal ready within "
-                f"{ready_timeout_s:.1f}s (no rt/lowstate?)"
+        # Wait for either (a) constants arriving (success) or (b) the
+        # subprocess dying (early failure), using mpc.wait on both the
+        # constants pipe and the proc's sentinel fd. Without the sentinel
+        # half, a child that crashes during DDS init would silently leave
+        # the parent blocking until the timeout — agent_main would then
+        # "continue anyway" with no controller and the robot collapses.
+        import multiprocessing.connection as mpc  # noqa: WPS433
+        deadline = time.monotonic() + ready_timeout_s
+        const = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.stop_and_settle()
+                raise TimeoutError(
+                    f"combo subprocess did not signal ready within "
+                    f"{ready_timeout_s:.1f}s (no rt/lowstate?)"
+                )
+            ready = mpc.wait(
+                [self._const_parent, self._proc.sentinel],
+                timeout=remaining,
             )
-        const = self._const_parent.recv()
+            if not ready:
+                continue   # spurious wakeup, retry
+            # If the subprocess died, the sentinel fd is in `ready`.
+            # If constants arrived, the pipe is in `ready`. They can race
+            # (proc exits right after sending), so try the pipe first.
+            if self._const_parent in ready:
+                try:
+                    const = self._const_parent.recv()
+                    break
+                except EOFError:
+                    pass   # fall through to the dead-process branch
+            if not self._proc.is_alive():
+                exitcode = self._proc.exitcode
+                raise RuntimeError(
+                    f"combo subprocess exited unexpectedly during startup "
+                    f"(exitcode={exitcode!r}). Check the traceback printed "
+                    f"to stderr above this line — most common causes: DDS "
+                    f"factory init failed (interface name mismatch), or "
+                    f"g1_sim_rl_combo import failed in the child. The proxy "
+                    f"will not retry; agent_main should fall back to the "
+                    f"in-process path or --no-skills."
+                )
         self._const_parent.close()
 
         self.arm_rest = np.asarray(const["arm_rest"], dtype=np.float64)
@@ -354,6 +417,72 @@ class ComboProxy:
             self._cmd_parent.send(msg)
         except (BrokenPipeError, EOFError, OSError) as e:
             log.warning("combo cmd pipe error on %s: %s", msg[0], e)
+
+
+# ---------------------------------------------------------------------------
+# Test-only subprocess entry. Lives at module level so it pickles cleanly
+# through the ``spawn`` start method. Mirrors the real ``_combo_main``
+# protocol exactly (constants pipe, status mp.Value mirrors, command pipe)
+# so tests catch any wiring bug — Pipe direction, forgotten close(),
+# missing field — that the production path would also hit.
+# ---------------------------------------------------------------------------
+def _test_crashing_combo_main(*args, **kwargs) -> None:
+    """Test-only stub that crashes immediately. Used by
+    ``test_combo_proxy_detects_subprocess_early_death`` to verify
+    :meth:`ComboProxy.start` raises RuntimeError on subprocess early
+    death (instead of blocking until the timeout, which would leave
+    agent_main running with no controller).
+    """
+    raise SystemExit("test_crashing_combo_main: simulated child crash")
+
+
+def _test_stub_combo_main(
+    cmd_pipe,
+    policy_active_v,
+    mode_machine_v,
+    last_state_time_v,
+    first_state_v,
+    constants_pipe,
+    domain_id: int,
+    interface: str,
+) -> None:
+    import time as _time
+    # Publish constants like the real entry would. Keeps the IPC contract
+    # honest: ComboProxy.start() unblocks on this send.
+    constants_pipe.send({
+        "arm_rest": np.zeros(14, dtype=np.float64),
+        "arm_scale": np.full(14, 0.44, dtype=np.float64),
+        "arm_offset": np.zeros(14, dtype=np.float64),
+        "mode_machine": 7,         # arbitrary sentinel for the test
+    })
+    constants_pipe.close()
+
+    # Simulate the real worker becoming "policy_active" after a short delay.
+    with first_state_v.get_lock():
+        first_state_v.value = True
+    with mode_machine_v.get_lock():
+        mode_machine_v.value = 7
+    with policy_active_v.get_lock():
+        policy_active_v.value = True
+    with last_state_time_v.get_lock():
+        last_state_time_v.value = _time.monotonic()
+
+    # Record commands to a list and write the count into mode_machine_v
+    # so the parent can assert on it (no need for another Value/Pipe).
+    cmd_count = 0
+    while True:
+        try:
+            msg = cmd_pipe.recv()
+        except EOFError:
+            break
+        if msg is None:
+            break
+        op = msg[0]
+        cmd_count += 1
+        with mode_machine_v.get_lock():
+            mode_machine_v.value = 100 + cmd_count   # encodes "we received N commands"
+        if op == "stop":
+            break
 
 
 __all__ = ["ComboProxy"]

@@ -691,10 +691,32 @@ async def _run(args: argparse.Namespace) -> int:
                     pass
                 combo_ctl = None
                 args.no_skills = True
+            except RuntimeError as e:
+                # ComboProxy.start() raises RuntimeError when the subprocess
+                # dies during startup. Don't silently continue — agent_main
+                # without a controller leaves the robot under the simulator's
+                # weak seed PD which collapses (see docs/stand_balance_root_cause.md).
+                # Fall back to the in-process path so at least the controller
+                # runs (we lose GIL isolation, but the previous phase 7 fixes
+                # mean the in-process path works on a moderately-loaded host).
+                log.error(
+                    "combo subprocess startup failed: %s. "
+                    "Falling back to in-process ComboController.", e,
+                )
+                try:
+                    combo_ctl.stop_and_settle()
+                except Exception:  # noqa: BLE001
+                    pass
+                combo_ctl = None
+                isolate_controller = False
             except Exception as e:  # noqa: BLE001
                 log.exception("combo subprocess startup failed: %s", e)
+                try:
+                    combo_ctl.stop_and_settle()
+                except Exception:  # noqa: BLE001
+                    pass
                 combo_ctl = None
-                args.no_skills = True
+                isolate_controller = False
 
     if not args.no_skills and not isolate_controller:
         combo_mod = _try_import_combo()

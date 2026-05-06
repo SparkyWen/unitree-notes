@@ -522,7 +522,65 @@ effect because they are independent.
 
 ---
 
-## 10. Verification protocol for the operator
+## 10. Live end-to-end verification (2026-05-06, post-bug-fix)
+
+The first deploy of phase 8 had a mechanical Pipe-direction bug:
+``mp.Pipe(duplex=False)`` returns ``(reader, writer)`` and the proxy's
+constructor unpacked them as ``(_cmd_parent, _cmd_child)`` — but the
+data flow is parent **writes**, child **reads**, so the variable name
+"_cmd_child" pointed at the writer end. The subprocess immediately
+crashed on its first ``cmd_pipe.recv()`` with
+``OSError: connection is write-only``, agent_main timed out waiting,
+fell back to "no controller", and the robot collapsed under the
+simulator's seed PD.
+
+Three follow-up changes:
+
+1. **Use `Pipe(duplex=True)` for the command pipe.** Both ends can then
+   send and recv, so the variable naming reflects ownership rather than
+   direction. (The constants pipe stays `duplex=False` because data
+   genuinely flows child → parent and the names already match.)
+2. **Detect subprocess early-death in `start()`** via
+   `multiprocessing.connection.wait([const_pipe, proc.sentinel])` —
+   if the child dies before sending constants, `start()` raises
+   `RuntimeError` with the exit code instead of blocking until timeout.
+3. **agent_main handles the new `RuntimeError`** by falling back to
+   the in-process `ComboController` (still has phase-7 stability fixes)
+   so a worker import failure does not silently leave the operator with
+   no controller.
+4. **Two new regression tests** in `test_combo_proxy.py` actually spawn
+   subprocesses through the test-only stub entry points
+   (`_test_stub_combo_main`, `_test_crashing_combo_main` in
+   `combo_proxy.py`) so any future Pipe wiring bug fails CI rather than
+   reaching the operator.
+
+After the fix, an end-to-end verify with the headless MuJoCo bridge +
+ComboProxy subprocess (analogous to `g1_combo_integration.py` but for
+the proxy path; script archived at `/tmp/verify_combo_proxy_headless.py`)
+passes all three pass criteria:
+
+```
+=== summary ===
+  worst gz, idle 30 s:        -1.000  -> PASS
+  worst gz, post-walk 20 s:   -0.999  -> PASS
+  worst gz, safehold 10 s:    -1.000  -> PASS
+
+[verify] OVERALL PASS — ComboProxy keeps robot stable end-to-end
+```
+
+Lifecycle timings during this verify:
+
+| Step | Latency |
+|------|---------|
+| `ComboProxy.start()` returns | 0.7 s |
+| `policy_active` becomes True | 5.9 s after start (= 5 s boot ramp + ~0.9 s warm-up) |
+| `stop_and_settle()` returns | 2.45 s |
+
+`pytest tests/` is also green: **232 passed**, including
+`test_combo_proxy_full_lifecycle_with_stub_subprocess` and
+`test_combo_proxy_detects_subprocess_early_death`.
+
+## 11. Verification protocol for the operator
 
 ```bash
 # Terminal 1

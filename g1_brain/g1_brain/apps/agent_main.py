@@ -772,6 +772,14 @@ async def _run(args: argparse.Namespace) -> int:
     # OPENAI_API_KEY presence already validated at the top of _run.
     api_key = os.environ.get("OPENAI_API_KEY")
 
+    # Whether the LLM should be allowed to call mock_imitate at all. We pull
+    # this from the same YAML knob that gates the auto-trigger below, so the
+    # brain's tool list and the perception → brain auto-trigger stay in sync:
+    # turning mock_imitation off disables both.
+    mock_imitation_enabled = bool(
+        (cfg.get("mock_imitation", {}) or {}).get("enabled", False)
+    )
+
     brain_agent = None
     if not args.no_realtime:
         try:
@@ -779,6 +787,7 @@ async def _run(args: argparse.Namespace) -> int:
                 skill_server=skill_server,
                 scene_bus=scene_bus,
                 mock_imitate_trigger=None,
+                mock_imitate_enabled=mock_imitation_enabled,
                 api_key=api_key,
                 model=os.environ.get(
                     "OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]

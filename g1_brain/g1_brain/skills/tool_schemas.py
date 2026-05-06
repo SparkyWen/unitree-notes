@@ -337,7 +337,8 @@ def _audio_tts_robot() -> Dict[str, Any]:
 # ---------- Public builder --------------------------------------------------
 
 def build_tool_schemas(
-    *, sim: bool = True, vision_only: bool = False
+    *, sim: bool = True, vision_only: bool = False,
+    mock_imitate_enabled: bool = True,
 ) -> List[Dict[str, Any]]:
     """Return the OpenAI Realtime function schemas for the g1_brain catalog.
 
@@ -349,6 +350,13 @@ def build_tool_schemas(
     vision_only : bool
         Smoke-test mode for the brain layer with no motion. Returns only
         ``say``, ``describe_scene``, ``query_scene_state``.
+    mock_imitate_enabled : bool
+        Whether to expose the ``mock_imitate`` tool to the LLM. When False
+        (set by ``mock_imitation.enabled: false`` in the YAML config), the
+        tool is dropped from the schema so the LLM cannot call it
+        spontaneously when it sees the user wave on camera. Other gesture
+        skills (``gesture``, ``static_pose``) remain available for explicit
+        voice commands like "wave at me".
     """
     # L1 first (the LLM should prefer these), then L2 primitives.
     l1 = [
@@ -364,6 +372,9 @@ def build_tool_schemas(
     schemas = l1 + l2
     if not sim:
         schemas = schemas + real_only
+
+    if not mock_imitate_enabled:
+        schemas = [s for s in schemas if s["name"] != "mock_imitate"]
 
     if vision_only:
         keep = {"say", "describe_scene", "query_scene_state"}

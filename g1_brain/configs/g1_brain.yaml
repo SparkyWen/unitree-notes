@@ -160,7 +160,17 @@ conversation:
   selfecho_dedup_window_s: 6.0
 
 mock_imitation:
-  enabled: true
+  # Disabled: the user does not want the robot to auto-mirror their gestures
+  # right now ("我现在不希望加入实时模仿人的动作的功能"). Pose detection in
+  # the perception layer stays on so the brain can still describe the user
+  # ("the user is waving"); we only stop the auto-suggest path that pushes
+  # synthetic "User showed gesture: X" notes into the brain prompt and would
+  # otherwise tempt the LLM to call mock_imitate.
+  #
+  # To re-enable in the future: flip this to true. The whole stack
+  # (auto_trigger.py, mock_imitate skill, gesture_to_skill mapping) stays
+  # wired and tested; nothing else needs to change.
+  enabled: false
   auto_suggest_high_conf: 0.8
   auto_suggest_persist_s: 1.0
   mirrorable: ["wave_right", "wave_left", "hands_up", "t_pose"]

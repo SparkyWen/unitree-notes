@@ -563,10 +563,19 @@ class ComboController:
     # eliminates the "flying" startup transient where the policy was
     # activated while the robot was still mid-air on the elastic band, or
     # mid-recovery from a partial collapse.
+    #
+    # NOTE on tightening (2026-05-06): the previous gates (-0.85 / 0.8 s)
+    # were tight enough that engagement happened while the body was still
+    # marginally tilted; the policy then immediately produced raw_action
+    # values that pushed gz from -0.85 to -0.50 within seconds. We now
+    # require near-vertical (-0.95 ≈ 18° max tilt) held for 1.5 s before
+    # the policy takes over. Combined with the stand-still bypass (see
+    # `_tick`), the robot enters the policy phase only when it is genuinely
+    # stable, and never relies on the policy to keep it standing still.
     ENGAGE_POSE_TOL = 0.08    # rad (per joint)
     ENGAGE_VEL_TOL = 0.30     # rad/s (per joint)
-    ENGAGE_HOLD_S = 0.8
-    ENGAGE_GRAV_Z = -0.85
+    ENGAGE_HOLD_S = 1.5
+    ENGAGE_GRAV_Z = -0.95
     # Hard ceiling on time spent in the "holding default_q, waiting to
     # engage" state. After this many seconds since boot ramp finished we
     # engage the policy regardless, so the robot can't stall forever in
@@ -583,6 +592,31 @@ class ComboController:
     # gyro spike at hand-off) propagating into a runaway leg torque.
     POLICY_WARMUP_S = 0.6
     POLICY_WARMUP_CLIP = 0.8
+
+    # ---- Stand-still bypass (anti-"can't stand still") ----------------
+    # The trained velocity-tracking policy is marginally stable at zero
+    # command in this MuJoCo deployment: with cmd=(0,0,0) and gait_phase
+    # zeroed, the MLP still emits raw_action values of ~±0.5 on the leg
+    # joints, which the action_scale (0.55 rad on hip/knee) blows up into
+    # ±0.3 rad joint targets. The robot wobbles gz=-0.95→-0.50 within ~30 s
+    # and falls. Diagnosis from the 2026-05-06 logs: the wobble starts
+    # purely from policy execution — no walk command, no LLM call, no
+    # auto-trigger event. The bridge's seed default-pose PD (used during
+    # BOOT/STANDBY) keeps the robot stable, so the safe path is to keep
+    # using that PD whenever no walking command is active.
+    #
+    # When ||cmd|| < STAND_CMD_THRESH we therefore bypass the policy and
+    # publish default_q at full Kp (matching the bridge's behaviour during
+    # STANDBY). The policy is only re-engaged when an explicit walk or
+    # turn command lands. We do NOT lose any capability: the brain can
+    # still walk/turn/gesture; it just can't ask the policy to "stand
+    # still while taking small balance corrections", which the policy in
+    # this build can't actually do well anyway.
+    STAND_CMD_THRESH = 0.08    # ||cmd||₂ below this == "no walk command"
+    # Hysteresis margin so transient brain-call latency at cmd=0 doesn't
+    # flip in/out of policy mode. Once we're in policy mode we stay until
+    # ||cmd|| < STAND_CMD_THRESH for at least STAND_HYST_HOLD_S.
+    STAND_HYST_HOLD_S = 0.3
 
     def __init__(self, cfg: DeployCfg, policy: Policy):
         self.cfg = cfg
@@ -671,6 +705,24 @@ class ComboController:
         self._soften_step = 0.0
         self._soften_steps_left = 0
 
+        # ---- Stand-still bypass / safe-hold state -------------------------
+        # When True the controller publishes default_q at full Kp regardless
+        # of the policy phase or commanded velocity. Set by the watchdog
+        # manager when the FSM enters EMERGENCY_STOP so a pose-watchdog trip
+        # actually stops the policy from flailing (without this hook, the
+        # policy keeps running in EMERGENCY_STOP and the robot keeps falling
+        # until it's fully on the ground).
+        self._safe_hold = False
+        # Cached "currently in stand-still bypass" flag so we hold the policy
+        # off across hysteresis (cmd briefly bumps above threshold then
+        # returns to 0 — without hysteresis we'd flap into policy mode for
+        # a fraction of a second and back). _stand_below_thresh_since is the
+        # monotonic timestamp at which ||cmd|| first dropped below
+        # STAND_CMD_THRESH while in policy mode; None means "not currently
+        # below threshold".
+        self._stand_active = True
+        self._stand_below_thresh_since: Optional[float] = None
+
         self._stop = threading.Event()
 
     # ----- DDS plumbing
@@ -756,6 +808,38 @@ class ComboController:
         self._soften_step = (self._soften_target - self.kp_scale) / max(steps, 1)
         self._soften_steps_left = steps
 
+    def set_safe_hold(self, active: bool) -> None:
+        """Toggle the safe-hold override.
+
+        When True, ``_tick`` ignores the policy and publishes ``default_q``
+        at full Kp every cycle. The watchdog manager calls this with
+        ``True`` when the FSM enters EMERGENCY_STOP so a pose-watchdog trip
+        actually stops the policy from sending bad targets, and with
+        ``False`` once the FSM auto-recovers back to STANDING. Idempotent
+        and thread-safe (a single Python attribute write under the GIL).
+
+        On the next tick after `set_safe_hold(False)` the controller goes
+        back through the normal flow: if a walk command is active it'll
+        re-engage the policy; otherwise the stand-still bypass keeps it
+        on default_q anyway.
+        """
+        prev = self._safe_hold
+        self._safe_hold = bool(active)
+        if prev and not self._safe_hold:
+            # Coming out of safe-hold — restart the engagement-quiescence
+            # tracker so we re-validate the gates instead of assuming the
+            # robot is still in the previous "engaged" state. We deliberately
+            # don't force `policy_active = False` here so a walk command
+            # arriving immediately after recovery isn't ignored: the
+            # stand-still bypass below still keeps q_target at default_q
+            # while ||cmd|| is small, so this is safe.
+            self._engage_quiet_since = None
+        if active and not prev:
+            # Reset the stand-still tracker so a future ||cmd||>0 bump has
+            # to satisfy hysteresis cleanly.
+            self._stand_below_thresh_since = None
+            self._stand_active = True
+
     def start(self):
         print("[combo] waiting for first /rt/lowstate ...")
         while not self.first_state_received:
@@ -775,6 +859,14 @@ class ComboController:
         self.policy_active = False
         self.last_raw_action[:] = 0.0
         self.global_phase = 0.0
+        # Start in stand-still mode. The policy is only used while a walk
+        # command is active (||cmd||₂ > STAND_CMD_THRESH); see the
+        # stand-still bypass in `_tick`. This is what eliminates the
+        # "robot can't stand still" failure mode where the velocity policy
+        # at cmd=0 produced ±0.3 rad joint wobble and tipped over.
+        self._stand_active = True
+        self._stand_below_thresh_since = None
+        self._safe_hold = False
         # Start with reduced Kp; _tick ramps it up to 1.0 over boot_dur.
         self.kp_scale = self.boot_kp_floor
 
@@ -814,6 +906,25 @@ class ComboController:
             self._publish(self.cfg.default_q)
             return
 
+        # ---- Safe-hold override (set by WatchdogManager on EMERGENCY_STOP).
+        # Skip BOOT/STANDBY/POLICY entirely and just publish default_q at
+        # full Kp. This makes a pose-watchdog trip *actually* stop the
+        # policy instead of letting it keep flailing while the FSM
+        # transitions are mere bookkeeping. We still allow the existing
+        # arm overlay so a queued release_arms() during shutdown blends
+        # cleanly to rest.
+        if self._safe_hold:
+            q_des = self.cfg.default_q.copy()
+            self.kp_scale = 1.0
+            arm_q = self._advance_arms()
+            if arm_q is not None:
+                arm_q = self._clamp_arm_to_safe_envelope(arm_q)
+                arm_q = self._rate_limit_arm_step(arm_q)
+                q_des[ARM_START:ARM_END] = arm_q
+            self._publish(q_des)
+            self._last_arm_q_published = q_des[ARM_START:ARM_END].copy()
+            return
+
         # ---- BOOT phase: blend from measured pose to default_q with
         # gradually increasing Kp.
         if not self._boot_done:
@@ -848,9 +959,15 @@ class ComboController:
                 # last_action == 0) baseline.
                 self.last_raw_action[:] = 0.0
                 self.global_phase = 0.0
+                # Re-arm the stand-still bypass on engage. The policy stays
+                # in "standing on default_q" mode until ||cmd|| crosses
+                # STAND_CMD_THRESH; this matches the bridge's STANDBY hold
+                # so engagement is a clean continuation, not a hand-off.
+                self._stand_active = True
+                self._stand_below_thresh_since = None
                 print(
-                    "[combo] policy engaged. wsadqe to walk; "
-                    "1-8 arm gestures; 0 release."
+                    "[combo] policy engaged (idling on default_q). "
+                    "wsadqe to walk; 1-8 arm gestures; 0 release."
                 )
                 self._publish(self.cfg.default_q)
                 return
@@ -859,30 +976,64 @@ class ComboController:
             return
 
         # ---- POLICY phase ----
-        obs = self._build_obs()
-        raw_action = self.policy(obs)
+        # Stand-still bypass with hysteresis. The trained velocity-tracking
+        # policy is marginally stable at zero command in this MuJoCo
+        # deployment — it produces ~±0.5 raw_action even when fed cmd=0 +
+        # gait=0, and the leg action_scale (0.55 rad/joint) blows that into
+        # ±0.3 rad joint targets. Robot wobbles and falls within 30 s.
+        # When ||cmd|| has been below STAND_CMD_THRESH for STAND_HYST_HOLD_S
+        # we bypass the policy and publish default_q (matches the bridge's
+        # seed-PD behaviour, which keeps the robot stable).
+        cmd = self.get_command()
+        cmd_norm = float(np.linalg.norm(cmd))
+        now = time.monotonic()
+        if cmd_norm < self.STAND_CMD_THRESH:
+            if self._stand_below_thresh_since is None:
+                self._stand_below_thresh_since = now
+            if (
+                self._stand_active
+                or (now - self._stand_below_thresh_since) >= self.STAND_HYST_HOLD_S
+            ):
+                self._stand_active = True
+        else:
+            # Walk command is live — leave stand mode immediately so the
+            # policy can react without delay.
+            self._stand_below_thresh_since = None
+            self._stand_active = False
 
-        # Warm-up gating: during the first POLICY_WARMUP_S after engagement,
-        # blend the raw policy action with the held default action with a
-        # cosine ease-in, and clip its magnitude. A bad first inference
-        # (e.g. from a still-settling state estimator) can otherwise spike
-        # a leg torque large enough to launch the robot.
-        if self._engage_at is not None:
-            t_since_engage = time.monotonic() - self._engage_at
-            if t_since_engage < self.POLICY_WARMUP_S:
-                w = 0.5 - 0.5 * np.cos(
-                    np.pi * (t_since_engage / self.POLICY_WARMUP_S)
-                )
-                clipped = np.clip(
-                    raw_action,
-                    -self.POLICY_WARMUP_CLIP, self.POLICY_WARMUP_CLIP,
-                )
-                # Held action is implicitly zero (default_q == offset).
-                raw_action = w * clipped
+        if self._stand_active:
+            q_target = self.cfg.default_q.copy()
+            # Reset gait phase + last_action so when the policy is later
+            # re-engaged its first obs has joint_pos_rel ≈ 0,
+            # joint_vel_rel ≈ 0, last_action == 0, gait == (0,0). This
+            # keeps the first inference in-distribution.
+            self.last_raw_action[:] = 0.0
+            self.global_phase = 0.0
+        else:
+            obs = self._build_obs()
+            raw_action = self.policy(obs)
 
-        q_target = raw_action * self.cfg.action_scale + self.cfg.action_offset
-        # Default: feed back exactly what the policy commanded.
-        self.last_raw_action[:] = raw_action
+            # Warm-up gating: during the first POLICY_WARMUP_S after engagement,
+            # blend the raw policy action with the held default action with a
+            # cosine ease-in, and clip its magnitude. A bad first inference
+            # (e.g. from a still-settling state estimator) can otherwise spike
+            # a leg torque large enough to launch the robot.
+            if self._engage_at is not None:
+                t_since_engage = now - self._engage_at
+                if t_since_engage < self.POLICY_WARMUP_S:
+                    w = 0.5 - 0.5 * np.cos(
+                        np.pi * (t_since_engage / self.POLICY_WARMUP_S)
+                    )
+                    clipped = np.clip(
+                        raw_action,
+                        -self.POLICY_WARMUP_CLIP, self.POLICY_WARMUP_CLIP,
+                    )
+                    # Held action is implicitly zero (default_q == offset).
+                    raw_action = w * clipped
+
+            q_target = raw_action * self.cfg.action_scale + self.cfg.action_offset
+            # Default: feed back exactly what the policy commanded.
+            self.last_raw_action[:] = raw_action
 
         # ---- Arm overlay: only override q_target[15:29] if a gesture is
         # actively playing. Otherwise the policy keeps full control of the

@@ -16,11 +16,15 @@ from g1_brain.brain.prompts import (
 )
 
 
-# Canonical tool list per design doc §4.1 / spec
+# Canonical tool list per design doc §4.1 / spec.
+# ``mock_imitate`` is intentionally excluded: it is gated by
+# ``mock_imitation.enabled`` in the YAML config and is hidden from both the
+# tool schema and the brain prompt when disabled (the default since
+# 2026-05-06). The brain instead has a generic "do not auto-mirror" rule.
 ALL_TOOL_NAMES = [
     # L1
     "say", "describe_scene", "query_scene_state", "look_at", "approach",
-    "mock_imitate", "ask_human",
+    "ask_human",
     # L2
     "walk", "turn", "gesture", "static_pose", "stop", "release_arms",
     # real-only

@@ -151,5 +151,88 @@ def test_unsubscribe_on_stop():
     assert wd._started_at == snapshot
 
 
+def test_head_frame_inf_age_does_not_emergency():
+    """Regression: head_frame watchdog must NOT promote to EMERGENCY_STOP
+    while the camera is still warming up (age == inf, no frame ever seen).
+
+    Production logs (2026-05-06) show MuJoCo head camera + perception
+    pipeline take ~30 s to produce the first frame, while boot_grace_s is
+    only 5 s. Before this fix, head_frame promoted at t≈boot_grace+head_max_age
+    and the FSM stayed in EMERGENCY_STOP for ~25 s of pure startup transient
+    — flapping ENGAGED <-> EMERGENCY_STOP for no actual safety benefit.
+    """
+    fsm = RobotFsm()
+    sup = _CaptureSupervisor()
+    wd = WatchdogManager(
+        cfg={
+            "safety": {
+                "watchdog": {
+                    "boot_grace_s": 0.0,         # disable boot grace
+                    "head_frame_max_age_s": 0.5,
+                    "usb_frame_max_age_s": 0.5,
+                }
+            }
+        },
+        scene_bus=SceneStateBus(),
+        robot_bus=RobotStateBus(),
+        fsm=fsm,
+        combo_ctl=None,
+        supervisor=sup,
+    )
+    fsm.transition(RobotFsmState.STANDING, "boot")
+    fsm.transition(RobotFsmState.ENGAGED, "policy active")
+    # head_frame_age_s() returns inf when no frame has ever arrived. Tick
+    # the watchdog directly — no boot grace, so any emergency=True trip
+    # would promote.
+    wd._tick_head_frame()
+    wd._tick_usb_frame()
+    # head_frame age==inf must NOT propagate to supervisor (would block motion)
+    # and must NOT drive the FSM into EMERGENCY_STOP.
+    assert "head_frame" not in sup.trips, (
+        "head_frame age=inf leaked into supervisor; would block motion"
+    )
+    assert "usb_frame" not in sup.trips
+    assert fsm.state == RobotFsmState.ENGAGED, (
+        f"head_frame age=inf promoted to {fsm.state}; "
+        "should stay ENGAGED until first frame is received"
+    )
+
+
+def test_head_frame_finite_stale_still_emergencies():
+    """After at least one head frame has arrived, staleness must still trip
+    the watchdog and (after hold-down) promote EMERGENCY_STOP. The inf-age
+    short-circuit only applies to startup, not to a camera that died
+    mid-flight.
+    """
+    fsm = RobotFsm()
+    sup = _CaptureSupervisor()
+    scene_bus = SceneStateBus()
+    wd = WatchdogManager(
+        cfg={
+            "safety": {
+                "watchdog": {
+                    "boot_grace_s": 0.0,
+                    "head_frame_max_age_s": 0.1,
+                }
+            }
+        },
+        scene_bus=scene_bus,
+        robot_bus=RobotStateBus(),
+        fsm=fsm,
+        combo_ctl=None,
+        supervisor=sup,
+    )
+    # Mark "first frame received" by stamping a recent timestamp. Then age
+    # forward by sleeping a hair past head_frame_max_age_s.
+    scene_bus._ts_head = time.monotonic() - 0.5
+    fsm.transition(RobotFsmState.STANDING, "boot")
+    fsm.transition(RobotFsmState.ENGAGED, "policy active")
+    wd._tick_head_frame()
+    # First call sets the local trip; supervisor has the flag.
+    assert "head_frame" in sup.trips, (
+        "stale (finite) head_frame age must still propagate as emergency"
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

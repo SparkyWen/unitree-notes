@@ -139,6 +139,53 @@ class _RobotStateProducer:
         # Monotonic time at which policy first went active continuously, or
         # None when it is currently inactive / has just dropped.
         self._policy_active_since: Optional[float] = None
+        # Optional independent rt/lowstate subscription. Only used when
+        # combo lives in a sibling process (ComboProxy) — combo.low_state
+        # is None there because LowState_ doesn't pickle cheaply across
+        # the process boundary at 500 Hz. Populated by `attach_lowstate_sub`.
+        self._lowstate = None
+        self._lowstate_t: float = 0.0
+        self._lowstate_sub = None
+
+    def attach_lowstate_sub(self, domain_id: int, interface: str) -> None:
+        """Open our own rt/lowstate subscription.
+
+        Required when ``combo_ctl`` is a :class:`ComboProxy` because the
+        LowState_ message lives in the child process and we cannot read
+        its fields directly. The brain thus needs an independent DDS
+        subscriber so the watchdog still gets fresh quaternion / gyro /
+        lowstate-age readings. No-op when called more than once.
+        """
+        if self._lowstate_sub is not None:
+            return
+        try:
+            from unitree_sdk2py.core.channel import (
+                ChannelFactoryInitialize,
+                ChannelSubscriber,
+            )
+            from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowState_
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "lowstate sub: SDK import failed (%s); robot_state will rely "
+                "on combo proxy state only", e,
+            )
+            return
+        try:
+            # ChannelFactoryInitialize is idempotent in unitree_sdk2py.
+            ChannelFactoryInitialize(int(domain_id), str(interface))
+            self._lowstate_sub = ChannelSubscriber("rt/lowstate", LowState_)
+            self._lowstate_sub.Init(self._on_lowstate, 10)
+            log.info(
+                "robot_state: attached own rt/lowstate sub (domain=%s iface=%s)",
+                domain_id, interface,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("lowstate sub init failed: %s", e)
+            self._lowstate_sub = None
+
+    def _on_lowstate(self, msg) -> None:
+        self._lowstate = msg
+        self._lowstate_t = time.monotonic()
 
     def start(self) -> None:
         from ..scene_state.types import RobotState
@@ -163,9 +210,38 @@ class _RobotStateProducer:
             self._stop.wait(self._period)
 
     def _tick(self) -> None:
-        s = getattr(self._combo, "low_state", None)
-        last_t = float(getattr(self._combo, "last_state_time", 0.0))
-        if s is None or last_t <= 0:
+        # Three sources for state, in priority order:
+        #   1. self._lowstate (when we own a brain-side rt/lowstate
+        #      subscription — the case for ComboProxy where combo.low_state
+        #      is always None because the LowState_ message lives in the
+        #      child process);
+        #   2. combo.low_state (when combo is in-process, classical path);
+        #   3. nothing yet — return without updating the bus.
+        s = self._lowstate
+        if s is None:
+            s = getattr(self._combo, "low_state", None)
+        if s is None:
+            last_t = float(getattr(self._combo, "last_state_time", 0.0))
+            if last_t <= 0:
+                return
+            policy_active = bool(getattr(self._combo, "policy_active", False))
+            rs = self._RobotState(
+                standing=policy_active,
+                gravity_proj_z=-1.0,
+                base_ang_vel_xyz=(0.0, 0.0, 0.0),
+                rl_policy_active=policy_active,
+                last_lowstate_age_s=max(0.0, time.monotonic() - last_t),
+                mode_machine=int(getattr(self._combo, "mode_machine", 0)),
+            )
+            self._bus.update(rs)
+            self._maybe_engage(policy_active)
+            return
+        last_t = (
+            self._lowstate_t
+            if self._lowstate is not None
+            else float(getattr(self._combo, "last_state_time", 0.0))
+        )
+        if last_t <= 0:
             return
         try:
             quat = (
@@ -556,7 +632,93 @@ async def _run(args: argparse.Namespace) -> int:
             log.warning("CameraHub construction failed: %s", e)
             camera_hub = None
 
+    # Whether combo runs in this process or in a sibling subprocess. We
+    # default to subprocess (`isolate_controller=True`) because perception's
+    # GIL pressure on the in-process control thread destabilizes the
+    # trained velocity policy in production — see
+    # `g1_brain/safety/combo_proxy.py` for the full rationale.
+    isolate_controller = bool(
+        (cfg.get("robot") or {}).get("isolate_controller", True)
+    )
+    if args.no_skills:
+        isolate_controller = False  # nothing to spawn anyway
+    if args.no_perception:
+        # With perception off the GIL contention argument disappears, and
+        # the in-process path is simpler (no spawn, no DDS handshake in a
+        # child). Honour the operator's intent.
+        isolate_controller = False
+
     if not args.no_skills:
+        if isolate_controller:
+            try:
+                from ..safety.combo_proxy import ComboProxy  # noqa: WPS433
+            except Exception as e:  # noqa: BLE001
+                log.exception("ComboProxy import failed; falling back to in-process: %s", e)
+                isolate_controller = False
+
+    if not args.no_skills and isolate_controller:
+        domain_id = int(cfg["robot"]["domain_id"])
+        iface = str(cfg["robot"]["interface"])
+        try:
+            combo_ctl = ComboProxy(domain_id=domain_id, interface=iface)
+        except Exception as e:  # noqa: BLE001
+            log.exception("ComboProxy construction failed: %s", e)
+            combo_ctl = None
+            args.no_skills = True
+
+        if combo_ctl is not None:
+            log.info(
+                "spawning combo subprocess (controller isolated from "
+                "perception/AI/audio GIL) — waiting for first /rt/lowstate ..."
+            )
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(combo_ctl.start), timeout=40.0,
+                )
+            except asyncio.TimeoutError:
+                log.error(
+                    "combo subprocess did not become ready within 40 s. "
+                    "The MuJoCo simulator may not be running, or the child "
+                    "process failed to import. Falling back to --no-skills.\n"
+                    "  -> Start the simulator in another terminal:\n"
+                    "       conda activate unitree && export MUJOCO_GL=glfw\n"
+                    "       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python\n"
+                    "       python unitree_mujoco.py"
+                )
+                try:
+                    combo_ctl.stop_and_settle()
+                except Exception:  # noqa: BLE001
+                    pass
+                combo_ctl = None
+                args.no_skills = True
+            except RuntimeError as e:
+                # ComboProxy.start() raises RuntimeError when the subprocess
+                # dies during startup. Don't silently continue — agent_main
+                # without a controller leaves the robot under the simulator's
+                # weak seed PD which collapses (see docs/stand_balance_root_cause.md).
+                # Fall back to the in-process path so at least the controller
+                # runs (we lose GIL isolation, but the previous phase 7 fixes
+                # mean the in-process path works on a moderately-loaded host).
+                log.error(
+                    "combo subprocess startup failed: %s. "
+                    "Falling back to in-process ComboController.", e,
+                )
+                try:
+                    combo_ctl.stop_and_settle()
+                except Exception:  # noqa: BLE001
+                    pass
+                combo_ctl = None
+                isolate_controller = False
+            except Exception as e:  # noqa: BLE001
+                log.exception("combo subprocess startup failed: %s", e)
+                try:
+                    combo_ctl.stop_and_settle()
+                except Exception:  # noqa: BLE001
+                    pass
+                combo_ctl = None
+                isolate_controller = False
+
+    if not args.no_skills and not isolate_controller:
         combo_mod = _try_import_combo()
         if combo_mod is None:
             log.error("combo controller unavailable; continuing with --no-skills")
@@ -670,6 +832,15 @@ async def _run(args: argparse.Namespace) -> int:
     robot_state_producer: Optional[_RobotStateProducer] = None
     if combo_ctl is not None:
         robot_state_producer = _RobotStateProducer(combo_ctl, robot_bus, fsm=fsm)
+        # When combo lives in a child process, combo.low_state is None
+        # (the LowState_ message can't cheaply cross the process boundary).
+        # The brain therefore needs its own rt/lowstate subscription so the
+        # pose / lowstate-age watchdogs still see fresh data.
+        if isolate_controller:
+            robot_state_producer.attach_lowstate_sub(
+                domain_id=int(cfg["robot"]["domain_id"]),
+                interface=str(cfg["robot"]["interface"]),
+            )
         robot_state_producer.start()
     # Components are "ready"; transition to STANDING.
     try:
@@ -700,6 +871,14 @@ async def _run(args: argparse.Namespace) -> int:
         fsm=fsm,
         estop=estop,
         run_mode=run_mode,
+        # When --no-perception is set, no PerceptionRunner is started, so
+        # `scene_bus.update_ground` is never called and Rule 9 of the
+        # supervisor would otherwise block every walk/approach with
+        # "scene: no ground constraint yet". The flag tells the supervisor
+        # the operator has explicitly opted out of vision-based path
+        # checks (a documented fallback when the perception stack
+        # overloads the agent process).
+        perception_enabled=not args.no_perception,
     )
     log.info("run_mode=%s", run_mode)
 
@@ -772,6 +951,14 @@ async def _run(args: argparse.Namespace) -> int:
     # OPENAI_API_KEY presence already validated at the top of _run.
     api_key = os.environ.get("OPENAI_API_KEY")
 
+    # Whether the LLM should be allowed to call mock_imitate at all. We pull
+    # this from the same YAML knob that gates the auto-trigger below, so the
+    # brain's tool list and the perception → brain auto-trigger stay in sync:
+    # turning mock_imitation off disables both.
+    mock_imitation_enabled = bool(
+        (cfg.get("mock_imitation", {}) or {}).get("enabled", False)
+    )
+
     brain_agent = None
     if not args.no_realtime:
         try:
@@ -779,6 +966,7 @@ async def _run(args: argparse.Namespace) -> int:
                 skill_server=skill_server,
                 scene_bus=scene_bus,
                 mock_imitate_trigger=None,
+                mock_imitate_enabled=mock_imitation_enabled,
                 api_key=api_key,
                 model=os.environ.get(
                     "OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]

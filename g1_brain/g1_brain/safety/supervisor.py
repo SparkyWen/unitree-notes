@@ -98,19 +98,93 @@ def _clip(v: float, lo: float, hi: float) -> float:
 
 
 async def _confirm_in_terminal(tool: str, sanitized: Dict[str, Any]) -> bool:
-    """Mirrors va_demo.safety._confirm_in_terminal."""
-    msg = f"\n[g1_brain confirm] execute {tool}({sanitized}) ? [y/N] "
+    """Single-keypress y/N confirm prompt.
+
+    Earlier versions used readline() in canonical (line-buffered) mode and
+    asked the operator to type ``y`` + Enter. Two real-world failures
+    forced the rewrite to single-keypress cbreak mode:
+
+      1. Stale arrow keys queued in stdin's line buffer would be returned
+         by the next readline() instead of the operator's ``y``: the line
+         ``"\\x1b[C\\n"`` strips/lowers to ``"\\x1b[c"``, which is not in
+         the accepted set, and the call was silently declined while the
+         operator's ``y`` queued for a never-coming next prompt. We used
+         to mitigate with tcflush before readline; cbreak mode avoids the
+         line buffer entirely.
+      2. Operators typed ``y`` but forgot Enter (the prompt does not
+         visually advertise that line-mode requires it). The 10 s timeout
+         then fired with the user's ``y`` still sitting unconfirmed —
+         "operator declined in confirm mode" with no way to recover.
+
+    cbreak mode delivers each keypress as soon as it arrives, so ``y``
+    accepts immediately, ``n`` (and any other key) declines immediately,
+    and there is no readline-versus-stale-bytes race. We still strip
+    leading escape sequences (arrow keys = ESC + ``[`` + final byte) so a
+    stray right-arrow before the actual ``y`` does not get treated as a
+    decline. Falls back to line mode + readline if termios/tty are not
+    importable (piped stdin, Windows, CI).
+    """
+    msg = (
+        f"\n[g1_brain confirm] execute {tool}({sanitized}) ? "
+        f"press y to accept, any other key to decline: "
+    )
     print(msg, end="", flush=True, file=sys.stderr)
+
+    def _read_one_keypress() -> str:
+        # Try cbreak (per-keypress) mode. If we cannot enter cbreak (not a
+        # TTY, no termios/tty modules), fall through to legacy line mode.
+        try:
+            import termios  # noqa: WPS433 — POSIX-only
+            import tty       # noqa: WPS433 — POSIX-only
+        except (ImportError, OSError, AttributeError, ValueError):
+            return sys.stdin.readline()
+
+        try:
+            fd = sys.stdin.fileno()
+            old_attr = termios.tcgetattr(fd)
+        except (OSError, AttributeError, ValueError, termios.error):
+            # stdin is not a real TTY (piped input, sub-process). Read a
+            # line and let the caller's strip+lower logic handle it.
+            return sys.stdin.readline()
+
+        try:
+            tty.setcbreak(fd)
+            # Discard anything queued *before* the prompt was printed so
+            # accidental keystrokes from between prompts cannot decline
+            # the call.
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+
+            ch = sys.stdin.read(1)
+            # If the keypress is the start of an escape sequence (arrow
+            # key etc.), drain the rest of the sequence and read one more
+            # real character so we do not treat ``\x1b[C`` as decline.
+            if ch == "\x1b":
+                # ESC then ``[`` then final byte (e.g. ``A``/``B``/``C``/``D``).
+                second = sys.stdin.read(1)
+                if second == "[":
+                    sys.stdin.read(1)
+                ch = sys.stdin.read(1)
+            # Echo the captured character + newline so the terminal
+            # transcript stays readable even though we never ran in
+            # canonical mode.
+            print(ch, file=sys.stderr, flush=True)
+            return ch
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+            except Exception:  # noqa: BLE001 — best effort restore
+                pass
+
     loop = asyncio.get_event_loop()
     try:
-        line = await asyncio.wait_for(
-            loop.run_in_executor(None, sys.stdin.readline), timeout=10.0
+        raw = await asyncio.wait_for(
+            loop.run_in_executor(None, _read_one_keypress), timeout=15.0
         )
     except asyncio.TimeoutError:
         print("[g1_brain confirm] timed out, declining.", file=sys.stderr)
         return False
-    line = (line or "").strip().lower()
-    return line in ("y", "yes")
+    raw = (raw or "").strip().lower()
+    return raw in ("y", "yes")
 
 
 class SafetySupervisor:
@@ -125,6 +199,7 @@ class SafetySupervisor:
         estop: EstopClient,
         run_mode: str = "confirm",
         confirm_fn: Optional[ConfirmFn] = None,
+        perception_enabled: bool = True,
     ) -> None:
         if run_mode not in self.VALID_RUN_MODES:
             raise ValueError(
@@ -138,6 +213,18 @@ class SafetySupervisor:
         self.run_mode = run_mode
         self._confirm_fn: ConfirmFn = confirm_fn or _confirm_in_terminal
         self.mode = str(cfg.get("mode", "sim"))
+        # When False (operator launched with --no-perception), the
+        # PerceptionRunner never starts, no one ever calls
+        # `scene_bus.update_ground`, and `scene.ground` stays None forever.
+        # Rule 9's `if ground is None: return False` would then permanently
+        # block every walk/approach call, which is not what the operator
+        # intended — they explicitly opted out of vision-based path checks
+        # because the perception stack was overloading the agent process
+        # and destabilizing the 50 Hz control loop. With perception
+        # disabled we still apply rules 4/5/6/7/8 (lowstate, head_frame,
+        # RL policy, pose, parameter clamp) but fall through Rule 9 since
+        # the visual constraints it gates on are unavailable by design.
+        self.perception_enabled = bool(perception_enabled)
 
         safety_cfg = dict(cfg.get("safety") or {})
         self._walk_cfg = dict(safety_cfg.get("walk") or {})
@@ -248,9 +335,26 @@ class SafetySupervisor:
             )
 
         # --- Rule 5: head-cam watchdog (live) --------------------------------
+        # `head_frame_age_s` returns float('inf') while no head frame has ever
+        # arrived (camera still spinning up, or perception explicitly disabled
+        # via --no-perception). We mirror the watchdog policy in
+        # WatchdogManager._tick_head_frame: warming-up state is informational
+        # only, not motion-blocking. Once the camera has produced at least one
+        # frame, finite-but-stale ages still reject walk/approach because that
+        # signals a camera that died mid-flight. Without this carve-out,
+        # operators who run --no-perception (the documented fallback when the
+        # full perception stack overloads the agent process and destabilizes
+        # the 50 Hz control loop) cannot issue any walk command — every call
+        # is rejected by this rule even though the operator has explicitly
+        # chosen to forgo vision-based path checking.
         max_head = float(self._wd_cfg.get("head_frame_max_age_s", 2.0))
         head_age = self.scene_bus.head_frame_age_s()
-        if tool in {"walk", "approach"} and head_age > max_head:
+        head_warming_up = head_age == float("inf")
+        if (
+            tool in {"walk", "approach"}
+            and head_age > max_head
+            and not head_warming_up
+        ):
             return (
                 False,
                 f"watchdog: head frame age {head_age:.2f}s > {max_head:.2f}s",
@@ -300,21 +404,34 @@ class SafetySupervisor:
             min_obs = float(self._scene_cfg.get("min_obstacle_m", 0.6))
             min_per = float(self._scene_cfg.get("min_person_m", 0.8))
             if ground is None:
-                return False, "scene: no ground constraint yet", {}
-            if not ground.clear_path:
-                return False, "scene: path not clear", {}
-            if ground.nearest_obstacle_m < min_obs:
-                return (
-                    False,
-                    f"scene: obstacle at {ground.nearest_obstacle_m:.2f}m < {min_obs:.2f}m",
-                    {},
-                )
-            if ground.nearest_person_m < min_per:
-                return (
-                    False,
-                    f"scene: person at {ground.nearest_person_m:.2f}m < {min_per:.2f}m",
-                    {},
-                )
+                # Two reasons `ground` can be None: (a) perception is still
+                # warming up (we want the operator to wait); (b) perception
+                # was explicitly disabled with --no-perception (we have to
+                # let the call through or every walk fails forever). The
+                # `perception_enabled` constructor flag carries that
+                # operator intent in from agent_main.
+                if self.perception_enabled:
+                    return False, "scene: no ground constraint yet", {}
+                # Perception explicitly disabled — fall through. The
+                # operator has accepted the trade-off (no vision-based
+                # clear_path / obstacle / person check) in exchange for
+                # being able to use the 50 Hz controller without the
+                # YOLO+MediaPipe load that overloads it.
+            else:
+                if not ground.clear_path:
+                    return False, "scene: path not clear", {}
+                if ground.nearest_obstacle_m < min_obs:
+                    return (
+                        False,
+                        f"scene: obstacle at {ground.nearest_obstacle_m:.2f}m < {min_obs:.2f}m",
+                        {},
+                    )
+                if ground.nearest_person_m < min_per:
+                    return (
+                        False,
+                        f"scene: person at {ground.nearest_person_m:.2f}m < {min_per:.2f}m",
+                        {},
+                    )
 
         if tool in {"gesture", "mock_imitate", "static_pose"}:
             min_per_g = float(self._scene_cfg.get("min_person_for_gesture_m", 0.5))

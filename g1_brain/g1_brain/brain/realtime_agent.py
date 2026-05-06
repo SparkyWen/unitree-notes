@@ -52,6 +52,10 @@ class BrainRealtimeAgent(RealtimeAgent):
     skill_server: Optional[SkillServer] = None
     scene_bus: Optional[SceneStateBus] = None
     mock_imitate_trigger: Optional[Callable[[str], Awaitable[None]]] = None
+    # Whether to expose mock_imitate to the LLM. Set False from the apps wiring
+    # when mock_imitation.enabled is false in the YAML config so the brain
+    # cannot call mock_imitate spontaneously when it sees the user wave.
+    mock_imitate_enabled: bool = True
 
     def __post_init__(self):
         super().__post_init__()
@@ -75,7 +79,11 @@ class BrainRealtimeAgent(RealtimeAgent):
         # care about the skills package layout.
         from ..skills.tool_schemas import build_tool_schemas  # type: ignore
 
-        return build_tool_schemas(sim=True, vision_only=self.vision_only)
+        return build_tool_schemas(
+            sim=True,
+            vision_only=self.vision_only,
+            mock_imitate_enabled=self.mock_imitate_enabled,
+        )
 
     async def _execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Route every tool call to the SkillServer.

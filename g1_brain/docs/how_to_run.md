@@ -97,6 +97,11 @@ python unitree_mujoco.py
 # no key presses required. In the viewer you can still:
 #   press 9 to toggle the band off entirely (clean fall test)
 #   press 7 / 8 to nudge the band length by ±0.1 m
+# Click on the viewer window before pressing keys — keys 7/8/9 are read
+# by MuJoCo's GLFW callbacks, NOT by Terminal 4. Pressing 9 in Terminal 4
+# (the agent) does nothing useful and gets queued on stdin; if a confirm
+# prompt later asks for y/N, the queued `9` is read instead and the call
+# is silently declined (see §5.10).
 
 # Terminal 2 — USB camera service
 conda activate unitree
@@ -131,6 +136,50 @@ device, so don't run them concurrently.
 
 Terminal 4 no longer needs an `MUJOCO_GL` export — `mujoco_head_cam`
 defaults to `egl`, which is what WSLg expects.
+
+### 2.1 First successful stand — happy-path checklist
+
+When everything is wired correctly, this is what you should see (timestamps
+abbreviated; the sequence is the same on every fresh launch):
+
+1. **Terminal 1 (sim) opens the viewer.** The G1 starts on the floor in
+   its trained default pose (knees slightly bent, arms slightly forward).
+   Because `ELASTIC_BAND_INIT_LENGTH=2.0` the band is already slack, so
+   no key press is required to "land" the robot.
+2. **Terminal 4 (agent) prints**
+   `[combo] Ramping to default pose over 5.0 s, then waiting for the
+   robot to settle ...` — this is the BOOT phase. Joints blend from
+   measured pose to `default_q` over 5 s with Kp scaling from 0.3 to
+   1.0. The robot may sag briefly at the start of the ramp, then
+   straighten as Kp reaches 1.0.
+3. **Engagement gate.** Once BOOT finishes, ComboController holds
+   `default_q` at full Kp and waits for: `gz <= -0.95` (≤18° tilt),
+   `|q − default_q| <= 0.08 rad`, `|dq| <= 0.30 rad/s`, all sustained
+   for 1.5 s. Typical wait is <1 s on a clean start.
+4. **Policy engaged.** Terminal 4 prints
+   `[combo] policy engaged (idling on default_q). wsadqe to walk; 1-8
+   arm gestures; 0 release.` and the FSM transitions
+   `STANDING -> ENGAGED`. **Despite the "policy engaged" wording, the
+   policy is NOT driving torques yet** — the stand-still bypass keeps
+   publishing `default_q` until a walk command lands. This is intentional
+   (see §3.1 of `g1-fix-phase7.md`).
+5. **Watchdogs settle.** The first time perception starts, you may see
+   `watchdog head_frame tripped: age=infs` / `watchdog usb_frame tripped`
+   while cameras come up. Both clear within ~15 s; the FSM may bounce
+   through `EMERGENCY_STOP -> RECOVERING -> STANDING -> ENGAGED` once.
+   That's normal; the boot-grace re-arms after each recovery so a
+   single startup hiccup doesn't permanently down the agent.
+6. **Stable stand.** From this point the robot should sit at
+   `gravity_proj_z` of approximately −1.0 (perfectly upright)
+   indefinitely with no further watchdog trips. If you see `watchdog
+   pose tripped: gravity_z=-0.7x` here, jump to §5.9.
+
+To **test "can it stand without the band?"**: with the agent in this
+stable state, click the viewer (Terminal 1) and press `9`. The band
+disappears and the robot is now supported only by the controller's
+PD against ground reaction. With the 2026-05-06 stand-Kp boost in
+place (legs/waist Kp×1.4 during stand-still bypass / safe-hold) the
+robot should remain at `gz ≈ -1.0` with no drift. If it tips, see §5.9.
 
 ---
 
@@ -199,6 +248,27 @@ flag path.
 
 `--vision-only` is a separate axis: drops every motion tool from the
 schema and skips DDS init, so MuJoCo isn't required either.
+
+### 4.1 Using confirm mode
+
+When the LLM picks a motion tool, Terminal 4 prints
+
+```
+[g1_brain confirm] execute walk({'vx': 0.2, 'vy': 0.0, 'wz': 0.0, 'duration_s': 1.0}) ? [y/N]
+```
+
+Type `y` (or `yes`) and press Enter to allow. Type anything else (or
+just press Enter) to decline. Only a freshly-typed line is honored:
+`_confirm_in_terminal` flushes any queued stdin bytes (stale arrow
+keys, accidental keypresses) before it reads, so what's in the kernel
+buffer from before the prompt appeared cannot decline the call on
+your behalf. There is a 10 s timeout — if you do nothing, the call
+auto-declines.
+
+Do NOT click the MuJoCo viewer (Terminal 1) and try to type `y` there
+— that window only listens to MuJoCo's own keys (7/8/9, mouse drag,
+Escape). The `y` would just be dropped, and the agent prompt would
+time out 10 s later.
 
 ---
 
@@ -327,6 +397,102 @@ If you somehow see this error, you're probably on an older checkout, or
 you're constructing `MuJoCoHeadCamera` directly in your own script
 before calling `ChannelFactoryInitialize`. Either reorder, or pass
 `subscribe_dds=False` to render from keyframe pose only.
+
+### 5.9 Robot tilts / falls when standing still (no command, no band)
+
+Symptoms: ENGAGED state, no walk / gesture in flight, but `gravity_proj_z`
+slowly drifts from ≈−1.0 toward −0.85. Once it crosses −0.85 the pose
+watchdog trips, the FSM enters EMERGENCY_STOP, safe-hold publishes
+`default_q` at boosted Kp, the robot may pop back upright, the watchdog
+clears, and the cycle can repeat. Typical log signature:
+
+```
+fsm: STANDING -> ENGAGED (policy active)
+... 7-30 s later ...
+watchdog pose tripped: gravity_z=-0.79
+fsm: ENGAGED -> EMERGENCY_STOP (watchdog pose: gravity_z=0.09)
+```
+
+Causes / fixes:
+
+- **Stale checkout** (commit before 2026-05-06 stand-Kp boost): pull
+  the latest. `g1_sim_rl_combo.py` should define
+  `STAND_KP_BOOST_TARGET = 1.4` and `_leg_kp_boost`. With those in,
+  legs/waist Kp/Kd is multiplied by 1.4 during stand-still bypass /
+  safe-hold (slewed in over ~0.1 s) and ramps back to 1.0 the moment a
+  walk command lands. This brings hip pitch from 40.2 to 56.3 (close
+  to `g1_sim_keyboard.py`'s proven 60), ankle from 28.5 to 40 (matches
+  60), waist from 28.5 to ~40, with damping ratio preserved.
+- **Robot started in a bad pose.** If you pressed `9` while the band
+  was still lifting the torso (the standing position hadn't settled),
+  the robot free-falls 0.5–1 m onto its feet and the impact knocks it
+  off-center. Reset the simulator and let the band settle (or just
+  start it — `ELASTIC_BAND_INIT_LENGTH=2.0` lands the robot
+  automatically) before pressing `9`. Press `7` first if you need to
+  raise the body (e.g. you're testing a fall-recovery scenario).
+- **Stand-still bypass not engaging.** Should not happen — `start()`
+  initializes `_stand_active=True` and the engage path re-asserts it.
+  If you see `[combo] policy engaged` but `gravity_z` is being driven
+  by raw policy output (i.e. wobble starts immediately, not as drift),
+  check that `STAND_CMD_THRESH = 0.08` and that no rogue `set_command`
+  call is leaving a non-zero command.
+- **Watchdog `gravity_z_min` set too tight.** Default is −0.85 (≈32°).
+  Don't relax it — that masks the real bug; tightening the stand-Kp
+  boost is the right fix. Confirm with `grep gravity_z_min
+  configs/g1_brain.yaml`.
+
+To diagnose without running the full agent:
+
+```bash
+# Just ComboController + sim, no g1_brain. wsadqe walks, 1-8 gestures,
+# 9 (in viewer) toggles band. If the robot tips here, the bug is in
+# the controller, not in g1_brain's safety / FSM layer.
+conda activate unitree
+cd ~/unitree/unitree-notes/g1_sim_demo
+python g1_sim_rl_combo.py
+```
+
+### 5.10 Walk silently declined despite typing `y` in confirm mode
+
+Symptoms:
+
+```
+tool call: walk({'vx': 0.2, 'duration_s': 1.0})
+[g1_brain confirm] execute walk(...) ? [y/N] y
+WARNING g1_brain.skills.skill_server: safety rejected walk(...): operator declined in confirm mode
+```
+
+You typed `y`. The supervisor still rejects with `operator declined in
+confirm mode`. The decline log appears suspiciously fast (1–3 s, well
+under the 10 s readline timeout).
+
+Cause: a previous keypress + Enter (e.g. an arrow key, Ctrl+something,
+or any character you typed before the prompt appeared) sat unread in
+the kernel's stdin line buffer. `_confirm_in_terminal`'s `readline`
+returned that stale line first; it didn't strip+lower to `"y"`, so the
+call was declined while your actual `y` got queued for a prompt that
+never came.
+
+Should be fixed in current main: `_confirm_in_terminal` now calls
+`termios.tcflush(stdin, TCIFLUSH)` inside the executor right before
+`readline`, so anything that arrived before the prompt was printed is
+discarded. To verify your checkout has the fix:
+
+```bash
+grep -n tcflush g1_brain/safety/supervisor.py
+# expect a hit inside _confirm_in_terminal's _read_fresh_line helper
+```
+
+Operator workflow:
+
+- Type into Terminal 4 only. Pressing keys in the MuJoCo viewer
+  (Terminal 1) sends them to GLFW, not the agent — they don't queue
+  on stdin and they don't help.
+- If you accidentally typed something between prompts, the flush
+  drops it. Just wait for the next prompt and type `y`.
+- If you see this rejection on a checkout that already has tcflush,
+  open an issue with the full Terminal 4 transcript — there may be a
+  second source of stdin contention we haven't accounted for.
 
 ---
 

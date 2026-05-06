@@ -463,3 +463,90 @@ def test_invalid_run_mode_raises(tmp_path):
             estop=EstopClient(tmp_path / "x"),
             run_mode="silly",
         )
+
+
+# ----- _confirm_in_terminal: stale-stdin handling ---------------------------
+# Regression for "operator typed `y` but the walk was declined": when the
+# terminal is in canonical mode and the operator presses arrow keys (or any
+# other Enter-terminated noise) between prompts, those bytes sit unread in
+# stdin's line buffer. Without flushing, the next prompt's `readline` returns
+# the stale bytes and the operator's actual `y` ends up queued for nobody.
+# The fix flushes stdin inside the executor right before readline, so only
+# fresh post-prompt input is honored.
+
+@pytest.mark.asyncio
+async def test_confirm_in_terminal_flushes_stdin_before_read(monkeypatch):
+    """tcflush must be called before readline so stale bytes are dropped."""
+    from g1_brain.safety import supervisor as sup_mod
+
+    call_order: list[str] = []
+
+    class _FakeTermios:
+        TCIFLUSH = 0
+        @staticmethod
+        def tcflush(_fd, _what):
+            call_order.append("tcflush")
+
+    class _FakeStdin:
+        def fileno(self):
+            return 0
+        def readline(self):
+            call_order.append("readline")
+            return "y\n"
+
+    monkeypatch.setitem(__import__("sys").modules, "termios", _FakeTermios)
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin())
+
+    ok = await sup_mod._confirm_in_terminal("walk", {"vx": 0.1})
+    assert ok is True
+    assert call_order == ["tcflush", "readline"], call_order
+
+
+@pytest.mark.asyncio
+async def test_confirm_in_terminal_decline_on_non_yes(monkeypatch):
+    """Anything that isn't y/yes after strip+lower must decline."""
+    from g1_brain.safety import supervisor as sup_mod
+
+    class _FakeTermios:
+        TCIFLUSH = 0
+        @staticmethod
+        def tcflush(_fd, _what):
+            pass
+
+    class _FakeStdin:
+        def __init__(self, line):
+            self._line = line
+        def fileno(self):
+            return 0
+        def readline(self):
+            return self._line
+
+    monkeypatch.setitem(__import__("sys").modules, "termios", _FakeTermios)
+
+    # Stale escape sequence (right-arrow + Enter) — exactly what the live
+    # 2026-05-06 incident produced.
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("\x1b[C\n"))
+    assert await sup_mod._confirm_in_terminal("walk", {}) is False
+
+    # EOF (closed stdin) returns empty string — must also decline.
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin(""))
+    assert await sup_mod._confirm_in_terminal("walk", {}) is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_in_terminal_survives_no_termios(monkeypatch):
+    """On platforms without termios (e.g. piped stdin) we must still read."""
+    from g1_brain.safety import supervisor as sup_mod
+    import sys as _sys
+
+    # Hide termios so the inner import fails like a non-TTY environment.
+    monkeypatch.setitem(_sys.modules, "termios", None)
+
+    class _FakeStdin:
+        def fileno(self):
+            return 0
+        def readline(self):
+            return "y\n"
+
+    monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin())
+    assert await sup_mod._confirm_in_terminal("walk", {}) is True

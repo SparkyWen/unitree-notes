@@ -98,13 +98,44 @@ def _clip(v: float, lo: float, hi: float) -> float:
 
 
 async def _confirm_in_terminal(tool: str, sanitized: Dict[str, Any]) -> bool:
-    """Mirrors va_demo.safety._confirm_in_terminal."""
+    """Mirrors va_demo.safety._confirm_in_terminal.
+
+    The terminal is in canonical (line-buffered) mode while agent_main
+    runs, so any keypresses the operator made between the previous prompt
+    and this one — most commonly accidental arrow keys, which the line
+    discipline echoes as a 3-byte escape sequence (e.g. `\\x1b[C` for
+    right-arrow) plus an Enter — sit unread in the kernel's stdin buffer.
+    Without flushing them, the next ``readline`` returns those stale bytes
+    instead of the operator's actual ``y``: the line ``"\\x1b[C\\n"``
+    strips/lowers to ``"\\x1b[c"``, which is not in the accepted set, and
+    the call is silently declined while the operator's freshly-typed
+    ``y`` ends up queued for a (never-coming) next prompt. tcflush
+    discards anything that landed before the prompt was printed.
+    """
     msg = f"\n[g1_brain confirm] execute {tool}({sanitized}) ? [y/N] "
     print(msg, end="", flush=True, file=sys.stderr)
+
+    def _read_fresh_line() -> str:
+        # Discard any bytes that arrived before the prompt was printed
+        # (stale arrow keys, Ctrl-something, accidental keystrokes), then
+        # block on a freshly-typed line. Doing the flush *inside* the
+        # executor minimises the race window between flush and readline:
+        # at canonical-mode line speed the operator cannot reasonably
+        # press a key in the few microseconds between these two syscalls.
+        try:
+            import termios  # noqa: WPS433 — POSIX-only; fall back silently below
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        except (ImportError, OSError, AttributeError, ValueError):
+            # Not a TTY (CI, piped input, Windows): just skip the flush
+            # and read whatever arrives. Tests inject confirm_fn directly
+            # so they never hit this path.
+            pass
+        return sys.stdin.readline()
+
     loop = asyncio.get_event_loop()
     try:
         line = await asyncio.wait_for(
-            loop.run_in_executor(None, sys.stdin.readline), timeout=10.0
+            loop.run_in_executor(None, _read_fresh_line), timeout=10.0
         )
     except asyncio.TimeoutError:
         print("[g1_brain confirm] timed out, declining.", file=sys.stderr)

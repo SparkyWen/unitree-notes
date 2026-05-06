@@ -579,6 +579,47 @@ class ComboController:
     # enough that the Kp jump on gesture-press doesn't snap the arm.
     ARM_KP_RAMP_PER_SEC = 4.0
 
+    # ---- Per-leg/waist Kp/Kd boost during stand-still / safe-hold ---------
+    # deploy.yaml's leg/waist gains (hip pitch=40.2, ankle=28.5, waist=28.5)
+    # are tuned for the policy's training distribution: the policy makes
+    # small ±action_scale corrections every 20 ms and the resulting torques
+    # average out to keep the body upright over a gait cycle. They are NOT
+    # tuned for static balance — a body suspended at default_q with these
+    # gains has only ~0.3 rad of stiffness margin against gravity moments
+    # at the ankles, so once the elastic band releases (operator presses
+    # `9` in the simulator viewer) any small disturbance accumulates into a
+    # slow forward/backward drift that the watchdog eventually catches at
+    # gz>-0.85. Symptom from 2026-05-06: stable for ~7 s after band release,
+    # then gz drifts -0.95 → -0.79 → trip → fall.
+    #
+    # The sibling `g1_sim_keyboard.py` open-loop demo is documented as
+    # holding default_q stably without the band; it uses noticeably stiffer
+    # gains on the same actuators (hip pitch=60, hip yaw=60, knee=100,
+    # ankle=40, waist yaw=60, waist roll/pitch=40). Boosting deploy.yaml's
+    # leg/waist Kp/Kd by STAND_KP_BOOST_TARGET while the controller is
+    # publishing default_q (stand-still bypass or watchdog safe-hold)
+    # closes the gap toward those proven values without affecting the
+    # policy's training distribution: the moment a walk command lands the
+    # boost slews back to 1.0 over ~0.1 s, well before the warm-up window
+    # ends. Scaling Kp and Kd together preserves the damping ratio (ζ
+    # scales as √k), so the joints become stiffer without becoming
+    # noticeably under- or over-damped.
+    #
+    # 1.4× picks deploy.yaml's hip pitch (40.2 → 56.3, near kb-demo's 60)
+    # and ankle (28.5 → 39.9, near kb-demo's 40) up to the proven values.
+    # Hip roll (99.1 → 138.7) and knee (99.1 → 138.7) end up stiffer than
+    # kb-demo's 60/100, but those joints carry the heaviest mass and the
+    # extra stiffness only helps static hold. Walking transitions back to
+    # 1.0× before the policy starts producing torques, so the policy
+    # never sees these boosted gains.
+    STAND_KP_BOOST_TARGET = 1.4
+    # Per-second slew on `_leg_kp_boost`. 4.0/s = ~0.1 s ramp from 1.0 to
+    # 1.4 (and back). Matches `ARM_KP_RAMP_PER_SEC`. Fast enough that the
+    # robot starts feeling the stiffer gains within a few control ticks of
+    # entering stand-still; slow enough that the transition out (walk
+    # command landing) doesn't snap leg torques as the policy spins up.
+    STAND_KP_RAMP_PER_SEC = 4.0
+
     # ---- Engagement gating (anti-"flying" net) ------------------------
     # Boot ramp duration (measured pose -> default_q with reduced Kp).
     BOOT_DUR_S = 5.0
@@ -751,6 +792,15 @@ class ComboController:
         # when the gesture queue drains. Applied only to indices 15..28 in
         # `_publish` so leg/waist gains stay at the policy's training value.
         self._arm_kp_boost = 1.0
+
+        # Per-leg/waist Kp/Kd boost while the controller is publishing
+        # default_q for static balance (stand-still bypass or safe-hold).
+        # Idle 1.0 (deploy.yaml's policy-training gains); slewed in `_tick`
+        # toward STAND_KP_BOOST_TARGET while either the stand-still bypass
+        # or the watchdog safe-hold is active, back to 1.0 the moment the
+        # policy is driving (walk/turn). Applied only to indices 0..14 in
+        # `_publish` so the policy still sees its training-time arm gains.
+        self._leg_kp_boost = 1.0
 
         # ---- Stand-still bypass / safe-hold state -------------------------
         # When True the controller publishes default_q at full Kp regardless
@@ -938,6 +988,9 @@ class ComboController:
         self.kp_scale = self.boot_kp_floor
         # Arm-only Kp boost is at 1.0 (no gesture in flight) on every start.
         self._arm_kp_boost = 1.0
+        # Leg/waist Kp boost is at 1.0 on start; _tick ramps it up while we
+        # are publishing default_q (stand-still bypass / safe-hold).
+        self._leg_kp_boost = 1.0
 
         self._thread = RecurrentThread(
             interval=self.cfg.step_dt, target=self._tick, name="combo_control"
@@ -983,6 +1036,30 @@ class ComboController:
             self._arm_kp_boost = min(boost_target, self._arm_kp_boost + boost_step)
         elif self._arm_kp_boost > boost_target:
             self._arm_kp_boost = max(boost_target, self._arm_kp_boost - boost_step)
+
+        # Leg/waist Kp boost slew: ramp toward STAND_KP_BOOST_TARGET while
+        # the controller is publishing default_q (stand-still bypass or
+        # watchdog safe-hold), back to 1.0 the moment the policy is in
+        # charge of leg torques. We deliberately treat the BOOT/STANDBY
+        # phases as "stand-still" too: in both, leg targets equal default_q
+        # and stiffer gains only help the boot ramp track the held pose
+        # more crisply (BOOT_KP_FLOOR still reduces the *absolute* Kp on
+        # cold start, so the boost cannot snap a still-collapsed robot).
+        leg_target = (
+            self.STAND_KP_BOOST_TARGET
+            if (
+                self._safe_hold
+                or self._stand_active
+                or not self._boot_done
+                or not self.policy_active
+            )
+            else 1.0
+        )
+        leg_step = self.STAND_KP_RAMP_PER_SEC * self.cfg.step_dt
+        if self._leg_kp_boost < leg_target:
+            self._leg_kp_boost = min(leg_target, self._leg_kp_boost + leg_step)
+        elif self._leg_kp_boost > leg_target:
+            self._leg_kp_boost = max(leg_target, self._leg_kp_boost - leg_step)
 
         # Watchdog: if simulator stops sending state, hold default pose.
         if time.monotonic() - self.last_state_time > self.LOWSTATE_TIMEOUT:
@@ -1436,11 +1513,15 @@ class ComboController:
     def _publish(self, q_des: np.ndarray):
         self.low_cmd.mode_pr = 0
         self.low_cmd.mode_machine = self.mode_machine
-        # Per-joint Kp/Kd factor: legs and waist always use kp_scale alone;
-        # arms (15..28) get an extra `_arm_kp_boost` multiplier so a gesture
-        # can actually drive them to the commanded pose without raising the
-        # gain on balance-critical joints. Boost is 1.0 when no gesture is
-        # active (policy gets exactly its training-time gains).
+        # Per-joint Kp/Kd factor:
+        #   - arms (15..28) get an extra `_arm_kp_boost` multiplier so a
+        #     gesture can drive them to the commanded pose without raising
+        #     the gain on balance-critical joints.
+        #   - legs / waist (0..14) get `_leg_kp_boost` which slews up while
+        #     the controller is publishing default_q for static balance and
+        #     back to 1.0 while the policy is driving torques (walk/turn).
+        # Both boosts default to 1.0, so the policy still sees its
+        # training-time deploy.yaml gains during an active walk command.
         for i in range(G1_NUM_MOTOR):
             m = self.low_cmd.motor_cmd[i]
             m.mode = 1
@@ -1450,6 +1531,8 @@ class ComboController:
             scale = self.kp_scale
             if ARM_START <= i < ARM_END:
                 scale *= self._arm_kp_boost
+            else:
+                scale *= self._leg_kp_boost
             m.kp = float(self.cfg.kp[i] * scale)
             m.kd = float(self.cfg.kd[i] * scale)
         self.low_cmd.crc = self.crc.Crc(self.low_cmd)

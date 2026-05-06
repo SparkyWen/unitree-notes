@@ -20,9 +20,18 @@ python unitree_mujoco.py
 终端 2：
 
 ```bash
-conda activate unitree
+conda activate agi
 cd ~/unitree/unitree-notes/g1_sim_demo
 python g1_sim_rl_combo.py
+```
+
+终端2：
+
+```
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a            # OPENAI_API_KEY etc.
+python -m g1_brain.apps.agent_main --mode confirm
 ```
 
 # 2. mujoco跑va

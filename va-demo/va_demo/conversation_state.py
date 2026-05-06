@@ -12,9 +12,17 @@ States:
                     model's own speaker output (and any room echo) cannot
                     be misheard as a wake phrase mid-reply. The reply is
                     delivered fully; barge-in via wake-word is disabled.
-  LISTENING_WINDOW  short post-reply window. Wake detector resumes here
-                    so the user can say the wake phrase again and start a
-                    new turn without having to wait through silence.
+  LISTENING_WINDOW  short post-reply follow-up window. Once the speaker
+                    buffer drains (so the model's own TTS audio stops
+                    bleeding into the mic), follow-up is "armed":
+                      * the wake detector stays resumed (a fresh
+                        "Hi Sparky" still works as a fast path), AND
+                      * the utterance VAD watches incoming chunks for
+                        any voice burst — first voice transitions back
+                        to CAPTURING so the user can simply keep talking
+                        without re-saying the wake phrase.
+                    On no follow-up within listening_window_s, falls
+                    back to IDLE.
 """
 from __future__ import annotations
 
@@ -41,6 +49,16 @@ class State(enum.Enum):
 class ConversationConfig:
     listening_window_s: float = 8.0
     no_speech_timeout_s: float = 4.0
+    # While in LISTENING_WINDOW, the model's TTS may still be draining
+    # through the speaker. We refuse to arm follow-up VAD until the
+    # speaker buffer is below this many bytes — otherwise the model's own
+    # audio echoes through the mic and re-engages CAPTURING immediately.
+    # ~24 kHz * 2 byte * 0.05 s ≈ 50 ms of residual audio is fine to ignore.
+    lw_drain_threshold_bytes: int = 2400
+    # Hard cap on how long we'll wait for the speaker to drain before we
+    # arm follow-up regardless. Protects against a pathological speaker
+    # buffer (or a missing speaker reference) blocking follow-up forever.
+    lw_drain_max_wait_s: float = 6.0
 
 
 class ConversationStateMachine:
@@ -51,17 +69,21 @@ class ConversationStateMachine:
         utterance_vad,
         realtime_agent,
         mic=None,
+        speaker=None,
     ):
         self.cfg = cfg
         self.wake_word = wake_word
         self.vad = utterance_vad
         self.agent = realtime_agent
         self.mic = mic
+        self.speaker = speaker
         self._state = State.IDLE
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._mic_queue: Optional[asyncio.Queue] = None
         self._mic_task: Optional[asyncio.Task] = None
         self._timer_task: Optional[asyncio.Task] = None
+        self._lw_arm_task: Optional[asyncio.Task] = None
+        self._lw_followup_armed: bool = False
         self._capture_started_at: float = 0.0
         self._stopped = False
 
@@ -80,6 +102,9 @@ class ConversationStateMachine:
         self._stopped = True
         if self._timer_task is not None:
             self._timer_task.cancel()
+        if self._lw_arm_task is not None:
+            self._lw_arm_task.cancel()
+            self._lw_arm_task = None
         if self._mic_task is not None:
             self._mic_task.cancel()
             try:
@@ -158,6 +183,17 @@ class ConversationStateMachine:
                 log.info("[utterance] %s after %.2fs",
                          status, time.monotonic() - self._capture_started_at)
                 self._enter_thinking()
+            return
+        if self._state == State.LISTENING_WINDOW and self._lw_followup_armed:
+            # Watch for follow-up speech so the user can keep talking
+            # without re-saying the wake phrase. On the first voiced frame
+            # we transition straight to CAPTURING, keeping the VAD context
+            # so the silence-commit path still works once the user stops.
+            had_voice_before = self.vad.had_any_voice()
+            self.vad.process(chunk)
+            if not had_voice_before and self.vad.had_any_voice():
+                log.info("[lw] follow-up speech detected; engaging CAPTURING")
+                self._lw_to_capturing()
 
     # ---- transitions --------------------------------------------------------
 
@@ -172,10 +208,27 @@ class ConversationStateMachine:
         self._set_state(new)
 
     def _enter_capturing(self) -> None:
+        self._cancel_lw_arm()
         self._set_state(State.CAPTURING)
         self.wake_word.pause()
         self.vad.reset()
         self.agent.set_uplink_enabled(True)
+        self._capture_started_at = time.monotonic()
+        self._reset_timer(self.cfg.no_speech_timeout_s, self._no_speech_timeout_cb)
+
+    def _lw_to_capturing(self) -> None:
+        """Engage CAPTURING from a follow-up voice burst inside LISTENING_WINDOW.
+
+        Differs from `_enter_capturing` in that the VAD already has accumulated
+        voice — we keep its state instead of resetting, so the silence-commit
+        path counts elapsed silence from the actual end of the user's speech
+        rather than from this transition.
+        """
+        self._cancel_lw_arm()
+        self._cancel_timer()
+        self.wake_word.pause()
+        self.agent.set_uplink_enabled(True)
+        self._set_state(State.CAPTURING)
         self._capture_started_at = time.monotonic()
         self._reset_timer(self.cfg.no_speech_timeout_s, self._no_speech_timeout_cb)
 
@@ -203,10 +256,60 @@ class ConversationStateMachine:
     def _enter_listening_window(self) -> None:
         self.wake_word.resume()
         self._set_state(State.LISTENING_WINDOW)
+        self._lw_followup_armed = False
+        # Schedule the follow-up arm task. It waits until the speaker has
+        # finished playing the model's reply, then enables the VAD-based
+        # follow-up path. Doing it inside an async task (rather than
+        # synchronously here) is what lets us drain-wait without blocking
+        # the asyncio loop.
+        if self._lw_arm_task is not None:
+            self._lw_arm_task.cancel()
+        self._lw_arm_task = asyncio.create_task(
+            self._arm_lw_followup_when_drained(), name="sm-lw-arm"
+        )
         self._reset_timer(self.cfg.listening_window_s, self._listening_window_cb)
+
+    async def _arm_lw_followup_when_drained(self) -> None:
+        """Wait for the speaker buffer to drain, then arm follow-up VAD.
+
+        Without this gate, the still-playing TTS audio would echo back into
+        the mic and re-trigger CAPTURING immediately after the model
+        finished speaking. We poll `speaker.pending_bytes()` until it
+        drops below `lw_drain_threshold_bytes`, capped by
+        `lw_drain_max_wait_s`.
+        """
+        deadline = time.monotonic() + self.cfg.lw_drain_max_wait_s
+        if self.speaker is not None:
+            while time.monotonic() < deadline:
+                if self._state != State.LISTENING_WINDOW:
+                    return  # left LW already (e.g. wake-word fired)
+                try:
+                    pending = self.speaker.pending_bytes()
+                except Exception:
+                    pending = 0
+                if pending <= self.cfg.lw_drain_threshold_bytes:
+                    break
+                try:
+                    await asyncio.sleep(0.05)
+                except asyncio.CancelledError:
+                    return
+        if self._state != State.LISTENING_WINDOW:
+            return
+        # Reset VAD so accumulated silence/echo doesn't immediately
+        # commit; from now on the next voiced frame engages CAPTURING.
+        self.vad.reset()
+        self._lw_followup_armed = True
+        log.debug("[lw] follow-up VAD armed")
+
+    def _cancel_lw_arm(self) -> None:
+        self._lw_followup_armed = False
+        if self._lw_arm_task is not None:
+            self._lw_arm_task.cancel()
+            self._lw_arm_task = None
 
     def _listening_window_cb(self) -> None:
         if self._state == State.LISTENING_WINDOW:
+            self._cancel_lw_arm()
             self._set_state(State.IDLE)
 
     def _reset_timer(self, delay_s: float, cb) -> None:

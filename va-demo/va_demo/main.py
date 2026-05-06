@@ -237,6 +237,7 @@ async def _run(args):
             utterance_vad=utt_vad,
             realtime_agent=agent,
             mic=mic,
+            speaker=speaker,
         )
         agent.on_response_audio_delta = sm.handle_response_audio_delta
         agent.on_response_done = sm.handle_response_done

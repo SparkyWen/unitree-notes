@@ -37,6 +37,9 @@ class FakeVAD:
         self.scripted = list(scripted_returns)
         self.had_voice_value = True
         self.reset_calls = 0
+        # Optional script of had_voice_value to apply after each .process(),
+        # so tests can model "voice arrives mid-window" without monkey-patching.
+        self.voice_after_process: list[bool] = []
 
     def reset(self):
         self.reset_calls += 1
@@ -45,9 +48,12 @@ class FakeVAD:
         return self.had_voice_value
 
     def process(self, chunk):
+        ret = "continue"
         if self.scripted:
-            return self.scripted.pop(0)
-        return "continue"
+            ret = self.scripted.pop(0)
+        if self.voice_after_process:
+            self.had_voice_value = self.voice_after_process.pop(0)
+        return ret
 
 
 class FakeAgent:
@@ -66,10 +72,21 @@ class FakeAgent:
         self.uplink_states.append(b)
 
 
-def _make_sm(vad_returns=None, **cfg_overrides):
+class FakeSpeaker:
+    """Minimal speaker stub: lets tests script when the buffer is "drained"."""
+    def __init__(self, pending: int = 0):
+        self.pending = pending
+
+    def pending_bytes(self) -> int:
+        return self.pending
+
+
+def _make_sm(vad_returns=None, speaker=None, **cfg_overrides):
     cfg = ConversationConfig(
         listening_window_s=cfg_overrides.get("listening_window_s", 0.2),
         no_speech_timeout_s=cfg_overrides.get("no_speech_timeout_s", 0.2),
+        lw_drain_threshold_bytes=cfg_overrides.get("lw_drain_threshold_bytes", 2400),
+        lw_drain_max_wait_s=cfg_overrides.get("lw_drain_max_wait_s", 1.0),
     )
     wake = FakeWake()
     vad = FakeVAD(vad_returns or [])
@@ -79,6 +96,7 @@ def _make_sm(vad_returns=None, **cfg_overrides):
         wake_word=wake,
         utterance_vad=vad,
         realtime_agent=agent,
+        speaker=speaker,
     )
     return sm, wake, vad, agent
 
@@ -196,5 +214,96 @@ async def test_audio_delta_in_thinking_flips_to_speaking():
         sm.handle_response_audio_delta()
         await asyncio.sleep(0.02)
         assert sm.state == State.SPEAKING
+    finally:
+        await sm.stop()
+
+
+async def test_listening_window_voice_engages_capturing_without_wake():
+    """Follow-up speech in LISTENING_WINDOW must transition straight to CAPTURING.
+
+    This is the user-visible fix: after the model finishes replying, the user
+    should be able to keep talking without re-saying "Hi Sparky".
+    """
+    sm, wake, vad, agent = _make_sm(listening_window_s=2.0)
+    vad.had_voice_value = False
+    vad.voice_after_process = [True]  # first chunk: voice detected
+    await sm.start()
+    try:
+        sm._force_state(State.SPEAKING)
+        sm.handle_response_done()
+        # No speaker injected → arm task skips drain wait and arms immediately.
+        await asyncio.sleep(0.05)
+        assert sm._lw_followup_armed
+        sm._on_audio_chunk(b"\x01\x02" * 100)
+        await asyncio.sleep(0.02)
+        assert sm.state == State.CAPTURING
+        assert agent.uplink_states[-1] is True
+        assert wake.paused
+    finally:
+        await sm.stop()
+
+
+async def test_listening_window_waits_for_speaker_drain_before_arming():
+    """While the speaker is still draining the model's TTS audio, follow-up
+    VAD must NOT be armed — otherwise the model's own voice echoes back into
+    the mic and re-triggers CAPTURING immediately.
+    """
+    speaker = FakeSpeaker(pending=100_000)  # ≈2 s of 24 kHz int16 mono
+    sm, wake, vad, agent = _make_sm(
+        listening_window_s=5.0,
+        lw_drain_threshold_bytes=2400,
+        lw_drain_max_wait_s=2.0,
+        speaker=speaker,
+    )
+    vad.had_voice_value = False
+    await sm.start()
+    try:
+        sm._force_state(State.SPEAKING)
+        sm.handle_response_done()
+        await asyncio.sleep(0.15)
+        assert sm.state == State.LISTENING_WINDOW
+        assert not sm._lw_followup_armed  # speaker still has audio
+        speaker.pending = 0
+        await asyncio.sleep(0.15)
+        assert sm._lw_followup_armed
+    finally:
+        await sm.stop()
+
+
+async def test_listening_window_falls_back_to_idle_without_followup():
+    """If no follow-up voice arrives, LISTENING_WINDOW still times out to IDLE."""
+    sm, wake, vad, agent = _make_sm(listening_window_s=0.15)
+    vad.had_voice_value = False
+    await sm.start()
+    try:
+        sm._force_state(State.SPEAKING)
+        sm.handle_response_done()
+        await asyncio.sleep(0.3)
+        assert sm.state == State.IDLE
+        assert not sm._lw_followup_armed  # cleared on timeout
+    finally:
+        await sm.stop()
+
+
+async def test_wake_in_listening_window_cancels_arm_task():
+    """A wake-word fire while LISTENING_WINDOW is still waiting for drain
+    should still drop us into CAPTURING and abandon the arm task cleanly.
+    """
+    speaker = FakeSpeaker(pending=100_000)  # never drains in this test
+    sm, wake, vad, agent = _make_sm(
+        listening_window_s=5.0, lw_drain_max_wait_s=5.0, speaker=speaker,
+    )
+    await sm.start()
+    try:
+        sm._force_state(State.SPEAKING)
+        sm.handle_response_done()
+        await asyncio.sleep(0.05)
+        assert sm.state == State.LISTENING_WINDOW
+        assert not sm._lw_followup_armed
+        sm.handle_wake(WakeEvent(text="hi sparky", t=time.monotonic()))
+        await asyncio.sleep(0.05)
+        assert sm.state == State.CAPTURING
+        assert sm._lw_arm_task is None
+        assert not sm._lw_followup_armed
     finally:
         await sm.stop()

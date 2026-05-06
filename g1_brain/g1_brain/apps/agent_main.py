@@ -993,7 +993,7 @@ async def _run(args: argparse.Namespace) -> int:
         and not args.no_wakeword
         and (cfg.get("wakeword", {}) or {}).get("enabled", True)
     ):
-        sm = _build_state_machine(cfg, sr, mic, brain_agent, spoken_cache)
+        sm = _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache)
     elif brain_agent is not None:
         log.info("wake-word DISABLED; Realtime uplink runs continuously")
 
@@ -1058,7 +1058,7 @@ async def _run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_state_machine(cfg, sr, mic, brain_agent, spoken_cache):
+def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache):
     """Wake-word + UtteranceVAD + ConversationStateMachine, mirrors va-demo."""
     from va_demo.conversation_state import ConversationConfig, ConversationStateMachine
     from va_demo.utterance_vad import UtteranceVAD
@@ -1125,6 +1125,7 @@ def _build_state_machine(cfg, sr, mic, brain_agent, spoken_cache):
         utterance_vad=utt_vad,
         realtime_agent=brain_agent,
         mic=mic,
+        speaker=speaker,
     )
     sm_holder["sm"] = sm
 

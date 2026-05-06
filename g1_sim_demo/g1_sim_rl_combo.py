@@ -547,6 +547,38 @@ class ComboController:
     # still respected unless it would violate this cap.
     ARM_GESTURE_RATE_K_PER_SEC = 4.0
 
+    # ---- Per-arm Kp/Kd boost while a gesture is active ---------------------
+    # deploy.yaml's arm Kp (14.3 shoulder/elbow, 16.8 wrist_pitch/yaw) is
+    # tuned for the policy's training distribution where arms only deviate
+    # by ~action_scale (~0.44 rad) from default. The policy uses small
+    # incremental commands and the actuator's own low-pass mostly hides any
+    # residual tracking lag.
+    #
+    # Static gesture targets are far larger (hands_up shoulder_pitch sweeps
+    # 1.95 rad from default; T-pose shoulder_roll ±1.32 rad). At Kp=14.3 the
+    # gravity load on a horizontal arm (≈3.7 N·m) produces a steady-state
+    # deflection of 3.7/14.3 ≈ 0.26 rad — the gesture visibly under-shoots
+    # ("没有执行到相应的位置"). With ζ ≈ Kd/(2√(Kp·I)) ≈ 0.38 the response
+    # is also underdamped, so the arm oscillates while it tries to track a
+    # moving cosine target ("造成大量的摇晃").
+    #
+    # The sibling `g1_sim_keyboard.py` (open-loop static-pose demo the user
+    # remembers as "the gestures looked right") uses Kp=40 / Kd=1 on every
+    # arm joint. Boosting deploy.yaml's arm Kp/Kd by ARM_GESTURE_KP_SCALE
+    # while a gesture is active matches that proven gain (14.3 × 2.8 ≈ 40)
+    # without affecting the legs or waist, which still need the policy's
+    # training-time gains to behave in distribution. Scaling Kd by the same
+    # factor *increases* the damping ratio (ζ scales as √k), giving an
+    # over-damped tracking response — better suppresses the oscillation
+    # than just raising stiffness.
+    ARM_GESTURE_KP_SCALE = 2.8
+    # Per-second slew on `_arm_kp_boost` toward its target value (1.0 when
+    # idle, ARM_GESTURE_KP_SCALE during a gesture). 4.0/s = ~0.45 s ramp
+    # from 1.0 to 2.8 — fast enough to be useful by the time the cosine
+    # blend reaches peak amplitude (~1 s into a typical gesture), slow
+    # enough that the Kp jump on gesture-press doesn't snap the arm.
+    ARM_KP_RAMP_PER_SEC = 4.0
+
     # ---- Engagement gating (anti-"flying" net) ------------------------
     # Boot ramp duration (measured pose -> default_q with reduced Kp).
     BOOT_DUR_S = 5.0
@@ -712,6 +744,13 @@ class ComboController:
         self._soften_target = 1.0
         self._soften_step = 0.0
         self._soften_steps_left = 0
+
+        # Per-arm Kp/Kd boost while an arm gesture override is active. Idle
+        # value 1.0 (= deploy.yaml's training Kp). Slewed in `_tick` toward
+        # ARM_GESTURE_KP_SCALE while `_arm_override_active`, back to 1.0
+        # when the gesture queue drains. Applied only to indices 15..28 in
+        # `_publish` so leg/waist gains stay at the policy's training value.
+        self._arm_kp_boost = 1.0
 
         # ---- Stand-still bypass / safe-hold state -------------------------
         # When True the controller publishes default_q at full Kp regardless
@@ -897,6 +936,8 @@ class ComboController:
         self._safe_hold = False
         # Start with reduced Kp; _tick ramps it up to 1.0 over boot_dur.
         self.kp_scale = self.boot_kp_floor
+        # Arm-only Kp boost is at 1.0 (no gesture in flight) on every start.
+        self._arm_kp_boost = 1.0
 
         self._thread = RecurrentThread(
             interval=self.cfg.step_dt, target=self._tick, name="combo_control"
@@ -928,6 +969,20 @@ class ComboController:
             self._soften_steps_left -= 1
             if self._soften_steps_left == 0:
                 self.kp_scale = self._soften_target
+
+        # Arm-only Kp boost slew: ramp toward ARM_GESTURE_KP_SCALE while a
+        # gesture is queued / playing, back toward 1.0 when arms are
+        # policy-controlled. Cosine ease-in/out is overkill here — a
+        # constant-rate slew matches the instantaneous decision boundary
+        # (override on/off is binary) and is bounded by ARM_KP_RAMP_PER_SEC.
+        boost_target = (
+            self.ARM_GESTURE_KP_SCALE if self._arm_override_active else 1.0
+        )
+        boost_step = self.ARM_KP_RAMP_PER_SEC * self.cfg.step_dt
+        if self._arm_kp_boost < boost_target:
+            self._arm_kp_boost = min(boost_target, self._arm_kp_boost + boost_step)
+        elif self._arm_kp_boost > boost_target:
+            self._arm_kp_boost = max(boost_target, self._arm_kp_boost - boost_step)
 
         # Watchdog: if simulator stops sending state, hold default pose.
         if time.monotonic() - self.last_state_time > self.LOWSTATE_TIMEOUT:
@@ -1381,14 +1436,22 @@ class ComboController:
     def _publish(self, q_des: np.ndarray):
         self.low_cmd.mode_pr = 0
         self.low_cmd.mode_machine = self.mode_machine
+        # Per-joint Kp/Kd factor: legs and waist always use kp_scale alone;
+        # arms (15..28) get an extra `_arm_kp_boost` multiplier so a gesture
+        # can actually drive them to the commanded pose without raising the
+        # gain on balance-critical joints. Boost is 1.0 when no gesture is
+        # active (policy gets exactly its training-time gains).
         for i in range(G1_NUM_MOTOR):
             m = self.low_cmd.motor_cmd[i]
             m.mode = 1
             m.q = float(q_des[i])
             m.dq = 0.0
             m.tau = 0.0
-            m.kp = float(self.cfg.kp[i] * self.kp_scale)
-            m.kd = float(self.cfg.kd[i] * self.kp_scale)
+            scale = self.kp_scale
+            if ARM_START <= i < ARM_END:
+                scale *= self._arm_kp_boost
+            m.kp = float(self.cfg.kp[i] * scale)
+            m.kd = float(self.cfg.kd[i] * scale)
         self.low_cmd.crc = self.crc.Crc(self.low_cmd)
         self.cmd_pub.Write(self.low_cmd)
 

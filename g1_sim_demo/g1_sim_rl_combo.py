@@ -617,6 +617,14 @@ class ComboController:
     # flip in/out of policy mode. Once we're in policy mode we stay until
     # ||cmd|| < STAND_CMD_THRESH for at least STAND_HYST_HOLD_S.
     STAND_HYST_HOLD_S = 0.3
+    # Cosine-eased blend from the policy's last q_target to default_q on
+    # policy->stand transition. Without this, ending a walk mid-stride
+    # (one leg in swing, body shifted) snaps q_target to default_q at
+    # full Kp, the PD whips both legs straight, and the robot tips
+    # forward over a few seconds (observed 2026-05-06: walk vx=0.2 dur=1.0
+    # ends at t=32.2, gravity_z trips -0.81 at t=36.0). Same idea as the
+    # BOOT phase's cosine ramp from measured pose -> default_q.
+    STAND_WINDDOWN_S = 0.5
 
     def __init__(self, cfg: DeployCfg, policy: Policy):
         self.cfg = cfg
@@ -722,6 +730,16 @@ class ComboController:
         # below threshold".
         self._stand_active = True
         self._stand_below_thresh_since: Optional[float] = None
+        # Snapshot of the most recent policy-produced q_target (pre-arm-overlay).
+        # Used to blend smoothly to default_q when a walk command ends so we
+        # don't snap legs from a mid-stride pose to default at full Kp.
+        self._last_policy_q_target: Optional[np.ndarray] = None
+        # Wind-down blend state. _wind_down_at is set on the policy->stand
+        # transition; while it's not None we're cosine-blending q_target from
+        # _wind_down_from -> default_q. Cleared once the blend completes or
+        # if the user issues a new walk before it finishes.
+        self._wind_down_from: Optional[np.ndarray] = None
+        self._wind_down_at: Optional[float] = None
 
         self._stop = threading.Event()
 
@@ -839,6 +857,13 @@ class ComboController:
             # to satisfy hysteresis cleanly.
             self._stand_below_thresh_since = None
             self._stand_active = True
+            # Drop the policy q_target snapshot — after EMERGENCY_STOP the
+            # robot is on the ground, so blending toward default_q from a
+            # fall pose at full Kp would be unsafe. The safe-hold branch
+            # publishes default_q directly until the FSM recovers.
+            self._last_policy_q_target = None
+            self._wind_down_from = None
+            self._wind_down_at = None
 
     def start(self):
         print("[combo] waiting for first /rt/lowstate ...")
@@ -866,6 +891,9 @@ class ComboController:
         # at cmd=0 produced ±0.3 rad joint wobble and tipped over.
         self._stand_active = True
         self._stand_below_thresh_since = None
+        self._last_policy_q_target = None
+        self._wind_down_from = None
+        self._wind_down_at = None
         self._safe_hold = False
         # Start with reduced Kp; _tick ramps it up to 1.0 over boot_dur.
         self.kp_scale = self.boot_kp_floor
@@ -987,6 +1015,7 @@ class ComboController:
         cmd = self.get_command()
         cmd_norm = float(np.linalg.norm(cmd))
         now = time.monotonic()
+        prev_stand_active = self._stand_active
         if cmd_norm < self.STAND_CMD_THRESH:
             if self._stand_below_thresh_since is None:
                 self._stand_below_thresh_since = now
@@ -1001,14 +1030,57 @@ class ComboController:
             self._stand_below_thresh_since = None
             self._stand_active = False
 
+        # Detect transitions to set up the policy<->stand handoff blends.
+        if self._stand_active and not prev_stand_active:
+            # Policy -> stand: snapshot the policy's last q_target so the
+            # stand branch below can cosine-blend to default_q instead of
+            # snapping. Without this the legs whip from mid-stride pose to
+            # default at full Kp and the body tips forward.
+            if self._last_policy_q_target is not None:
+                self._wind_down_from = self._last_policy_q_target.copy()
+                self._wind_down_at = now
+        elif (not self._stand_active) and prev_stand_active:
+            # Stand -> policy: cancel any in-flight wind-down and re-arm the
+            # policy warm-up window so the first inference after a quiescent
+            # stretch (where last_raw_action and gait_phase were zeroed)
+            # gets the same cosine ease-in / clip protection as the very
+            # first engagement.
+            self._wind_down_from = None
+            self._wind_down_at = None
+            self._engage_at = now
+
         if self._stand_active:
-            q_target = self.cfg.default_q.copy()
-            # Reset gait phase + last_action so when the policy is later
-            # re-engaged its first obs has joint_pos_rel ≈ 0,
-            # joint_vel_rel ≈ 0, last_action == 0, gait == (0,0). This
-            # keeps the first inference in-distribution.
-            self.last_raw_action[:] = 0.0
-            self.global_phase = 0.0
+            in_blend = (
+                self._wind_down_at is not None
+                and self._wind_down_from is not None
+            )
+            if in_blend:
+                t_blend = now - self._wind_down_at
+                if t_blend < self.STAND_WINDDOWN_S:
+                    s = 0.5 - 0.5 * np.cos(
+                        np.pi * (t_blend / self.STAND_WINDDOWN_S)
+                    )
+                    q_target = (
+                        (1.0 - s) * self._wind_down_from
+                        + s * self.cfg.default_q
+                    )
+                else:
+                    # Blend complete — fall through to the steady-state
+                    # default_q hold.
+                    in_blend = False
+                    self._wind_down_from = None
+                    self._wind_down_at = None
+            if not in_blend:
+                q_target = self.cfg.default_q.copy()
+                # Reset gait phase + last_action so when the policy is later
+                # re-engaged its first obs has joint_pos_rel ≈ 0,
+                # joint_vel_rel ≈ 0, last_action == 0, gait == (0,0). This
+                # keeps the first inference in-distribution. We deliberately
+                # do NOT reset these mid-blend, so a quick stand->policy
+                # flip during the wind-down still has a valid last_action
+                # context to feed back to the policy.
+                self.last_raw_action[:] = 0.0
+                self.global_phase = 0.0
         else:
             obs = self._build_obs()
             raw_action = self.policy(obs)
@@ -1034,6 +1106,11 @@ class ComboController:
             q_target = raw_action * self.cfg.action_scale + self.cfg.action_offset
             # Default: feed back exactly what the policy commanded.
             self.last_raw_action[:] = raw_action
+            # Snapshot before the arm overlay so a subsequent policy->stand
+            # transition blends the legs from where the policy actually had
+            # them (a gesture might be overriding arms, but for stability
+            # all that matters is the leg slice).
+            self._last_policy_q_target = q_target.copy()
 
         # ---- Arm overlay: only override q_target[15:29] if a gesture is
         # actively playing. Otherwise the policy keeps full control of the

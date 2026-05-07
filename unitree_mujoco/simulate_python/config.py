@@ -9,7 +9,7 @@ ROBOT = "g1" # Robot name, "go2", "b2", "b2w", "h1", "go2w", "g1"
 # The origin (~2 m radius) is intentionally clean so the trained walking
 # policy starts on flat ground identically to scene_29dof.xml; the
 # operator must walk the robot away from origin to encounter terrain.
-USE_TERRAIN = False
+USE_TERRAIN = True
 if ROBOT == "g1":
     if USE_TERRAIN:
         ROBOT_SCENE = "../unitree_robots/g1/scene_29dof_terrain.xml"

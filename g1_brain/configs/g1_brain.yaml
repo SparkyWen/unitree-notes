@@ -134,6 +134,18 @@ safety:
     flag_path: "/tmp/g1_brain_estop"
     keys: ["esc"]
     publish_zero_torque_count: 30
+  vision_gate:
+    # GPT-5.5 vision-based risk gate (spec docs/g1_v1.md). When enabled,
+    # every motion tool call gets a "is this safe to do unattended?" review
+    # against the latest head-cam JPEG. SAFE -> auto-execute regardless of
+    # run_mode. RISK -> fall through to the existing terminal y/N. With this
+    # off, behaviour reverts bit-for-bit to the pre-design build.
+    enabled: true
+    timeout_s: 5.0          # GPT-5.5 hard timeout; on timeout -> RISK
+    max_frame_age_s: 2.0    # head-cam JPEG older than this -> RISK
+    min_brightness: 30      # 0-255 mean luminance; below -> RISK (too dark)
+    max_brightness: 235     # 0-255 mean luminance; above -> RISK (white-out)
+    detail: "auto"          # OpenAI image detail: low / high / auto / original
 
 openai:
   realtime_model: "gpt-realtime"

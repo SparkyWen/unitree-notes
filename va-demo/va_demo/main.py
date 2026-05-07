@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from dotenv import load_dotenv
 
 from . import audio_io, camera, safety, skills, tts, vision
 from .conversation_state import ConversationConfig, ConversationStateMachine
@@ -79,6 +80,18 @@ async def _run(args):
     mic.start()
     speaker.start()
 
+    # ---- DDS init (must happen before camera if MuJoCoHeadCamera will
+    # subscribe to rt/lowstate, otherwise its ChannelSubscriber.Init silently
+    # noops with a 'NoneType._ref' warning) ----
+    dds_initialized = False
+    if not args.no_skills:
+        from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+
+        ChannelFactoryInitialize(cfg["robot"]["domain_id"], cfg["robot"]["interface"])
+        log.info("DDS initialized: domain=%d iface=%s",
+                 cfg["robot"]["domain_id"], cfg["robot"]["interface"])
+        dds_initialized = True
+
     # ---- camera ----
     if args.mujoco_camera:
         from . import mujoco_camera as mjcam
@@ -97,10 +110,10 @@ async def _run(args):
             width=int(cam_cfg.get("head_width", 640)),
             height=int(cam_cfg.get("head_height", 480)),
             poll_hz=float(cam_cfg.get("head_poll_hz", 20.0)),
-            subscribe_dds=not args.no_skills,
+            subscribe_dds=dds_initialized,
         )
         log.info("mujoco-camera enabled: mjcf=%s subscribe_dds=%s",
-                 mjcf_path, not args.no_skills)
+                 mjcf_path, dds_initialized)
     else:
         cam = camera.Camera(
             host=cfg["camera"]["host"],
@@ -108,14 +121,9 @@ async def _run(args):
             request_bgr=True,
         )
 
-    # ---- robot skills (optional) ----
+    # ---- robot skills (optional; DDS init already happened above) ----
     skill_backend: Optional[skills.SkillBackend] = None
-    if not args.no_skills:
-        from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-
-        ChannelFactoryInitialize(cfg["robot"]["domain_id"], cfg["robot"]["interface"])
-        log.info("DDS initialized: domain=%d iface=%s",
-                 cfg["robot"]["domain_id"], cfg["robot"]["interface"])
+    if dds_initialized:
         skill_backend = skills.build_skill_backend()
         log.info("waiting for ComboController policy_active ...")
         deadline = asyncio.get_event_loop().time() + 30.0
@@ -314,6 +322,17 @@ def parse_args():
 
 
 def main():
+    # Load environment variables from .env files in order (first wins):
+    # 1. ~/.env (shared across projects)
+    # 2. ./va-demo/.env (project-specific overrides, if any)
+    home_env = Path.home() / ".env"
+    if home_env.exists():
+        load_dotenv(dotenv_path=home_env)
+
+    local_env = Path(__file__).resolve().parent.parent / ".env"
+    if local_env.exists():
+        load_dotenv(dotenv_path=local_env, override=False)
+
     args = parse_args()
     _setup_logging(args.verbose)
 

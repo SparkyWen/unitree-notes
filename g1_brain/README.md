@@ -18,7 +18,7 @@
 [![Conda](https://img.shields.io/badge/Env-agi-44A833?style=flat-square&logo=anaconda&logoColor=white)](../README.md#-two-conda-environments)
 [![Tests](https://img.shields.io/badge/tests-pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](tests/)
 [![Tools](https://img.shields.io/badge/LLM_tools-16-purple?style=flat-square)](#-skill-catalog)
-[![Safety](https://img.shields.io/badge/safety_rules-11-FF6B35?style=flat-square)](#-safety--11-rules--7-state-fsm)
+[![Safety](https://img.shields.io/badge/safety_rules-12-FF6B35?style=flat-square)](#-safety--12-rules--7-state-fsm)
 [![License](https://img.shields.io/badge/license-Apache_2.0-blue.svg?style=flat-square)](../README.md#-license)
 
 <br/>
@@ -78,7 +78,7 @@ The LLM never touches motors. Every command flows through `SafetySupervisor.vali
 | 🪆 **Builds on top of `va-demo` + `g1_sim_demo`** | Reuses the wake-word ("Hi Sparky"), VAD, conversation FSM, ComboController, keyframe library — adds cognition rather than rewriting infrastructure. |
 | 👀 **Dual-camera perception** | USB cam (laptop / robot teleimager → MediaPipe-Pose) + first-person MuJoCo head cam (synthesized onto `torso_link` via `MjSpec`, EGL off-screen). |
 | 🎯 **YOLO11 + MediaPipe-Pose + depth, fused** | Outputs a single thread-safe `SceneState` with `clear_path`, `nearest_obstacle_m`, `nearest_person_m`, gestures, and a tiny `summary_for_llm()`. |
-| 🛡️ **11 safety rules + 7-state FSM** | Whitelist · FSM gating · run_mode · 4 watchdogs · pose check · param clamp · scene checks · E-stop. Applied to *every* tool call. |
+| 🛡️ **12 safety rules + 7-state FSM** | Whitelist · FSM gating · run_mode · 4 watchdogs · pose check · param clamp · scene checks · E-stop · GPT-5.5 vision risk gate (Rule 12, spec [`docs/g1_v1.md`](docs/g1_v1.md)). Applied to *every* tool call. |
 | 🚨 **Independent E-stop process** | `safety/estop_listener.py` runs separately, listens for **ESC**, publishes 30 zero-torque frames straight to DDS even if the agent deadlocks. |
 | 🧰 **~16 LLM-callable tools** | `walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` · `say` · `describe_scene` · `query_scene_state` · `stop` · `release_arms` · plus 3 real-robot-only stubs. |
 | 💃 **Mock imitation (Phase 5)** | User waves → MediaPipe classifies the gesture → SafetySupervisor checks distance → robot waves back. LLM-driven *and* auto-trigger paths both supported. |
@@ -104,8 +104,8 @@ The LLM never touches motors. Every command flows through `SafetySupervisor.vali
                                 ↕            (intent JSON)
 ┌────────────────────────────────────────────────────────────────────┐
 │  🛡️ SAFE SKILL  (g1_brain/safety/ + g1_brain/skills/)              │
-│  - SafetySupervisor: 11 rules (whitelist, FSM, run-mode, watchdog, │
-│    pose, scene, E-stop)                                            │
+│  - SafetySupervisor: 12 rules (whitelist, FSM, run-mode, watchdog, │
+│    pose, scene, E-stop, GPT-5.5 vision risk gate)                  │
 │  - SkillServer: ~16 skills routed to ComboController / Keyframe    │
 └────────────────────────────────────────────────────────────────────┘
                                 ↕            (skill call)
@@ -153,7 +153,8 @@ g1_brain/
 │   │   └── fusion.py         ·  Thread-safe RLock-protected bus, snapshot()
 │   ├── 🛡️ safety/             ·  FSM + SafetySupervisor + watchdogs + E-stop
 │   │   ├── state_machine.py  ·  7-state FSM (BOOT…STANDING…ENGAGED…ACTING…E-STOP…)
-│   │   ├── supervisor.py     ·  validate() — the 11 rules in code
+│   │   ├── supervisor.py     ·  validate() — the 12 rules in code
+│   │   ├── vision_risk_gate.py · Rule 12: GPT-5.5 head-cam SAFE/RISK reviewer
 │   │   ├── pose_check.py     ·  projected-gravity-z tipping detector
 │   │   ├── watchdogs.py      ·  lowstate / head_frame / usb_frame / pose @ 20 Hz
 │   │   ├── estop_client.py   ·  /tmp flag reader (in-process)
@@ -280,7 +281,7 @@ python -m g1_brain.apps.agent_main --mode confirm
 | `release_arms()` | Hand the upper body back to the locomotion policy. |
 | `ask_human(question)` | Voice prompt to the user; default-routed to `say` in v1. |
 
-### 🦿 Motion (gated by 11 safety rules + scene re-check)
+### 🦿 Motion (gated by 12 safety rules + scene re-check)
 
 | Tool | Args | Notes |
 |---|---|---|
@@ -318,7 +319,7 @@ BOOT  ─►  STANDING  ─►  ENGAGED  ─►  ACTING  ─►  STANDING  ─�
 
 Defined in [`g1_brain/safety/state_machine.py`](g1_brain/safety/state_machine.py). Recovery from `EMERGENCY_STOP` is automatic if all motion-blocking watchdogs stay clear for `recovery_hold_s` (default **5 s**), routed via `RECOVERING → STANDING`. `FAULT` is a manual sink.
 
-### The 11 rules — applied in order, every tool call
+### The 12 rules — applied in order, every tool call
 
 | # | Rule | What it checks |
 |--:|---|---|
@@ -333,8 +334,9 @@ Defined in [`g1_brain/safety/state_machine.py`](g1_brain/safety/state_machine.py
 | 9 | 🛤️ **Scene check (walk)** | `clear_path=True`, `nearest_obstacle_m > 0.6`, `nearest_person_m > 0.8`. |
 | 10 | 👥 **Scene check (gesture)** | `nearest_person_m > 0.5`. |
 | 11 | 🚨 **E-stop flag** | `EstopClient.is_engaged()` rejects everything except `say` / `stop` / `describe_scene` / `query_scene_state`. |
+| 12 | 👁️ **Vision risk gate** | GPT-5.5 reviews the head-cam JPEG + rendered action sentence. SAFE → auto-execute regardless of run_mode; RISK → fall through to terminal y/N with the GPT reason printed inline. `say` / `stop` / `release_arms` bypass to SAFE; backward `walk` (vx<0) bypasses to RISK. Frame-fail / timeout / api_error / parse-fail all return RISK. Disable via `safety.vision_gate.enabled: false`. Spec: [`docs/g1_v1.md`](docs/g1_v1.md). |
 
-> 🧷 Source of truth: [`g1_brain/safety/supervisor.py::validate()`](g1_brain/safety/supervisor.py). Rule 11 is hoisted earlier in code so user-facing prompts also short-circuit. Adding a new rule? Mirror the pattern in [`tests/test_safety_supervisor.py`](tests/test_safety_supervisor.py).
+> 🧷 Source of truth: [`g1_brain/safety/supervisor.py::validate()`](g1_brain/safety/supervisor.py) and [`g1_brain/safety/vision_risk_gate.py`](g1_brain/safety/vision_risk_gate.py). Rule 11 is hoisted earlier in code so user-facing prompts also short-circuit. Adding a new rule? Mirror the pattern in [`tests/test_safety_supervisor.py`](tests/test_safety_supervisor.py).
 
 ### 🚨 The independent E-stop
 
@@ -394,7 +396,7 @@ USB Cam ─► PoseDetector ─► classify_gesture ─► SceneStateBus
                                                      │
                                                      ▼
                           mock_imitate validates name ∈ MIRRORABLE,
-                          maps to gesture() and goes through the same 11 rules
+                          maps to gesture() and goes through the same 12 rules
 ```
 
 Mirrorable set: `wave_right · wave_left · hands_up · t_pose`. Configurable under `mock_imitation.mirrorable` in [`configs/g1_brain.yaml`](configs/g1_brain.yaml).
@@ -452,7 +454,8 @@ OpenAI / DDS / cameras are stubbed; the suite runs on any laptop in a few second
 | [`test_estop_flow.py`](tests/test_estop_flow.py) | Touch flag → all motion rejected, `say` still allowed. |
 | [`test_mock_imitation.py`](tests/test_mock_imitation.py) | Auto-trigger threshold, mirrorable set, distance gate. |
 | [`test_perception_derivations.py`](tests/test_perception_derivations.py) | `classify_gesture` · `clear_path` · `summary_for_llm`. |
-| [`test_safety_supervisor.py`](tests/test_safety_supervisor.py) | All 11 rules — golden cases per rule. |
+| [`test_safety_supervisor.py`](tests/test_safety_supervisor.py) | All 12 rules — golden cases per rule (incl. vision-gate integration). |
+| [`test_vision_risk_gate.py`](tests/test_vision_risk_gate.py) | Rule 12: bypass paths, frame health, GPT-5.5 SAFE/RISK/parse_fail/timeout/api_error. |
 | [`test_scene_state_bus.py`](tests/test_scene_state_bus.py) | Lock semantics, snapshot immutability, frame-age helpers. |
 | [`test_skill_server.py`](tests/test_skill_server.py) | Each `_skill_*` end-to-end on stubs (incl. scene re-check). |
 | [`test_state_machine.py`](tests/test_state_machine.py) | FSM transitions, RECOVERING hold, FAULT sink. |

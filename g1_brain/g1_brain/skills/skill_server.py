@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import sys
 import time
 from pathlib import Path
@@ -67,9 +68,19 @@ _WALK_SCENE_CHECK_INTERVAL_S = 0.2
 _WALK_ABORT_OBSTACLE_M = 0.5
 
 # turn(yaw_deg) parameters.
+#
+# Pre-fix had ``_TURN_DURATION_PER_DEG = 1/25`` paired with wz=0.25 rad/s
+# (≈ 14.32 °/s). At that math, asking for ``turn(yaw_deg=25)`` ran wz=0.25
+# rad/s for 1.0 s and rotated only ≈ 14° — i.e. the robot turned ~57 % of
+# the requested angle. Combined with ``_TURN_MAX_DURATION_S = 1.5`` it
+# meant a 'turn 180°' request became 7+ chained tool calls, *each* costing
+# the operator a y/N in confirm-mode. The geometry is now correct: degrees
+# requested == degrees actually turned (modulo policy tracking error and
+# any reactive abort). 180° at 0.25 rad/s = π/0.25 ≈ 12.57 s; we cap at
+# 14 s to leave a small margin and bound any single confirm.
 _TURN_YAW_RATE_RAD_S = 0.25
-_TURN_DURATION_PER_DEG = 1.0 / 25.0   # min(|yaw|/25, 1.5)
-_TURN_MAX_DURATION_S = 1.5
+_TURN_DURATION_PER_DEG = math.pi / (180.0 * _TURN_YAW_RATE_RAD_S)  # ≈ 0.0698 s/deg
+_TURN_MAX_DURATION_S = 14.0
 
 
 class SkillServer:
@@ -91,6 +102,7 @@ class SkillServer:
         scene_bus,
         fsm,
         sim: bool = True,
+        conversation_logger=None,
     ) -> None:
         self.combo = combo_ctl
         self.safety = safety
@@ -100,6 +112,11 @@ class SkillServer:
         self.scene = scene_bus
         self.fsm = fsm
         self.sim = sim
+        # Optional persistent conversation log; recall_history reads it so
+        # past tool calls / user turns can be retrieved verbatim instead of
+        # relying on the Realtime model's lossy in-context memory. None when
+        # the operator launched with audio_control.transcript.enabled: false.
+        self.conv_logger = conversation_logger
 
         # Pre-build the gesture lookup table:
         #   name (str)  ->  ArmAction (with .keyframes)
@@ -271,6 +288,129 @@ class SkillServer:
         return {
             "ok": True, "skill": "query_scene_state",
             "scene": self.scene.snapshot().summary_for_llm(),
+        }
+
+    async def _skill_recall_history(
+        self,
+        kind: str = "actions",
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """Query the persistent conversation jsonl for past events.
+
+        ``kind`` controls what is returned:
+
+          - ``"actions"`` — every motion/skill the robot executed (tool_use of
+            walk/turn/gesture/static_pose/look_at/approach/mock_imitate/stop).
+            This is the canonical answer to "what did I do" / "what was my
+            first motion" — Realtime context truncation can lose old turns,
+            but the jsonl always has every call.
+          - ``"user_turns"`` — every user utterance.
+          - ``"all"`` — interleaved user + assistant + tool_use entries.
+
+        Returns the OLDEST-first slice (so the first entry is the actual
+        first action), capped at ``limit``. The list is empty when there is
+        no transcript logger or the file has no matching events yet.
+        """
+        if self.conv_logger is None or self.conv_logger.path is None:
+            return {
+                "ok": False,
+                "skill": "recall_history",
+                "reason": "conversation transcript disabled",
+            }
+        path = self.conv_logger.path
+        kinds = {"actions", "user_turns", "all"}
+        if kind not in kinds:
+            return {
+                "ok": False, "skill": "recall_history",
+                "reason": f"kind must be one of {sorted(kinds)}; got {kind!r}",
+            }
+        try:
+            limit = max(1, min(int(limit), 200))
+        except (TypeError, ValueError):
+            limit = 20
+
+        action_tools = {
+            "walk", "turn", "gesture", "static_pose", "look_at",
+            "approach", "mock_imitate", "stop", "release_arms",
+        }
+
+        items: List[Dict[str, Any]] = []
+        try:
+            import json as _json
+            with open(path, "r", encoding="utf-8") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        rec = _json.loads(raw)
+                    except ValueError:
+                        continue
+                    rec_type = rec.get("type")
+                    msg = rec.get("message") or {}
+                    blocks = msg.get("content") or []
+                    first = blocks[0] if blocks else {}
+
+                    if kind == "user_turns":
+                        if rec_type != "user":
+                            continue
+                        items.append({
+                            "turn_id": rec.get("turn_id"),
+                            "timestamp": rec.get("timestamp"),
+                            "text": first.get("text", ""),
+                        })
+                    elif kind == "actions":
+                        if rec_type != "tool_use":
+                            continue
+                        if first.get("type") != "tool_use":
+                            continue
+                        if first.get("name") not in action_tools:
+                            continue
+                        items.append({
+                            "turn_id": rec.get("turn_id"),
+                            "timestamp": rec.get("timestamp"),
+                            "name": first.get("name"),
+                            "input": first.get("input"),
+                        })
+                    else:  # "all"
+                        if rec_type == "user":
+                            items.append({
+                                "turn_id": rec.get("turn_id"),
+                                "timestamp": rec.get("timestamp"),
+                                "type": "user",
+                                "text": first.get("text", ""),
+                            })
+                        elif rec_type == "assistant":
+                            items.append({
+                                "turn_id": rec.get("turn_id"),
+                                "timestamp": rec.get("timestamp"),
+                                "type": "assistant",
+                                "text": first.get("text", ""),
+                            })
+                        elif rec_type == "tool_use" and first.get("type") == "tool_use":
+                            items.append({
+                                "turn_id": rec.get("turn_id"),
+                                "timestamp": rec.get("timestamp"),
+                                "type": "tool_use",
+                                "name": first.get("name"),
+                                "input": first.get("input"),
+                            })
+        except OSError as e:
+            return {
+                "ok": False, "skill": "recall_history",
+                "reason": f"read failed: {e!s}",
+            }
+
+        return {
+            "ok": True,
+            "skill": "recall_history",
+            "kind": kind,
+            "session_id": self.conv_logger.session_id,
+            "total_matched": len(items),
+            "returned": min(len(items), limit),
+            # Oldest-first; the model needs the first entry for "first action"
+            # questions. Truncate from the tail so we always keep the start.
+            "events": items[:limit],
         }
 
     # ---- L1: compound skills (delegate) ----------------------------------

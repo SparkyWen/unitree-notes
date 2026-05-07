@@ -342,7 +342,8 @@ def _try_build_perception_runner(cfg, scene_bus, robot_bus):
 
 
 def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
-                            scene_bus, fsm, sim: bool = True):
+                            scene_bus, fsm, sim: bool = True,
+                            conversation_logger=None):
     try:
         from ..skills.skill_server import SkillServer
     except Exception as e:  # noqa: BLE001
@@ -357,6 +358,7 @@ def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
         scene_bus=scene_bus,
         fsm=fsm,
         sim=sim,
+        conversation_logger=conversation_logger,
     )
 
 
@@ -627,6 +629,7 @@ async def _run(args: argparse.Namespace) -> int:
             camera_hub = CameraHub(
                 cfg.get("cameras", {}) or {},
                 subscribe_dds=dds_ready,
+                robot_mjcf_path=(cfg.get("robot", {}) or {}).get("mjcf_path"),
             )
         except Exception as e:  # noqa: BLE001
             log.warning("CameraHub construction failed: %s", e)
@@ -933,6 +936,31 @@ async def _run(args: argparse.Namespace) -> int:
         default_detail=cfg["openai"]["vision_detail"],
     )
 
+    # ---- conversation logger (per-process jsonl) ----
+    # Built BEFORE skill_server so the recall_history skill has a reference
+    # to the active jsonl path. Built BEFORE brain_agent so any startup-time
+    # logging (session_start meta) is in place by the time the Realtime
+    # session opens.
+    conv_logger = None
+    transcript_cfg = (cfg.get("audio_control", {}) or {}).get("transcript", {}) or {}
+    if transcript_cfg.get("enabled", True):
+        from ..brain.conversation_logger import ConversationLogger  # noqa: WPS433
+        conv_logger = ConversationLogger(
+            log_dir=Path(transcript_cfg.get(
+                "dir",
+                str(Path(log_dir_str) / "conversations"),
+            )),
+            keep_last_n=int(transcript_cfg.get("keep_last_n", 50)),
+            max_text_kb=int(transcript_cfg.get("max_text_kb", 4)),
+            enabled=True,
+        )
+        try:
+            conv_logger.log_session_start(argv=sys.argv, config_path=str(args.config))
+            if conv_logger.path is not None:
+                log.info("conversation log: %s", conv_logger.path)
+        except Exception:  # noqa: BLE001
+            log.exception("conversation logger session_start failed")
+
     # ---- skill server ----
     skill_server = None
     if not args.vision_only:
@@ -945,6 +973,7 @@ async def _run(args: argparse.Namespace) -> int:
             scene_bus=scene_bus,
             fsm=fsm,
             sim=(cfg.get("mode", "sim") == "sim"),
+            conversation_logger=conv_logger,
         )
 
     # ---- brain realtime agent ----
@@ -993,7 +1022,10 @@ async def _run(args: argparse.Namespace) -> int:
         and not args.no_wakeword
         and (cfg.get("wakeword", {}) or {}).get("enabled", True)
     ):
-        sm = _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache)
+        sm = _build_state_machine(
+            cfg, sr, mic, speaker, brain_agent, spoken_cache, skill_server,
+            conv_logger,
+        )
     elif brain_agent is not None:
         log.info("wake-word DISABLED; Realtime uplink runs continuously")
 
@@ -1054,23 +1086,38 @@ async def _run(args: argparse.Namespace) -> int:
             await _shutdown_step("camera_hub.close", camera_hub.close)
         await _shutdown_step("mic.close", mic.close, timeout=2.0)
         await _shutdown_step("speaker.close", speaker.close, timeout=2.0)
+        if conv_logger is not None:
+            await _shutdown_step("conv_logger.close", conv_logger.close, timeout=1.0)
         _release_instance_lock(instance_fd, lock_path)
     return 0
 
 
-def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache):
-    """Wake-word + UtteranceVAD + ConversationStateMachine, mirrors va-demo."""
-    from va_demo.conversation_state import ConversationConfig, ConversationStateMachine
+def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
+                         skill_server, conv_logger):
+    """Wake-word + UtteranceVAD + BrainConversationStateMachine.
+
+    Uses g1_brain's own ``BrainConversationStateMachine`` (not va-demo's
+    ``ConversationStateMachine``) so we get wake-word barge-in in any state,
+    plan-level idle, and no LISTENING_WINDOW. See
+    docs/audio-control-update01.md.
+    """
     from va_demo.utterance_vad import UtteranceVAD
     from va_demo.wake_word import (
         FasterWhisperBackend,
         OpenAITranscribeBackend,
         WakeWordDetector,
     )
+    from ..brain.conversation_state import (
+        BrainConversationConfig,
+        BrainConversationStateMachine,
+    )
 
     wakeword_cfg = cfg.get("wakeword", {}) or {}
     utt_cfg = cfg.get("utterance", {}) or {}
     conv_cfg = cfg.get("conversation", {}) or {}
+    audio_ctl = cfg.get("audio_control", {}) or {}
+    barge_in_cfg = audio_ctl.get("barge_in", {}) or {}
+    idle_cfg = audio_ctl.get("idle_after_plan", {}) or {}
 
     backend_name = (wakeword_cfg.get("backend") or "openai").lower()
     if backend_name == "openai":
@@ -1116,22 +1163,51 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache):
         selfecho_window_s=float(conv_cfg.get("selfecho_dedup_window_s", 6.0)),
     )
 
-    sm = ConversationStateMachine(
-        cfg=ConversationConfig(
-            listening_window_s=float(conv_cfg.get("listening_window_s", 8.0)),
+    # Bind the stop skill so the state machine can hard-interrupt motion on
+    # barge-in. We call through skill_server.execute(stop, {}) — same path
+    # the LLM would use, so SafetySupervisor and all bookkeeping stay
+    # consistent. None when --vision-only or --no-skills (motion disabled).
+    stop_skill_callable = None
+    if skill_server is not None:
+        async def stop_skill_callable():  # noqa: WPS430 (small async closure)
+            try:
+                await skill_server.execute("stop", {})
+            except Exception:  # noqa: BLE001
+                log.exception("skill_server.execute(stop) raised on barge-in")
+
+    sm = BrainConversationStateMachine(
+        cfg=BrainConversationConfig(
             no_speech_timeout_s=float(utt_cfg.get("no_speech_timeout_s", 4.0)),
+            barge_in_enabled=bool(barge_in_cfg.get("enabled", True)),
+            barge_in_also_stop_skills=bool(
+                barge_in_cfg.get("also_stop_skills", True),
+            ),
+            barge_in_min_capture_age_s=float(
+                barge_in_cfg.get("min_capture_age_s", 0.4),
+            ),
+            idle_after_plan_enabled=bool(idle_cfg.get("enabled", True)),
+            drain_threshold_bytes=int(idle_cfg.get("drain_threshold_bytes", 2400)),
+            drain_max_wait_s=float(idle_cfg.get("drain_max_wait_s", 6.0)),
+            plan_watchdog_s=float(audio_ctl.get("plan_watchdog_s", 30.0)),
         ),
         wake_word=wake,
         utterance_vad=utt_vad,
         realtime_agent=brain_agent,
         mic=mic,
         speaker=speaker,
+        stop_skill_callable=stop_skill_callable,
+        logger=conv_logger,
     )
     sm_holder["sm"] = sm
 
-    brain_agent.on_response_audio_delta = sm.handle_response_audio_delta
-    brain_agent.on_response_done = sm.handle_response_done
-    log.info("wake-word enabled: phrases=%s", wakeword_cfg.get("phrases"))
+    log.info(
+        "wake-word enabled: phrases=%s; barge_in=%s also_stop_skills=%s "
+        "idle_after_plan=%s",
+        wakeword_cfg.get("phrases"),
+        barge_in_cfg.get("enabled", True),
+        barge_in_cfg.get("also_stop_skills", True),
+        idle_cfg.get("enabled", True),
+    )
     return sm
 
 

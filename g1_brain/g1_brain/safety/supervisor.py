@@ -42,6 +42,7 @@ ALLOWED_TOOLS_NO_MOTION: Set[str] = {
     "say",
     "describe_scene",
     "query_scene_state",
+    "recall_history",
     "stop",
     "release_arms",
 }
@@ -82,7 +83,7 @@ _FSM_NO_MOTION_ALLOWED: Dict[RobotFsmState, Set[str]] = {
     RobotFsmState.ENGAGED: ALLOWED_TOOLS_NO_MOTION,
     RobotFsmState.ACTING: ALLOWED_TOOLS_NO_MOTION,
     RobotFsmState.EMERGENCY_STOP: ALLOWED_TOOLS_NO_MOTION,
-    RobotFsmState.FAULT: {"say", "describe_scene", "query_scene_state"},
+    RobotFsmState.FAULT: {"say", "describe_scene", "query_scene_state", "recall_history"},
     RobotFsmState.RECOVERING: ALLOWED_TOOLS_NO_MOTION,
 }
 
@@ -477,6 +478,19 @@ class SafetySupervisor:
             }
         if tool == "query_scene_state":
             return {}
+        if tool == "recall_history":
+            kind = args.get("kind")
+            if kind not in {"actions", "user_turns", "all", None}:
+                return None
+            sanitized: Dict[str, Any] = {}
+            if kind is not None:
+                sanitized["kind"] = kind
+            try:
+                if "limit" in args:
+                    sanitized["limit"] = int(args["limit"])
+            except (TypeError, ValueError):
+                pass
+            return sanitized
         if tool in {"stop", "release_arms"}:
             return {}
         return None
@@ -508,8 +522,13 @@ class SafetySupervisor:
                 yaw_deg = float(args.get("yaw_deg", 0.0))
             except (TypeError, ValueError):
                 return None
-            # Clamp roughly to ±60 deg per call (caller may chain).
-            return {"yaw_deg": _clip(yaw_deg, -60.0, 60.0)}
+            # Allow ±180° in one call. Pre-fix this was clamped at ±60°,
+            # which forced the LLM to chain 7+ small turns for a "turn 180"
+            # request — each call costs the operator one confirm-mode y/N
+            # so the operator gave up after 6 prompts. _skill_turn already
+            # routes through _skill_walk's reactive-abort loop, so a long
+            # turn is no less safe than many short ones.
+            return {"yaw_deg": _clip(yaw_deg, -180.0, 180.0)}
         if tool == "gesture":
             name = str(args.get("name", ""))
             if not name:

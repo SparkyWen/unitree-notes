@@ -14,13 +14,14 @@ from g1_brain.skills.tool_schemas import (
 
 # Expected names per design doc §4.1 -----------------------------------------
 
-L1_NAMES = {"say", "describe_scene", "query_scene_state",
+L1_NAMES = {"say", "describe_scene", "query_scene_state", "recall_history",
             "look_at", "approach", "mock_imitate", "ask_human"}
 L2_NAMES = {"walk", "turn", "gesture", "static_pose", "stop", "release_arms"}
 REAL_ONLY_NAMES = {"loco_high", "arm_action_high", "audio_tts_robot"}
-SIM_NAMES = L1_NAMES | L2_NAMES                               # 13
-ALL_NAMES = L1_NAMES | L2_NAMES | REAL_ONLY_NAMES             # 16
-VISION_ONLY_NAMES = {"say", "describe_scene", "query_scene_state"}
+SIM_NAMES = L1_NAMES | L2_NAMES                               # 14
+ALL_NAMES = L1_NAMES | L2_NAMES | REAL_ONLY_NAMES             # 17
+VISION_ONLY_NAMES = {"say", "describe_scene", "query_scene_state",
+                     "recall_history"}
 
 
 def _names(schemas):
@@ -29,23 +30,23 @@ def _names(schemas):
 
 # ---------- Counts ----------------------------------------------------------
 
-def test_default_returns_13_sim_tools():
+def test_default_returns_14_sim_tools():
     schemas = build_tool_schemas()
-    assert len(schemas) == 13
+    assert len(schemas) == 14
     assert _names(schemas) == SIM_NAMES
     # No real-robot stragglers.
     assert _names(schemas).isdisjoint(REAL_ONLY_NAMES)
 
 
-def test_real_robot_returns_16():
+def test_real_robot_returns_17():
     schemas = build_tool_schemas(sim=False)
-    assert len(schemas) == 16
+    assert len(schemas) == 17
     assert _names(schemas) == ALL_NAMES
 
 
-def test_vision_only_returns_3():
+def test_vision_only_returns_4():
     schemas = build_tool_schemas(vision_only=True)
-    assert len(schemas) == 3
+    assert len(schemas) == 4
     assert _names(schemas) == VISION_ONLY_NAMES
 
 
@@ -86,7 +87,10 @@ def test_walk_bounds():
     assert props["vy"]["minimum"] == -0.1 and props["vy"]["maximum"] == 0.1
     assert props["wz"]["minimum"] == -0.4 and props["wz"]["maximum"] == 0.4
     assert props["duration_s"]["minimum"] == 0.2
-    assert props["duration_s"]["maximum"] == 1.5
+    # Long single-call walks are required so a "10 m forward" request only
+    # costs the operator one confirm-mode y/N. _skill_walk's reactive abort
+    # caps the actual run time on obstacle/path-block.
+    assert props["duration_s"]["maximum"] == 60.0
     # Only duration_s is required (vx/vy/wz default to 0).
     assert walk["parameters"].get("required") == ["duration_s"]
 
@@ -149,4 +153,8 @@ def test_say_max_chars_present():
 def test_turn_yaw_bounds():
     turn = {s["name"]: s for s in build_tool_schemas()}["turn"]
     props = turn["parameters"]["properties"]["yaw_deg"]
-    assert props["minimum"] == -45.0 and props["maximum"] == 45.0
+    # turn(yaw_deg) accepts the FULL requested angle up to ±180° in a
+    # single call. Pre-fix the schema clamped at ±45° which forced the
+    # LLM to chain ~7 turn() calls for a "turn 180" request, each call
+    # costing the operator a y/N in confirm-mode.
+    assert props["minimum"] == -180.0 and props["maximum"] == 180.0

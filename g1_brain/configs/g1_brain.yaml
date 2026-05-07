@@ -9,7 +9,13 @@ run_mode: "active"              # observe / confirm / active
 robot:
   domain_id: 1
   interface: "lo"
-  mjcf_path: "${HOME}/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml"
+  # MUST match the scene loaded by unitree_mujoco/simulate_python/config.py
+  # (the simulator's USE_TERRAIN flag picks scene_29dof_terrain.xml). The brain's
+  # head camera renders from its OWN MjModel cloned from this file, so any
+  # mismatch here means the robot's first-person view sees a different world
+  # than the simulator — describe_scene then reports "empty floor" while the
+  # operator can clearly see boxes/ramps/heightfield in the simulator window.
+  mjcf_path: "${HOME}/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml"
 
 cameras:
   # === Two cameras, two completely different jobs ==========================
@@ -42,6 +48,11 @@ cameras:
     poll_hz: 20
   head:
     enabled: true               # leave true — this is the robot's own eyes
+    # MJCF the head camera renders from. Leave unset to inherit `robot.mjcf_path`
+    # so the robot's first-person view shows the SAME world as the simulator.
+    # Override only when you intentionally want the brain to see a different
+    # scene than what the operator is looking at (e.g. ablation tests).
+    mjcf_path: null
     camera_name: "head_camera"  # synthesized on attach_body if missing in MJCF
     width: 640
     height: 480
@@ -83,7 +94,14 @@ safety:
     vx_max: 0.20
     vy_max: 0.10
     wz_max: 0.30
-    duration_max_s: 1.0
+    # In confirm mode every walk() call costs the operator one y/N keypress.
+    # Capping at 1.0 s forced the LLM to chain ~50 walks for a 10 m request,
+    # producing 50 prompts. _skill_walk already polls scene_bus every 0.2 s
+    # and aborts on path-blocked / nearest_obstacle < 0.5 m, so a longer
+    # single call is no less safe than many short ones — and the operator
+    # only confirms once. Hard cap at 60 s (== 12 m at 0.2 m/s) to bound
+    # any single approval.
+    duration_max_s: 60.0
     duration_min_s: 0.2
   gesture:
     max_concurrent: 1
@@ -179,3 +197,41 @@ logging:
   level: "INFO"
   log_dir: "${HOME}/unitree/unitree-notes/g1_brain/logs"
   rotate_mb: 50
+
+audio_control:
+  # Wake-word barge-in: when "hi sparky" fires while the agent is talking,
+  # running tools, or even mid-capture, drop everything in flight and start
+  # a fresh capture. See docs/audio-control-update01.md.
+  barge_in:
+    enabled: true
+    # Also call the SkillServer's stop tool on barge-in so the robot's arms
+    # release and any walk_in_progress halts. Leave true unless you are
+    # debugging a UX issue where you do NOT want the robot to drop a gesture
+    # the moment you say "hi sparky".
+    also_stop_skills: true
+    # Suppress wake events for this many seconds right after CAPTURING is
+    # entered. Counters the model's last word echoing into the new capture
+    # window before the wake-word detector's rolling buffer flushes.
+    min_capture_age_s: 0.4
+  # When the entire current plan finishes (all responses done, all tools
+  # returned, speaker drained), go straight to IDLE — no follow-up VAD,
+  # no LISTENING_WINDOW. The mic still streams to the wake-word detector
+  # locally; the OpenAI Realtime uplink is OFF until the next "hi sparky".
+  idle_after_plan:
+    enabled: true
+    # Bytes of residual audio in the speaker buffer below which we declare
+    # "drained" and transition to IDLE. ~50 ms at 24 kHz pcm16 mono.
+    drain_threshold_bytes: 2400
+    drain_max_wait_s: 6.0
+  # Force plan_done if a tool call never resolves (skill_server hangs).
+  # Without this, the state machine could be stuck in SPEAKING forever.
+  plan_watchdog_s: 30.0
+  # Per-process conversation jsonl, Claude-shape so the future Claude
+  # harness with memory retrieval / SQLite FTS5 can ingest these files.
+  transcript:
+    enabled: true
+    dir: "${HOME}/unitree/unitree-notes/g1_brain/logs/conversations"
+    # Rotate by count: at agent_main start, delete oldest files beyond this.
+    keep_last_n: 50
+    # Trim text payloads larger than this (full text remains in agent.log).
+    max_text_kb: 4

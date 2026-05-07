@@ -325,6 +325,63 @@ async def test_walk_exception_triggers_stop_and_returns_failure():
     assert s.combo.release_arms_calls >= 1
 
 
+# --- _skill_turn: ±180° in one call, correct geometry ---------------------
+
+def test_turn_constants_are_geometrically_correct():
+    """The duration-per-degree constant must match wz=0.25 rad/s so
+    ``turn(yaw_deg)`` actually rotates ``yaw_deg`` degrees.
+
+    Pre-fix `_TURN_DURATION_PER_DEG = 1/25 = 0.04 s/deg` paired with
+    wz=0.25 rad/s only rotated ~57 % of the requested angle. Correct
+    value: π / (180 × 0.25) ≈ 0.0698 s/deg.
+    """
+    import math
+    expected = math.pi / (180.0 * ss_mod._TURN_YAW_RATE_RAD_S)
+    assert abs(ss_mod._TURN_DURATION_PER_DEG - expected) < 1e-9
+    # Old cap was 1.5 s, which at 14 °/s topped out at ~21 ° per call —
+    # forcing 'turn 180' to chain 7+ calls. The new cap must be large
+    # enough to cover ±180° in a single call.
+    assert ss_mod._TURN_MAX_DURATION_S * ss_mod._TURN_YAW_RATE_RAD_S >= math.pi
+
+
+async def test_turn_short_angle_runs_full_duration_and_zeros():
+    """A small turn (10°) exercises the live skill end-to-end. With the
+    correct math 10° takes ~0.7 s — well below the 1.5 s old cap, so
+    this test is regression-proof for the cap and fast enough for CI."""
+    import math
+    s = make_server()
+    result = await s.execute("turn", {"yaw_deg": 10.0})
+    assert result["ok"] is True
+    expected = 10.0 * math.pi / (180.0 * 0.25)
+    # walk's poll step is 0.2 s; allow that as jitter.
+    assert abs(result["actual_duration_s"] - expected) < 0.3
+    first_nonzero = next(c for c in s.combo.set_command_calls if c != (0.0, 0.0, 0.0))
+    assert first_nonzero == (0.0, 0.0, 0.25)
+    assert s.combo.set_command_calls[-1] == (0.0, 0.0, 0.0)
+    # ONE confirmation worth of motion: the wz command is issued once,
+    # not chained for many small sub-turns.
+    nonzero = [c for c in s.combo.set_command_calls if c != (0.0, 0.0, 0.0)]
+    assert nonzero == [(0.0, 0.0, 0.25)]
+
+
+async def test_turn_negative_yaw_uses_negative_wz():
+    """Negative yaw (right-turn) must produce a negative wz command."""
+    s = make_server()
+    result = await s.execute("turn", {"yaw_deg": -10.0})
+    assert result["ok"] is True
+    first_nonzero = next(c for c in s.combo.set_command_calls if c != (0.0, 0.0, 0.0))
+    assert first_nonzero == (0.0, 0.0, -0.25)
+
+
+async def test_turn_tiny_yaw_short_circuits():
+    s = make_server()
+    result = await s.execute("turn", {"yaw_deg": 0.1})
+    assert result["ok"] is True
+    assert result["actual_duration_s"] == 0.0
+    # No command was ever issued.
+    assert s.combo.set_command_calls == []
+
+
 # --- Gesture lookup --------------------------------------------------------
 
 async def test_gesture_pushes_correct_keyframes():
@@ -448,3 +505,79 @@ async def test_mock_imitate_rejects_non_mirrorable():
     result = await s.execute("mock_imitate", {"gesture": "salute"})
     assert result["ok"] is False
     assert "mirrorable" in result["reason"]
+
+
+# --- recall_history --------------------------------------------------------
+
+
+class _FakeConvLogger:
+    """Minimal stand-in: just a session_id and a path pointing at a real file."""
+
+    def __init__(self, path):
+        self.session_id = "fakesess"
+        self.path = path
+
+
+async def test_recall_history_returns_actions_in_jsonl_order(tmp_path):
+    import json
+    p = tmp_path / "x.jsonl"
+    # First action is walk; second is gesture. The model would otherwise
+    # answer "gesture" for "first motion" because it's more memorable —
+    # this test is the regression for that exact failure mode.
+    lines = [
+        {"type": "user", "turn_id": "t-0001", "timestamp": "T1",
+         "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}},
+        {"type": "tool_use", "turn_id": "t-0003", "timestamp": "T3",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "call_1", "name": "walk",
+             "input": {"vx": 0.2, "duration_s": 1.0}}]}},
+        {"type": "tool_use", "turn_id": "t-0008", "timestamp": "T8",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "call_2", "name": "gesture",
+             "input": {"name": "wave_right"}}]}},
+        # Non-motion tool should NOT appear in 'actions'.
+        {"type": "tool_use", "turn_id": "t-0001", "timestamp": "T1b",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "call_0", "name": "describe_scene",
+             "input": {}}]}},
+    ]
+    p.write_text("\n".join(json.dumps(o) for o in lines) + "\n")
+
+    s = make_server()
+    s.conv_logger = _FakeConvLogger(p)
+
+    result = await s.execute("recall_history", {"kind": "actions"})
+    assert result["ok"] is True
+    assert result["kind"] == "actions"
+    assert result["total_matched"] == 2
+    # Oldest-first: walk before gesture.
+    assert [e["name"] for e in result["events"]] == ["walk", "gesture"]
+    assert result["events"][0]["turn_id"] == "t-0003"
+
+
+async def test_recall_history_disabled_when_no_logger():
+    s = make_server()
+    s.conv_logger = None
+    result = await s.execute("recall_history", {"kind": "actions"})
+    assert result["ok"] is False
+    assert "transcript disabled" in result["reason"]
+
+
+async def test_recall_history_user_turns_filter(tmp_path):
+    import json
+    p = tmp_path / "x.jsonl"
+    lines = [
+        {"type": "user", "turn_id": "t-0001", "timestamp": "T1",
+         "message": {"role": "user", "content": [{"type": "text", "text": "go"}]}},
+        {"type": "tool_use", "turn_id": "t-0001", "timestamp": "T1b",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "c", "name": "walk", "input": {}}]}},
+        {"type": "user", "turn_id": "t-0002", "timestamp": "T2",
+         "message": {"role": "user", "content": [{"type": "text", "text": "stop"}]}},
+    ]
+    p.write_text("\n".join(json.dumps(o) for o in lines) + "\n")
+    s = make_server()
+    s.conv_logger = _FakeConvLogger(p)
+    result = await s.execute("recall_history", {"kind": "user_turns"})
+    assert result["ok"] is True
+    assert [e["text"] for e in result["events"]] == ["go", "stop"]

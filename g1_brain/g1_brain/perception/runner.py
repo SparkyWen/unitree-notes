@@ -45,7 +45,10 @@ class PerceptionRunner:
         if self._started:
             return
         self._started = True
-        self._cams = CameraHub(self._cfg.get("cameras", {}))
+        self._cams = CameraHub(
+            self._cfg.get("cameras", {}),
+            robot_mjcf_path=(self._cfg.get("robot", {}) or {}).get("mjcf_path"),
+        )
 
         perc = self._cfg.get("perception", {}) or {}
         device = perc.get("device", "auto")

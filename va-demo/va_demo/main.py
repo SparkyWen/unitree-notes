@@ -80,11 +80,33 @@ async def _run(args):
     speaker.start()
 
     # ---- camera ----
-    cam = camera.Camera(
-        host=cfg["camera"]["host"],
-        request_port=cfg["camera"]["request_port"],
-        request_bgr=True,
-    )
+    if args.mujoco_camera:
+        from . import mujoco_camera as mjcam
+
+        cam_cfg = cfg.get("camera", {}) or {}
+        mjcf_path = os.path.expanduser(os.path.expandvars(
+            cam_cfg.get("mjcf_path")
+            or os.environ.get(
+                "G1_MJCF_PATH",
+                "~/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml",
+            )
+        ))
+        cam = mjcam.MuJoCoHeadCamera(
+            mjcf_path=mjcf_path,
+            camera_name=cam_cfg.get("camera_name", "head_camera"),
+            width=int(cam_cfg.get("head_width", 640)),
+            height=int(cam_cfg.get("head_height", 480)),
+            poll_hz=float(cam_cfg.get("head_poll_hz", 20.0)),
+            subscribe_dds=not args.no_skills,
+        )
+        log.info("mujoco-camera enabled: mjcf=%s subscribe_dds=%s",
+                 mjcf_path, not args.no_skills)
+    else:
+        cam = camera.Camera(
+            host=cfg["camera"]["host"],
+            request_port=cfg["camera"]["request_port"],
+            request_bgr=True,
+        )
 
     # ---- robot skills (optional) ----
     skill_backend: Optional[skills.SkillBackend] = None
@@ -281,6 +303,12 @@ def parse_args():
                    help="vision-only test mode: drop motion tools (walk/gesture/stop/release_arms) "
                         "from the Realtime schema and skip DDS/ComboController init. "
                         "Implies --no-skills. MuJoCo is not required.")
+    p.add_argument("--mujoco-camera", action="store_true",
+                   help="render head-camera frames from MuJoCo's offscreen view of "
+                        "the simulated G1 instead of pulling from teleimager. MJCF "
+                        "is read from camera.mjcf_path / G1_MJCF_PATH env / a sane "
+                        "default. Subscribes to rt/lowstate to track live joint pose "
+                        "when DDS is up (i.e. without --no-skills/--vision-only).")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args()
 

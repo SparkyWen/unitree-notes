@@ -85,3 +85,53 @@ async def test_backward_walk_bypassed_risk():
     assert v.source == "bypass"
     assert "backward" in v.reason.lower()
     vision.describe.assert_not_called()
+
+
+# ---------- frame health -------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_no_jpeg_is_risk():
+    vision = AsyncMock()
+    cam = _StubCam(jpeg_b64=None)
+    gate = VisionRiskGate(vision_client=vision, camera_hub=cam, cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.1, "duration_s": 0.5})
+    assert v.safe is False
+    assert v.source == "frame_fail"
+    assert "no head-cam jpeg" in v.reason.lower()
+    vision.describe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stale_frame_is_risk():
+    vision = AsyncMock()
+    cam = _StubCam(head_age_s=5.0)
+    gate = VisionRiskGate(vision_client=vision, camera_hub=cam, cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.1, "duration_s": 0.5})
+    assert v.safe is False
+    assert v.source == "frame_fail"
+    assert "stale" in v.reason.lower() or "age" in v.reason.lower()
+    vision.describe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_too_dark_frame_is_risk():
+    vision = AsyncMock()
+    cam = _StubCam(bgr_mean=10.0)
+    gate = VisionRiskGate(vision_client=vision, camera_hub=cam, cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.1, "duration_s": 0.5})
+    assert v.safe is False
+    assert v.source == "frame_fail"
+    assert "dark" in v.reason.lower()
+    vision.describe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_too_bright_frame_is_risk():
+    vision = AsyncMock()
+    cam = _StubCam(bgr_mean=250.0)
+    gate = VisionRiskGate(vision_client=vision, camera_hub=cam, cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.1, "duration_s": 0.5})
+    assert v.safe is False
+    assert v.source == "frame_fail"
+    assert "bright" in v.reason.lower() or "white" in v.reason.lower()
+    vision.describe.assert_not_called()

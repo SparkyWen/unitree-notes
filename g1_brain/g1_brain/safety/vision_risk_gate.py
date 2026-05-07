@@ -82,5 +82,56 @@ class VisionRiskGate:
                     "backward walk — head cam blind to behind",
                     "bypass",
                 )
-        # Frame health + GPT call land in subsequent tasks.
+
+        # 2. Frame fetch + health check (no LLM call).
+        jpeg_b64 = self._cam.latest_head_jpeg_b64()
+        if jpeg_b64 is None:
+            return RiskVerdict(False, "no head-cam jpeg available", "frame_fail")
+
+        age_s = self._cam.head_frame_age_seconds()
+        if age_s > self._max_age_s:
+            return RiskVerdict(
+                False,
+                f"head-cam frame stale: age {age_s:.2f}s > {self._max_age_s:.2f}s",
+                "frame_fail",
+            )
+
+        mean = self._mean_luminance()
+        if mean is not None:
+            if mean < self._min_b:
+                return RiskVerdict(
+                    False,
+                    f"head-cam frame too dark (mean {mean:.0f} < {self._min_b})",
+                    "frame_fail",
+                )
+            if mean > self._max_b:
+                return RiskVerdict(
+                    False,
+                    f"head-cam frame too bright (mean {mean:.0f} > {self._max_b})",
+                    "frame_fail",
+                )
+
+        # 3. GPT-5.5 call lands in Task 3.
         return RiskVerdict(False, "not implemented yet", "frame_fail")
+
+    def _mean_luminance(self) -> Optional[float]:
+        """Mean of the BGR head frame, or None if not retrievable.
+
+        We use the latest_head_bgr() ndarray rather than decoding the JPEG
+        again — CameraHub already keeps the array around.
+        """
+        getter = getattr(self._cam, "latest_head_bgr", None)
+        if not callable(getter):
+            return None
+        try:
+            arr = getter()
+        except Exception:  # noqa: BLE001
+            log.debug("latest_head_bgr raised", exc_info=True)
+            return None
+        if arr is None:
+            return None
+        try:
+            return float(arr.mean())
+        except Exception:  # noqa: BLE001
+            log.debug("ndarray .mean() failed", exc_info=True)
+            return None

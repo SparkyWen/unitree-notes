@@ -34,6 +34,9 @@ from .estop_client import EstopClient
 from .pose_check import gravity_proj_z_from_quat
 from .state_machine import IllegalTransitionError, RobotFsm, RobotFsmState
 
+if False:  # TYPE_CHECKING — string annotation avoids the import cost at runtime
+    from .vision_risk_gate import VisionRiskGate  # noqa: F401
+
 log = logging.getLogger(__name__)
 
 
@@ -87,7 +90,7 @@ _FSM_NO_MOTION_ALLOWED: Dict[RobotFsmState, Set[str]] = {
     RobotFsmState.RECOVERING: ALLOWED_TOOLS_NO_MOTION,
 }
 
-ConfirmFn = Callable[[str, Dict[str, Any]], Awaitable[bool]]
+ConfirmFn = Callable[..., Awaitable[bool]]   # (tool, sanitized, risk_reason=None) -> bool
 
 
 def _clip(v: float, lo: float, hi: float) -> float:
@@ -98,7 +101,11 @@ def _clip(v: float, lo: float, hi: float) -> float:
     return v
 
 
-async def _confirm_in_terminal(tool: str, sanitized: Dict[str, Any]) -> bool:
+async def _confirm_in_terminal(
+    tool: str,
+    sanitized: Dict[str, Any],
+    risk_reason: Optional[str] = None,
+) -> bool:
     """Single-keypress y/N confirm prompt.
 
     Earlier versions used readline() in canonical (line-buffered) mode and
@@ -125,10 +132,10 @@ async def _confirm_in_terminal(tool: str, sanitized: Dict[str, Any]) -> bool:
     decline. Falls back to line mode + readline if termios/tty are not
     importable (piped stdin, Windows, CI).
     """
-    msg = (
-        f"\n[g1_brain confirm] execute {tool}({sanitized}) ? "
-        f"press y to accept, any other key to decline: "
-    )
+    header = f"\n[g1_brain confirm] execute {tool}({sanitized}) ?\n"
+    if risk_reason:
+        header += f"[RISK] {risk_reason}\n"
+    msg = header + "press y to accept, any other key to decline: "
     print(msg, end="", flush=True, file=sys.stderr)
 
     def _read_one_keypress() -> str:
@@ -201,6 +208,7 @@ class SafetySupervisor:
         run_mode: str = "confirm",
         confirm_fn: Optional[ConfirmFn] = None,
         perception_enabled: bool = True,
+        vision_gate: Optional["VisionRiskGate"] = None,
     ) -> None:
         if run_mode not in self.VALID_RUN_MODES:
             raise ValueError(
@@ -226,6 +234,13 @@ class SafetySupervisor:
         # RL policy, pose, parameter clamp) but fall through Rule 9 since
         # the visual constraints it gates on are unavailable by design.
         self.perception_enabled = bool(perception_enabled)
+        # Optional Rule 12: GPT-5.5 vision risk gate. When set, motion-tool
+        # validations call vision_gate.evaluate(...) AFTER rules 1-10 and
+        # BEFORE the legacy confirm prompt; SAFE short-circuits to True,
+        # RISK falls through to the existing _confirm_in_terminal y/N with
+        # the reason printed inline. None disables the gate (preserves
+        # pre-design behaviour bit-for-bit).
+        self.vision_gate = vision_gate
 
         safety_cfg = dict(cfg.get("safety") or {})
         self._walk_cfg = dict(safety_cfg.get("walk") or {})
@@ -444,9 +459,24 @@ class SafetySupervisor:
                     {},
                 )
 
+        # --- Rule 12: vision risk gate ---------------------------------------
+        risk_reason: Optional[str] = None
+        if self.vision_gate is not None:
+            verdict = await self.vision_gate.evaluate(tool, sanitized)
+            log.info(
+                "[vision_gate] tool=%s verdict=%s source=%s reason=%s",
+                tool,
+                "SAFE" if verdict.safe else "RISK",
+                verdict.source,
+                verdict.reason,
+            )
+            if verdict.safe:
+                return True, "", sanitized
+            risk_reason = verdict.reason
+
         # --- Rule 3 (continued): confirm prompt ------------------------------
-        if self.run_mode == "confirm":
-            ok = await self._confirm_fn(tool, sanitized)
+        if self.run_mode == "confirm" or risk_reason is not None:
+            ok = await self._confirm_fn(tool, sanitized, risk_reason=risk_reason)
             if not ok:
                 return False, "operator declined in confirm mode", {}
 

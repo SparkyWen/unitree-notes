@@ -96,21 +96,34 @@ ground exactly the way they do in `scene_29dof.xml`.
 
 ## Terrain Parameters
 
-All values are passed to the corresponding `terrain_generator` API. Sizes
-follow MuJoCo's MJCF convention (boxes use *half-extents*).
+All values are passed to the corresponding `terrain_generator` API.
+
+> **Size convention (important).** `AddBox`, `AddGeometry`, and
+> `AddRoughGround` accept the `size` (or `box_size`) argument as
+> **full edge length** and halve it internally before writing it to the
+> MJCF (`geo.attrib["size"] = list_to_str(0.5 * np.array(size))`). All
+> sizes below are stated as full edge lengths to match how the API is
+> called. For cylinders the convention used by this tool is
+> `size=[diameter, full_length]`.
 
 ### East (+X): two ramps and a Perlin field
 
 | Item | API | Parameters |
 |---|---|---|
-| Ramp 1 (10°) | `AddBox` | `position=[3.0, 0.0, 0.155]`, `euler=[0.0, 0.1745, 0.0]`, `size=[0.75, 0.5, 0.025]` |
-| Ramp 2 (15°) | `AddBox` | `position=[5.0, 0.0, 0.218]`, `euler=[0.0, 0.2618, 0.0]`, `size=[0.75, 0.5, 0.025]` |
-| Perlin hfield | `AddPerlinHeighField` | `position=[7.5, 0.0, 0.0]`, `euler=[0,0,0]`, `size=[1.0, 1.0]`, `height_scale=0.08`, `negative_height=0.05`, `image_width=128`, `image_height=128`, `smoothness=80.0`, `output_heightmap_image="terrain_perlin.png"` |
+| Ramp 1 (10°) | `AddBox` | `position=[3.0, 0.0, 0.155]`, `euler=[0.0, 0.1745, 0.0]`, `size=[1.5, 1.0, 0.05]` |
+| Ramp 2 (15°) | `AddBox` | `position=[5.0, 0.0, 0.218]`, `euler=[0.0, 0.2618, 0.0]`, `size=[1.5, 1.0, 0.05]` |
+| Perlin hfield | `AddPerlinHeighField` | `position=[7.5, 0.0, 0.0]`, `euler=[0,0,0]`, `size=[1.0, 1.0]`, `height_scale=0.08`, `negative_height=0.05`, `image_width=128`, `img_height=128`, `smooth=80.0`, `output_hfield_image="terrain_perlin.png"` |
 
 Each ramp's center z = sin(θ)·half_length + cos(θ)·half_thickness, with
-half_length = 0.75 m and half_thickness = 0.025 m. This puts the lowest
-corner of the tilted slab exactly on the ground (z=0). `terrain_generator`
-does not auto-compute this; the script passes the literal numbers above.
+half_length = 0.75 m and half_thickness = 0.025 m (these are the resulting
+half-extents after `AddBox` halves the `size=[1.5, 1.0, 0.05]` argument).
+This puts the lowest corner of the tilted slab exactly on the ground
+(z=0). `terrain_generator` does not auto-compute this; the script passes
+the literal z numbers above.
+
+Perlin parameter names follow `terrain_generator.AddPerlinHeighField`'s
+signature exactly (`img_height`, `smooth`, `output_hfield_image`) — the
+upstream `readme.md` uses different names but the function uses these.
 
 ### North (+Y): stairs
 
@@ -129,20 +142,31 @@ to navigate around them:
 
 | Item | API | Parameters |
 |---|---|---|
-| Low box | `AddBox` | `position=[0.5, -3.5, 0.10]`, `euler=[0,0,0]`, `size=[0.20, 0.20, 0.10]` |
-| Tall box | `AddBox` | `position=[1.2, -4.0, 0.20]`, `euler=[0,0,0.5]`, `size=[0.15, 0.15, 0.20]` |
-| Cylinder 1 | `AddGeometry` | `position=[0.0, -4.5, 0.15]`, `euler=[0,0,0]`, `size=[0.12, 0.15]`, `geo_type="cylinder"` |
-| Cylinder 2 | `AddGeometry` | `position=[1.5, -5.0, 0.30]`, `euler=[0,0,0]`, `size=[0.10, 0.30]`, `geo_type="cylinder"` |
+| Low box | `AddBox` | `position=[0.5, -3.5, 0.10]`, `euler=[0,0,0]`, `size=[0.40, 0.40, 0.20]` |
+| Tall box | `AddBox` | `position=[1.2, -4.0, 0.20]`, `euler=[0,0,0.5]`, `size=[0.30, 0.30, 0.40]` |
+| Cylinder 1 | `AddGeometry` | `position=[0.0, -4.5, 0.15]`, `euler=[0,0,0]`, `size=[0.24, 0.30]`, `geo_type="cylinder"` |
+| Cylinder 2 | `AddGeometry` | `position=[1.5, -5.0, 0.30]`, `euler=[0,0,0]`, `size=[0.20, 0.60]`, `geo_type="cylinder"` |
+
+Resulting half-extents after the API halves `size`: low box 0.20×0.20×0.10
+(40 cm × 40 cm × 20 cm cube), tall box 0.15×0.15×0.20 yawed 0.5 rad,
+cylinders radius 0.12 / height 0.30 and radius 0.10 / height 0.60.
 
 ### West (-X): rough ground
 
 | API | Parameters |
 |---|---|
-| `AddRoughGround` | `init_pos=[-4.0, -1.0, 0.0]`, `euler=[0,0,0]`, `nums=[8, 8]`, `box_size=[0.04, 0.04, 0.04]`, `box_euler=[0,0,0]`, `separation=[0.20, 0.20]`, `box_size_rand=[0.02, 0.02, 0.02]`, `box_euler_rand=[0.0, 0.0, 0.0]`, `separation_rand=[0.0, 0.0]` |
+| `AddRoughGround` | `init_pos=[-4.0, -1.0, 0.02]`, `euler=[0,0,0]`, `nums=[8, 8]`, `box_size=[0.08, 0.08, 0.08]`, `box_euler=[0,0,0]`, `separation=[0.20, 0.20]`, `box_size_rand=[0.02, 0.02, 0.02]`, `box_euler_rand=[0.10, 0.10, 0.0]`, `separation_rand=[0.0, 0.0]` |
 
-(Half-extent of 0.04 m → cube ≈ 0.08 m on a side, ±0.02 m random size
-jitter, regular 0.20 m grid spacing. Grid spans roughly x ∈ [-4, -2.4],
-y ∈ [-1, +0.6], all at least 2 m from origin.)
+`AddRoughGround` writes each cube's center at
+`local_pos + init_pos` where `local_pos.z = -box_size[2]/2` (i.e. -0.04
+for `box_size[2]=0.08`). With `init_pos[2]=0.02` the resulting cube
+centres sit at z = -0.02, half-extent 0.04, so cubes extend roughly z ∈
+[-0.06, +0.02] — tops poke above the floor by ~2 cm (more where size
+randomisation grows the cube or rotation tilts it). `box_euler_rand=
+[0.10, 0.10, 0.0]` adds ±5.7° per-cube tilt for irregularity.
+
+Grid spans x ∈ [-4, ~-2.4], y ∈ [-1, ~+0.6] after the 0.20 m × 8-step
+spacing. Closest cube to origin sits ~2.5 m away in the worst case.
 
 ## Workflow
 

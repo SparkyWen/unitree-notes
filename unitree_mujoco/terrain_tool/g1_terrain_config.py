@@ -46,15 +46,20 @@ def main() -> None:
         size=[1.5, 1.0, 0.05],
     )
 
+    # Perlin hfield: dropped resolution 128->32 (and smooth 80->20 to keep
+    # the same feature size: smooth/image_width ratio 80/128 == 20/32).
+    # 128x128 = 32k visual triangles per frame, which under WSL2's
+    # virtualized GPU was the dominant cause of "the viewer feels laggy".
+    # 32x32 = ~2k triangles, no perceivable physics change at our scale.
     tg.AddPerlinHeighField(
         position=[7.5, 0.0, 0.0],
         euler=[0.0, 0.0, 0.0],
         size=[1.0, 1.0],
         height_scale=0.08,
         negative_height=0.05,
-        image_width=128,
-        img_height=128,
-        smooth=80.0,
+        image_width=32,
+        img_height=32,
+        smooth=20.0,
         output_hfield_image="terrain_perlin.png",
     )
 
@@ -99,10 +104,14 @@ def main() -> None:
     )
 
     # ---- West (-X): rough ground -----------------------------------------
+    # Dropped count from 8x8=64 to 4x4=16. 64 separate box geoms means 64
+    # extra draw calls per viewer frame, which compounds the hfield's render
+    # cost. 4x4 still gives a clearly-visible "pebbly path" the operator can
+    # walk the robot into.
     tg.AddRoughGround(
         init_pos=[-4.0, -1.0, 0.02],
         euler=[0.0, 0.0, 0.0],
-        nums=[8, 8],
+        nums=[4, 4],
         box_size=[0.08, 0.08, 0.08],
         box_euler=[0.0, 0.0, 0.0],
         separation=[0.20, 0.20],
@@ -110,6 +119,22 @@ def main() -> None:
         box_euler_rand=[0.10, 0.10, 0.0],
         separation_rand=[0.0, 0.0],
     )
+
+    # Tag every appended terrain geom with group="2" and explicit
+    # contype/conaffinity so:
+    #   1. The viewer key '2' toggles all terrain visibility on/off (the
+    #      escape hatch when the operator wants the original flat-ground
+    #      render speed back without re-editing config.py).
+    #   2. The defaults are explicit instead of implicit (defensive: if
+    #      g1_29dof.xml ever changes its <default> class, terrain geoms
+    #      keep working).
+    # The floor plane itself is kept untouched so it stays visible always.
+    for geom in tg.worldbody.findall("geom"):
+        if geom.attrib.get("name") == "floor":
+            continue
+        geom.attrib.setdefault("group", "2")
+        geom.attrib.setdefault("contype", "1")
+        geom.attrib.setdefault("conaffinity", "1")
 
     tg.Save()
     print(f"Wrote {tg_mod.OUTPUT_SCENE_PATH}")

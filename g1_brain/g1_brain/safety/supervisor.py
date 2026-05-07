@@ -522,8 +522,13 @@ class SafetySupervisor:
                 yaw_deg = float(args.get("yaw_deg", 0.0))
             except (TypeError, ValueError):
                 return None
-            # Clamp roughly to ±60 deg per call (caller may chain).
-            return {"yaw_deg": _clip(yaw_deg, -60.0, 60.0)}
+            # Allow ±180° in one call. Pre-fix this was clamped at ±60°,
+            # which forced the LLM to chain 7+ small turns for a "turn 180"
+            # request — each call costs the operator one confirm-mode y/N
+            # so the operator gave up after 6 prompts. _skill_turn already
+            # routes through _skill_walk's reactive-abort loop, so a long
+            # turn is no less safe than many short ones.
+            return {"yaw_deg": _clip(yaw_deg, -180.0, 180.0)}
         if tool == "gesture":
             name = str(args.get("name", ""))
             if not name:

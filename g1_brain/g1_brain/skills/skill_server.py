@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import sys
 import time
 from pathlib import Path
@@ -67,9 +68,19 @@ _WALK_SCENE_CHECK_INTERVAL_S = 0.2
 _WALK_ABORT_OBSTACLE_M = 0.5
 
 # turn(yaw_deg) parameters.
+#
+# Pre-fix had ``_TURN_DURATION_PER_DEG = 1/25`` paired with wz=0.25 rad/s
+# (≈ 14.32 °/s). At that math, asking for ``turn(yaw_deg=25)`` ran wz=0.25
+# rad/s for 1.0 s and rotated only ≈ 14° — i.e. the robot turned ~57 % of
+# the requested angle. Combined with ``_TURN_MAX_DURATION_S = 1.5`` it
+# meant a 'turn 180°' request became 7+ chained tool calls, *each* costing
+# the operator a y/N in confirm-mode. The geometry is now correct: degrees
+# requested == degrees actually turned (modulo policy tracking error and
+# any reactive abort). 180° at 0.25 rad/s = π/0.25 ≈ 12.57 s; we cap at
+# 14 s to leave a small margin and bound any single confirm.
 _TURN_YAW_RATE_RAD_S = 0.25
-_TURN_DURATION_PER_DEG = 1.0 / 25.0   # min(|yaw|/25, 1.5)
-_TURN_MAX_DURATION_S = 1.5
+_TURN_DURATION_PER_DEG = math.pi / (180.0 * _TURN_YAW_RATE_RAD_S)  # ≈ 0.0698 s/deg
+_TURN_MAX_DURATION_S = 14.0
 
 
 class SkillServer:

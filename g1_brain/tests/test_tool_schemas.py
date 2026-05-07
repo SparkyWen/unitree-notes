@@ -153,4 +153,8 @@ def test_say_max_chars_present():
 def test_turn_yaw_bounds():
     turn = {s["name"]: s for s in build_tool_schemas()}["turn"]
     props = turn["parameters"]["properties"]["yaw_deg"]
-    assert props["minimum"] == -45.0 and props["maximum"] == 45.0
+    # turn(yaw_deg) accepts the FULL requested angle up to ±180° in a
+    # single call. Pre-fix the schema clamped at ±45° which forced the
+    # LLM to chain ~7 turn() calls for a "turn 180" request, each call
+    # costing the operator a y/N in confirm-mode.
+    assert props["minimum"] == -180.0 and props["maximum"] == 180.0

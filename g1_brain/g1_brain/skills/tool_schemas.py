@@ -243,12 +243,17 @@ def _turn() -> Dict[str, Any]:
         "name": "turn",
         "description": (
             "Rotate in place by `yaw_deg`. Positive = counter-clockwise (left); "
-            "negative = clockwise (right). Bounded to ±45° per call."
+            "negative = clockwise (right). Use ONE call for the full requested "
+            "angle (up to ±180°). The skill turns at ~14°/s and aborts early if "
+            "the path becomes unsafe. Operator confirmation in confirm-mode is "
+            "per-call, so chaining many small turns for one verbal command "
+            "(e.g. 7 × turn(-25) for 'turn 180') produces 7 y/N prompts and is "
+            "forbidden — emit a single turn(-180) instead."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "yaw_deg": {"type": "number", "minimum": -45.0, "maximum": 45.0},
+                "yaw_deg": {"type": "number", "minimum": -180.0, "maximum": 180.0},
             },
             "required": ["yaw_deg"],
         },

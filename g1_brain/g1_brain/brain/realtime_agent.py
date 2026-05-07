@@ -92,6 +92,30 @@ class BrainRealtimeAgent(RealtimeAgent):
         # response.done arrives with no function_call output items.
         self._plan_active: bool = False
 
+        # In-flight response tracking for clean barge-in. The Realtime server
+        # keeps emitting events (audio.delta, audio_transcript.delta,
+        # function_call_arguments.done, response.done) for a response that
+        # was already finalized server-side by the time response.cancel
+        # arrived — the cancel returns response_cancel_not_active but the
+        # event stream continues. Without filtering, those late events:
+        #   - write OLD response audio to the speaker AFTER speaker.clear(),
+        #     so the user keeps hearing the robot talk after their barge-in;
+        #   - dispatch OLD tool calls AFTER the user issued a new command,
+        #     causing skill_server to execute stale walks/turns;
+        #   - each tool dispatch sends a new response.create that collides
+        #     with the new turn's response.create
+        #     ('conversation_already_has_active_response'), stalling the
+        #     plan watchdog into a 30 s timeout and finally a WS keepalive
+        #     close.
+        # We track which response_id is currently in flight (set by
+        # response.created) and on cancel_in_flight() add it to the
+        # cancelled set; subsequent events carrying that response_id are
+        # silently dropped. Set is capped to the last 16 ids so it cannot
+        # grow without bound across a long session.
+        self._current_response_id: Optional[str] = None
+        self._cancelled_response_ids: List[str] = []
+        self._cancelled_response_id_cap: int = 16
+
     # ------------------------------------------------------------------ hooks
 
     def _resolve_instructions(self) -> str:
@@ -142,6 +166,20 @@ class BrainRealtimeAgent(RealtimeAgent):
         import base64
 
         t = evt.get("type", "")
+
+        # ---- response_id tracking + cancelled-response drop -----------------
+        # Maintain `_current_response_id` for the cancel path, and silently
+        # drop events that belong to a response the operator already
+        # cancelled (barge-in). See __post_init__ for the rationale.
+        if t == "response.created":
+            rid = (evt.get("response") or {}).get("id")
+            if rid:
+                self._current_response_id = rid
+        rid = self._event_response_id(evt)
+        if rid is not None and rid in self._cancelled_response_ids:
+            log.debug("dropping event %s for cancelled response %s", t, rid)
+            return
+
         if t == "response.audio.delta":
             b64 = evt.get("delta", "")
             if b64:
@@ -186,6 +224,10 @@ class BrainRealtimeAgent(RealtimeAgent):
                 self._emit_plan_done()
             # else: a function_call_output + new response.create will follow
             # (handled in _dispatch_tool); plan stays active.
+            # Clear current response id once it's truly done.
+            done_rid = (evt.get("response") or {}).get("id")
+            if done_rid and self._current_response_id == done_rid:
+                self._current_response_id = None
         elif t == "response.function_call_arguments.done":
             await self._dispatch_tool(ws, evt)
         elif t == "error":
@@ -198,6 +240,25 @@ class BrainRealtimeAgent(RealtimeAgent):
             log.debug("rt event: %s", t)
         else:
             log.debug("rt event (unhandled): %s", t)
+
+    @staticmethod
+    def _event_response_id(evt: Dict[str, Any]) -> Optional[str]:
+        """Pull the response.id off a Realtime event regardless of shape.
+
+        Most response.* events carry a top-level ``response_id`` string.
+        ``response.created`` / ``response.done`` instead nest the id under
+        ``response.id``. We probe both so the cancelled-response filter
+        works on every event class.
+        """
+        rid = evt.get("response_id")
+        if rid:
+            return rid
+        resp = evt.get("response")
+        if isinstance(resp, dict):
+            inner = resp.get("id")
+            if inner:
+                return inner
+        return None
 
     @staticmethod
     def _response_had_function_call(response_done_evt: Dict[str, Any]) -> bool:
@@ -229,6 +290,7 @@ class BrainRealtimeAgent(RealtimeAgent):
         """
         call_id = evt.get("call_id") or ""
         name = evt.get("name") or ""
+        rid = self._event_response_id(evt)
         try:
             args = json.loads(evt.get("arguments", "") or "{}")
         except json.JSONDecodeError:
@@ -248,6 +310,29 @@ class BrainRealtimeAgent(RealtimeAgent):
                 result = {"ok": False, "reason": f"exception: {e!s}"}
 
         self._emit_tool_result(call_id, name, result)
+
+        # If the response that triggered this tool call was cancelled
+        # DURING execution (operator barged in mid-walk), do not send the
+        # function_call_output + response.create. That stack would land a
+        # fresh response on top of the just-cancelled one and the user's
+        # next turn would hit
+        # ``conversation_already_has_active_response`` — the exact failure
+        # mode reproduced in the field log around 20:00:59 (a 50 s walk
+        # completes long after the user has barged in, the late
+        # response.create races the new turn's response.create, and the
+        # plan watchdog eventually times the session out at 30 s).
+        if rid is not None and rid in self._cancelled_response_ids:
+            log.debug(
+                "skipping ws send for tool %s (call_id=%s response_id=%s "
+                "cancelled mid-flight)",
+                name, call_id, rid,
+            )
+            # Fire plan_done so the state machine doesn't wait for a leaf
+            # response.done that will never arrive on the cancelled
+            # response. _handle_plan_done is a no-op when the SM already
+            # transitioned to CAPTURING via barge-in.
+            self._emit_plan_done()
+            return
 
         try:
             await ws.send(json.dumps({
@@ -275,7 +360,22 @@ class BrainRealtimeAgent(RealtimeAgent):
         Best-effort: each WS send is wrapped because either may fail when
         there is no active response or no buffered input. The state machine
         calls this in the barge-in path; it should never raise.
+
+        Also mark the currently-tracked ``response_id`` as cancelled so the
+        downlink event handler drops any audio.delta /
+        audio_transcript.delta / function_call_arguments.done /
+        response.done events that the server emits AFTER the cancel arrives
+        (the server keeps streaming a response that was already finalized
+        before our cancel reached it; without filtering, those late events
+        write old TTS to the speaker, dispatch stale tool calls, and stack
+        a parallel response.create on the still-active old response — the
+        chain that produced the 'I've moved forward 10 m' echo and the
+        ``conversation_already_has_active_response`` errors in the field).
         """
+        # Mark the in-flight response cancelled BEFORE the WS send so a
+        # late audio.delta racing the cancel can still be dropped.
+        self._mark_current_response_cancelled()
+
         ws = self._ws
         if ws is None:
             return
@@ -302,6 +402,27 @@ class BrainRealtimeAgent(RealtimeAgent):
                 log.exception("on_response_canceled raised")
         # Plan is no longer in flight.
         self._plan_active = False
+
+    def _mark_current_response_cancelled(self) -> None:
+        """Add the currently-tracked response_id to the cancelled set.
+
+        Bounded LRU: never grows past ``_cancelled_response_id_cap`` so a
+        long session of barge-ins doesn't leak memory. We append to the
+        end and drop from the front when full — `in` membership tests on
+        a small list of strings are O(n) but n ≤ 16 so this is negligible
+        relative to a websocket round-trip.
+        """
+        rid = self._current_response_id
+        if not rid:
+            return
+        if rid in self._cancelled_response_ids:
+            return
+        self._cancelled_response_ids.append(rid)
+        if len(self._cancelled_response_ids) > self._cancelled_response_id_cap:
+            del self._cancelled_response_ids[0]
+        # Forget the now-cancelled in-flight id so a future response.created
+        # for a brand-new response cleanly takes its place.
+        self._current_response_id = None
 
     async def input_audio_buffer_clear(self) -> None:
         """Drop server-side uncommitted user audio (mid-capture restart)."""

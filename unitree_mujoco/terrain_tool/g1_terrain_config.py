@@ -58,13 +58,11 @@ def main() -> None:
         output_hfield_image="terrain_perlin.png",
     )
 
-    # AddPerlinHeighField writes file="../<filename>" but saves the PNG one
-    # level deeper at unitree_robots/<ROBOT>/<filename>, so MuJoCo can't
-    # resolve it from the XML's directory. Patch to a plain filename.
-    hfield_elem = tg.asset.find("hfield[@name='perlin_hfield']")
-    if hfield_elem is None:
-        raise RuntimeError("Expected <hfield name='perlin_hfield'> in asset; AddPerlinHeighField may have changed.")
-    hfield_elem.attrib["file"] = "terrain_perlin.png"
+    # AddPerlinHeighField writes file="../terrain_perlin.png". This looks
+    # wrong at first glance, but g1_29dof.xml declares meshdir="meshes",
+    # which MuJoCo applies to hfield file lookups too. So MuJoCo resolves
+    # it as <xml_dir>/meshes/../terrain_perlin.png == <xml_dir>/terrain_perlin.png,
+    # which is where the PNG actually lives. Leave the path alone.
 
     # ---- North (+Y): stairs ----------------------------------------------
     tg.AddStairs(

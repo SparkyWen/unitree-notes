@@ -42,6 +42,7 @@ ALLOWED_TOOLS_NO_MOTION: Set[str] = {
     "say",
     "describe_scene",
     "query_scene_state",
+    "recall_history",
     "stop",
     "release_arms",
 }
@@ -82,7 +83,7 @@ _FSM_NO_MOTION_ALLOWED: Dict[RobotFsmState, Set[str]] = {
     RobotFsmState.ENGAGED: ALLOWED_TOOLS_NO_MOTION,
     RobotFsmState.ACTING: ALLOWED_TOOLS_NO_MOTION,
     RobotFsmState.EMERGENCY_STOP: ALLOWED_TOOLS_NO_MOTION,
-    RobotFsmState.FAULT: {"say", "describe_scene", "query_scene_state"},
+    RobotFsmState.FAULT: {"say", "describe_scene", "query_scene_state", "recall_history"},
     RobotFsmState.RECOVERING: ALLOWED_TOOLS_NO_MOTION,
 }
 
@@ -477,6 +478,19 @@ class SafetySupervisor:
             }
         if tool == "query_scene_state":
             return {}
+        if tool == "recall_history":
+            kind = args.get("kind")
+            if kind not in {"actions", "user_turns", "all", None}:
+                return None
+            sanitized: Dict[str, Any] = {}
+            if kind is not None:
+                sanitized["kind"] = kind
+            try:
+                if "limit" in args:
+                    sanitized["limit"] = int(args["limit"])
+            except (TypeError, ValueError):
+                pass
+            return sanitized
         if tool in {"stop", "release_arms"}:
             return {}
         return None

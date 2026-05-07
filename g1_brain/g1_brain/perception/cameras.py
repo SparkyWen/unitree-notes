@@ -20,9 +20,22 @@ class CameraHub:
     Pass the ``cameras:`` subsection of g1_brain.yaml. If a top-level cfg dict
     (one with ``cameras`` inside) is passed by mistake we unwrap it once so old
     callers keep working — but new code should pass the subsection.
+
+    ``robot_mjcf_path`` is the canonical scene the simulator loaded — when
+    ``cameras.head.mjcf_path`` is unset (the recommended default) the head
+    camera falls back to this so the robot's first-person view matches the
+    simulator's world. Without this fallback the brain would render from the
+    obstacle-free ``scene_29dof.xml`` while the operator sees terrain in
+    unitree_mujoco, and ``describe_scene`` would always report "empty floor".
     """
 
-    def __init__(self, cameras_cfg: dict, *, subscribe_dds: bool = True):
+    def __init__(
+        self,
+        cameras_cfg: dict,
+        *,
+        subscribe_dds: bool = True,
+        robot_mjcf_path: Optional[str] = None,
+    ):
         cfg = cameras_cfg or {}
         if "cameras" in cfg and "usb" not in cfg and "head" not in cfg:
             cfg = cfg.get("cameras", {}) or {}
@@ -30,6 +43,7 @@ class CameraHub:
         usb_cfg = self._cfg.get("usb", {}) or {}
         head_cfg = self._cfg.get("head", {}) or {}
         self._subscribe_dds = bool(subscribe_dds)
+        self._robot_mjcf_path = robot_mjcf_path
 
         self._usb = None
         self._head = None
@@ -72,10 +86,16 @@ class CameraHub:
             MuJoCoHeadCamera,
         )
 
-        mjcf = cfg.get("mjcf_path") or os.path.expanduser(
+        # Priority: cameras.head.mjcf_path (explicit override) > robot.mjcf_path
+        # passed in by agent_main > G1_MJCF_PATH env > terrain default. The
+        # terrain default matches unitree_mujoco's USE_TERRAIN=True default in
+        # simulate_python/config.py — flat-floor scene_29dof.xml is the wrong
+        # default because the simulator never loads it by default and choosing
+        # it here silently gave the brain a different world to look at.
+        mjcf = cfg.get("mjcf_path") or self._robot_mjcf_path or os.path.expanduser(
             os.environ.get(
                 "G1_MJCF_PATH",
-                "~/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml",
+                "~/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml",
             )
         )
         # head.subscribe_dds in yaml may explicitly disable; otherwise inherit

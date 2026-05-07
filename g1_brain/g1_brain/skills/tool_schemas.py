@@ -100,6 +100,37 @@ def _query_scene_state() -> Dict[str, Any]:
     }
 
 
+def _recall_history() -> Dict[str, Any]:
+    return {
+        "type": "function",
+        "name": "recall_history",
+        "description": (
+            "Read the persistent per-session jsonl transcript and return the "
+            "OLDEST-first list of past events. Use this whenever the user "
+            "asks 'what did I do', 'what was my first command', 'what motion "
+            "did you run earlier' — your in-context memory may have lost or "
+            "reordered older turns, but the jsonl always has the truth. "
+            "kind='actions' returns every motion/skill the robot executed, "
+            "kind='user_turns' returns every user utterance, kind='all' "
+            "interleaves user/assistant/tool_use entries."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["actions", "user_turns", "all"],
+                    "description": "Which event class to return.",
+                },
+                "limit": {
+                    "type": "integer", "minimum": 1, "maximum": 200,
+                    "description": "Cap on returned events; default 20.",
+                },
+            },
+        },
+    }
+
+
 def _look_at() -> Dict[str, Any]:
     return {
         "type": "function",
@@ -182,9 +213,13 @@ def _walk() -> Dict[str, Any]:
         "type": "function",
         "name": "walk",
         "description": (
-            "Walk for a short duration. Conservative bounds; do not exceed "
-            "0.2 m/s unless the user insists. Aborts early if the perception "
-            "system reports the path blocked."
+            "Walk at velocity (vx, vy, wz) for `duration_s` seconds. The skill "
+            "polls perception every 0.2 s and aborts early if the path becomes "
+            "blocked or an obstacle gets within 0.5 m. Use ONE long call for "
+            "multi-meter requests (e.g. for '10 meters forward' set "
+            "vx=0.2 and duration_s=50) — never chain many short walks; in "
+            "confirm-mode each call costs one operator y/N. Max single call: "
+            "60 s (12 m at 0.2 m/s)."
         ),
         "parameters": {
             "type": "object",
@@ -195,7 +230,7 @@ def _walk() -> Dict[str, Any]:
                        "description": "lateral velocity m/s"},
                 "wz": {"type": "number", "minimum": -0.4, "maximum": 0.4,
                        "description": "yaw rate rad/s"},
-                "duration_s": {"type": "number", "minimum": 0.2, "maximum": 1.5},
+                "duration_s": {"type": "number", "minimum": 0.2, "maximum": 60.0},
             },
             "required": ["duration_s"],
         },
@@ -360,7 +395,7 @@ def build_tool_schemas(
     """
     # L1 first (the LLM should prefer these), then L2 primitives.
     l1 = [
-        _say(), _describe_scene(), _query_scene_state(),
+        _say(), _describe_scene(), _query_scene_state(), _recall_history(),
         _look_at(), _approach(), _mock_imitate(), _ask_human(),
     ]
     l2 = [
@@ -377,7 +412,7 @@ def build_tool_schemas(
         schemas = [s for s in schemas if s["name"] != "mock_imitate"]
 
     if vision_only:
-        keep = {"say", "describe_scene", "query_scene_state"}
+        keep = {"say", "describe_scene", "query_scene_state", "recall_history"}
         schemas = [s for s in schemas if s["name"] in keep]
 
     return schemas

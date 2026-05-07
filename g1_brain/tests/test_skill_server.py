@@ -448,3 +448,79 @@ async def test_mock_imitate_rejects_non_mirrorable():
     result = await s.execute("mock_imitate", {"gesture": "salute"})
     assert result["ok"] is False
     assert "mirrorable" in result["reason"]
+
+
+# --- recall_history --------------------------------------------------------
+
+
+class _FakeConvLogger:
+    """Minimal stand-in: just a session_id and a path pointing at a real file."""
+
+    def __init__(self, path):
+        self.session_id = "fakesess"
+        self.path = path
+
+
+async def test_recall_history_returns_actions_in_jsonl_order(tmp_path):
+    import json
+    p = tmp_path / "x.jsonl"
+    # First action is walk; second is gesture. The model would otherwise
+    # answer "gesture" for "first motion" because it's more memorable —
+    # this test is the regression for that exact failure mode.
+    lines = [
+        {"type": "user", "turn_id": "t-0001", "timestamp": "T1",
+         "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}},
+        {"type": "tool_use", "turn_id": "t-0003", "timestamp": "T3",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "call_1", "name": "walk",
+             "input": {"vx": 0.2, "duration_s": 1.0}}]}},
+        {"type": "tool_use", "turn_id": "t-0008", "timestamp": "T8",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "call_2", "name": "gesture",
+             "input": {"name": "wave_right"}}]}},
+        # Non-motion tool should NOT appear in 'actions'.
+        {"type": "tool_use", "turn_id": "t-0001", "timestamp": "T1b",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "call_0", "name": "describe_scene",
+             "input": {}}]}},
+    ]
+    p.write_text("\n".join(json.dumps(o) for o in lines) + "\n")
+
+    s = make_server()
+    s.conv_logger = _FakeConvLogger(p)
+
+    result = await s.execute("recall_history", {"kind": "actions"})
+    assert result["ok"] is True
+    assert result["kind"] == "actions"
+    assert result["total_matched"] == 2
+    # Oldest-first: walk before gesture.
+    assert [e["name"] for e in result["events"]] == ["walk", "gesture"]
+    assert result["events"][0]["turn_id"] == "t-0003"
+
+
+async def test_recall_history_disabled_when_no_logger():
+    s = make_server()
+    s.conv_logger = None
+    result = await s.execute("recall_history", {"kind": "actions"})
+    assert result["ok"] is False
+    assert "transcript disabled" in result["reason"]
+
+
+async def test_recall_history_user_turns_filter(tmp_path):
+    import json
+    p = tmp_path / "x.jsonl"
+    lines = [
+        {"type": "user", "turn_id": "t-0001", "timestamp": "T1",
+         "message": {"role": "user", "content": [{"type": "text", "text": "go"}]}},
+        {"type": "tool_use", "turn_id": "t-0001", "timestamp": "T1b",
+         "message": {"role": "assistant", "content": [{
+             "type": "tool_use", "id": "c", "name": "walk", "input": {}}]}},
+        {"type": "user", "turn_id": "t-0002", "timestamp": "T2",
+         "message": {"role": "user", "content": [{"type": "text", "text": "stop"}]}},
+    ]
+    p.write_text("\n".join(json.dumps(o) for o in lines) + "\n")
+    s = make_server()
+    s.conv_logger = _FakeConvLogger(p)
+    result = await s.execute("recall_history", {"kind": "user_turns"})
+    assert result["ok"] is True
+    assert [e["text"] for e in result["events"]] == ["go", "stop"]

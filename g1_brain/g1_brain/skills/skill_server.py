@@ -91,6 +91,7 @@ class SkillServer:
         scene_bus,
         fsm,
         sim: bool = True,
+        conversation_logger=None,
     ) -> None:
         self.combo = combo_ctl
         self.safety = safety
@@ -100,6 +101,11 @@ class SkillServer:
         self.scene = scene_bus
         self.fsm = fsm
         self.sim = sim
+        # Optional persistent conversation log; recall_history reads it so
+        # past tool calls / user turns can be retrieved verbatim instead of
+        # relying on the Realtime model's lossy in-context memory. None when
+        # the operator launched with audio_control.transcript.enabled: false.
+        self.conv_logger = conversation_logger
 
         # Pre-build the gesture lookup table:
         #   name (str)  ->  ArmAction (with .keyframes)
@@ -271,6 +277,129 @@ class SkillServer:
         return {
             "ok": True, "skill": "query_scene_state",
             "scene": self.scene.snapshot().summary_for_llm(),
+        }
+
+    async def _skill_recall_history(
+        self,
+        kind: str = "actions",
+        limit: int = 20,
+    ) -> Dict[str, Any]:
+        """Query the persistent conversation jsonl for past events.
+
+        ``kind`` controls what is returned:
+
+          - ``"actions"`` — every motion/skill the robot executed (tool_use of
+            walk/turn/gesture/static_pose/look_at/approach/mock_imitate/stop).
+            This is the canonical answer to "what did I do" / "what was my
+            first motion" — Realtime context truncation can lose old turns,
+            but the jsonl always has every call.
+          - ``"user_turns"`` — every user utterance.
+          - ``"all"`` — interleaved user + assistant + tool_use entries.
+
+        Returns the OLDEST-first slice (so the first entry is the actual
+        first action), capped at ``limit``. The list is empty when there is
+        no transcript logger or the file has no matching events yet.
+        """
+        if self.conv_logger is None or self.conv_logger.path is None:
+            return {
+                "ok": False,
+                "skill": "recall_history",
+                "reason": "conversation transcript disabled",
+            }
+        path = self.conv_logger.path
+        kinds = {"actions", "user_turns", "all"}
+        if kind not in kinds:
+            return {
+                "ok": False, "skill": "recall_history",
+                "reason": f"kind must be one of {sorted(kinds)}; got {kind!r}",
+            }
+        try:
+            limit = max(1, min(int(limit), 200))
+        except (TypeError, ValueError):
+            limit = 20
+
+        action_tools = {
+            "walk", "turn", "gesture", "static_pose", "look_at",
+            "approach", "mock_imitate", "stop", "release_arms",
+        }
+
+        items: List[Dict[str, Any]] = []
+        try:
+            import json as _json
+            with open(path, "r", encoding="utf-8") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        rec = _json.loads(raw)
+                    except ValueError:
+                        continue
+                    rec_type = rec.get("type")
+                    msg = rec.get("message") or {}
+                    blocks = msg.get("content") or []
+                    first = blocks[0] if blocks else {}
+
+                    if kind == "user_turns":
+                        if rec_type != "user":
+                            continue
+                        items.append({
+                            "turn_id": rec.get("turn_id"),
+                            "timestamp": rec.get("timestamp"),
+                            "text": first.get("text", ""),
+                        })
+                    elif kind == "actions":
+                        if rec_type != "tool_use":
+                            continue
+                        if first.get("type") != "tool_use":
+                            continue
+                        if first.get("name") not in action_tools:
+                            continue
+                        items.append({
+                            "turn_id": rec.get("turn_id"),
+                            "timestamp": rec.get("timestamp"),
+                            "name": first.get("name"),
+                            "input": first.get("input"),
+                        })
+                    else:  # "all"
+                        if rec_type == "user":
+                            items.append({
+                                "turn_id": rec.get("turn_id"),
+                                "timestamp": rec.get("timestamp"),
+                                "type": "user",
+                                "text": first.get("text", ""),
+                            })
+                        elif rec_type == "assistant":
+                            items.append({
+                                "turn_id": rec.get("turn_id"),
+                                "timestamp": rec.get("timestamp"),
+                                "type": "assistant",
+                                "text": first.get("text", ""),
+                            })
+                        elif rec_type == "tool_use" and first.get("type") == "tool_use":
+                            items.append({
+                                "turn_id": rec.get("turn_id"),
+                                "timestamp": rec.get("timestamp"),
+                                "type": "tool_use",
+                                "name": first.get("name"),
+                                "input": first.get("input"),
+                            })
+        except OSError as e:
+            return {
+                "ok": False, "skill": "recall_history",
+                "reason": f"read failed: {e!s}",
+            }
+
+        return {
+            "ok": True,
+            "skill": "recall_history",
+            "kind": kind,
+            "session_id": self.conv_logger.session_id,
+            "total_matched": len(items),
+            "returned": min(len(items), limit),
+            # Oldest-first; the model needs the first entry for "first action"
+            # questions. Truncate from the tail so we always keep the start.
+            "events": items[:limit],
         }
 
     # ---- L1: compound skills (delegate) ----------------------------------

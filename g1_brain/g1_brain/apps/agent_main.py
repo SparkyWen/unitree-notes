@@ -342,7 +342,8 @@ def _try_build_perception_runner(cfg, scene_bus, robot_bus):
 
 
 def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
-                            scene_bus, fsm, sim: bool = True):
+                            scene_bus, fsm, sim: bool = True,
+                            conversation_logger=None):
     try:
         from ..skills.skill_server import SkillServer
     except Exception as e:  # noqa: BLE001
@@ -357,6 +358,7 @@ def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
         scene_bus=scene_bus,
         fsm=fsm,
         sim=sim,
+        conversation_logger=conversation_logger,
     )
 
 
@@ -627,6 +629,7 @@ async def _run(args: argparse.Namespace) -> int:
             camera_hub = CameraHub(
                 cfg.get("cameras", {}) or {},
                 subscribe_dds=dds_ready,
+                robot_mjcf_path=(cfg.get("robot", {}) or {}).get("mjcf_path"),
             )
         except Exception as e:  # noqa: BLE001
             log.warning("CameraHub construction failed: %s", e)
@@ -933,6 +936,31 @@ async def _run(args: argparse.Namespace) -> int:
         default_detail=cfg["openai"]["vision_detail"],
     )
 
+    # ---- conversation logger (per-process jsonl) ----
+    # Built BEFORE skill_server so the recall_history skill has a reference
+    # to the active jsonl path. Built BEFORE brain_agent so any startup-time
+    # logging (session_start meta) is in place by the time the Realtime
+    # session opens.
+    conv_logger = None
+    transcript_cfg = (cfg.get("audio_control", {}) or {}).get("transcript", {}) or {}
+    if transcript_cfg.get("enabled", True):
+        from ..brain.conversation_logger import ConversationLogger  # noqa: WPS433
+        conv_logger = ConversationLogger(
+            log_dir=Path(transcript_cfg.get(
+                "dir",
+                str(Path(log_dir_str) / "conversations"),
+            )),
+            keep_last_n=int(transcript_cfg.get("keep_last_n", 50)),
+            max_text_kb=int(transcript_cfg.get("max_text_kb", 4)),
+            enabled=True,
+        )
+        try:
+            conv_logger.log_session_start(argv=sys.argv, config_path=str(args.config))
+            if conv_logger.path is not None:
+                log.info("conversation log: %s", conv_logger.path)
+        except Exception:  # noqa: BLE001
+            log.exception("conversation logger session_start failed")
+
     # ---- skill server ----
     skill_server = None
     if not args.vision_only:
@@ -945,6 +973,7 @@ async def _run(args: argparse.Namespace) -> int:
             scene_bus=scene_bus,
             fsm=fsm,
             sim=(cfg.get("mode", "sim") == "sim"),
+            conversation_logger=conv_logger,
         )
 
     # ---- brain realtime agent ----
@@ -985,27 +1014,6 @@ async def _run(args: argparse.Namespace) -> int:
         except Exception as e:  # noqa: BLE001
             log.exception("BrainRealtimeAgent build failed: %s", e)
             brain_agent = None
-
-    # ---- conversation logger (per-process jsonl) ----
-    conv_logger = None
-    transcript_cfg = (cfg.get("audio_control", {}) or {}).get("transcript", {}) or {}
-    if transcript_cfg.get("enabled", True):
-        from ..brain.conversation_logger import ConversationLogger  # noqa: WPS433
-        conv_logger = ConversationLogger(
-            log_dir=Path(transcript_cfg.get(
-                "dir",
-                str(Path(log_dir_str) / "conversations"),
-            )),
-            keep_last_n=int(transcript_cfg.get("keep_last_n", 50)),
-            max_text_kb=int(transcript_cfg.get("max_text_kb", 4)),
-            enabled=True,
-        )
-        try:
-            conv_logger.log_session_start(argv=sys.argv, config_path=str(args.config))
-            if conv_logger.path is not None:
-                log.info("conversation log: %s", conv_logger.path)
-        except Exception:  # noqa: BLE001
-            log.exception("conversation logger session_start failed")
 
     # ---- wake-word + utterance + conversation state machine ----
     sm = None

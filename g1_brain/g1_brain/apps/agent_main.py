@@ -936,6 +936,30 @@ async def _run(args: argparse.Namespace) -> int:
         default_detail=cfg["openai"]["vision_detail"],
     )
 
+    # ---- vision risk gate (Rule 12) ----
+    # Built AFTER vision_client + camera_hub but assigned onto the already-
+    # constructed SafetySupervisor (no validate() runs between supervisor
+    # build and now). Spec: docs/g1_v1.md.
+    vg_cfg = (cfg.get("safety", {}) or {}).get("vision_gate", {}) or {}
+    if vg_cfg.get("enabled", True):
+        from ..safety.vision_risk_gate import VisionRiskGate  # noqa: WPS433
+        safety.vision_gate = VisionRiskGate(
+            vision_client=vision_client,
+            camera_hub=camera_hub,
+            cfg=cfg,
+        )
+        log.info(
+            "vision_gate enabled (timeout=%.1fs, max_frame_age=%.1fs, detail=%s)",
+            float(vg_cfg.get("timeout_s", 5.0)),
+            float(vg_cfg.get("max_frame_age_s", 2.0)),
+            vg_cfg.get("detail", "auto"),
+        )
+    else:
+        log.info(
+            "vision_gate DISABLED -- RISK fallthrough off; "
+            "active mode is fully autonomous"
+        )
+
     # ---- conversation logger (per-process jsonl) ----
     # Built BEFORE skill_server so the recall_history skill has a reference
     # to the active jsonl path. Built BEFORE brain_agent so any startup-time

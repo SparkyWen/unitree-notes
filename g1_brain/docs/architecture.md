@@ -21,8 +21,8 @@ in [`../../docs/g1_plan.md`](../../docs/g1_plan.md).
                                 ↕            (intent JSON)
 ┌────────────────────────────────────────────────────────────────────┐
 │  SAFE SKILL  (g1_brain/safety/ + g1_brain/skills/)                 │
-│  - SafetySupervisor: 11 rules (whitelist, FSM, run-mode, watchdog, │
-│    pose, scene, E-stop)                                            │
+│  - SafetySupervisor: 12 rules (whitelist, FSM, run-mode, watchdog, │
+│    pose, scene, E-stop, GPT-5.5 vision risk gate)                  │
 │  - SkillServer: ~16 skills routed to ComboController / Keyframe    │
 └────────────────────────────────────────────────────────────────────┘
                                 ↕            (skill call)
@@ -175,14 +175,14 @@ ang vel, RL policy active). Lives in `RobotStateBus`. Producer is the
 
 ---
 
-## 5. Safety: 7-state FSM + 11 rules
+## 5. Safety: 7-state FSM + 12 rules
 
 **FSM** (in `safety/state_machine.py`) — `BOOT → STANDING → ENGAGED →
 ACTING → STANDING ...` with `EMERGENCY_STOP` and `FAULT` as universal
 sinks. Recovery is manual: from EMERGENCY_STOP you go through RECOVERING
 back to STANDING.
 
-**11 rules** (in `safety/supervisor.py`, applied in order to every tool
+**12 rules** (in `safety/supervisor.py`, applied in order to every tool
 call):
 
 1. **Whitelist** — tool in `ALLOWED_TOOLS`
@@ -199,6 +199,18 @@ call):
 10. **Scene check (gesture)** — `nearest_person_m > 0.5`
 11. **E-stop flag** — `EstopClient.is_engaged()` → reject everything except
     `say` / `stop` / `describe_scene` / `query_scene_state`
+12. **Vision risk gate** (spec `docs/g1_v1.md`) — for motion tools that
+    cleared rules 1–10, send the head-cam JPEG + a rendered action
+    sentence to GPT-5.5 (`vision_model: gpt-5.5`); SAFE short-circuits
+    (auto-execute regardless of run_mode), RISK falls through to the
+    legacy `_confirm_in_terminal` y/N with the GPT-supplied reason
+    printed inline. `say` / `stop` / `release_arms` bypass to SAFE; a
+    backward `walk` (vx<0) bypasses to RISK because the head camera is
+    blind to behind. Frame age, brightness, GPT timeout, GPT exception,
+    and unparseable output all return RISK so the operator never gets a
+    silent auto-execute on failure. Disable with
+    `safety.vision_gate.enabled: false` to revert bit-for-bit to the
+    pre-design build.
 
 Rule 11 is hoisted earlier in code so the user-facing prompts also short
 circuit.
@@ -324,7 +336,7 @@ head a sensible first-person view.
 - Add a new skill → `extending_skills.md`
 - File-by-file reading order:
   1. `scene_state/types.py` (data contracts)
-  2. `safety/supervisor.py` (the 11 rules in code)
+  2. `safety/supervisor.py` (the 12 rules in code; rule 12 is in `safety/vision_risk_gate.py`)
   3. `skills/skill_server.py` (dispatch)
   4. `apps/agent_main.py` (wiring)
   5. `brain/realtime_agent.py` (extension of va-demo)

@@ -681,3 +681,109 @@ async def test_confirm_in_terminal_survives_no_termios(monkeypatch):
     monkeypatch.setitem(_sys.modules, "termios", None)
     monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("y\n"))
     assert await sup_mod._confirm_in_terminal("walk", {}) is True
+
+
+# Rule 12: vision risk gate ----------------------------------------------
+
+class _StubGate:
+    """Stand-in for VisionRiskGate.evaluate."""
+
+    def __init__(self, verdict_safe: bool, reason: str = "stub") -> None:
+        from g1_brain.safety.vision_risk_gate import RiskVerdict
+        self._verdict = RiskVerdict(verdict_safe, reason, "vision_llm")
+        self.calls = 0
+
+    async def evaluate(self, tool, sanitized):
+        self.calls += 1
+        return self._verdict
+
+
+async def test_active_with_safe_gate_skips_confirm(env):
+    gate = _StubGate(verdict_safe=True, reason="clear floor")
+    env["sup"].vision_gate = gate
+    env["sup"].run_mode = "active"
+    fn = AsyncMock(return_value=True)
+    env["sup"]._confirm_fn = fn
+    ok, _, sanitized = await env["sup"].validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is True
+    assert sanitized["vx"] == pytest.approx(0.1)
+    assert gate.calls == 1
+    fn.assert_not_called()
+
+
+async def test_active_with_risk_gate_calls_confirm_with_reason(env):
+    gate = _StubGate(verdict_safe=False, reason="person 0.5 m ahead")
+    env["sup"].vision_gate = gate
+    env["sup"].run_mode = "active"
+    received = {}
+
+    async def fn(tool, sanitized, risk_reason=None):
+        received["tool"] = tool
+        received["risk_reason"] = risk_reason
+        return True
+
+    env["sup"]._confirm_fn = fn
+    ok, _, _ = await env["sup"].validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is True
+    assert gate.calls == 1
+    assert received["risk_reason"] == "person 0.5 m ahead"
+    assert received["tool"] == "walk"
+
+
+async def test_confirm_with_safe_gate_skips_confirm(env):
+    """The biggest UX win: confirm-mode operator stops being asked
+    when the vision gate already said SAFE."""
+    gate = _StubGate(verdict_safe=True, reason="empty hallway")
+    env["sup"].vision_gate = gate
+    env["sup"].run_mode = "confirm"
+    fn = AsyncMock(return_value=True)
+    env["sup"]._confirm_fn = fn
+    ok, _, _ = await env["sup"].validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is True
+    assert gate.calls == 1
+    fn.assert_not_called()
+
+
+async def test_confirm_with_risk_gate_calls_confirm_with_reason(env):
+    gate = _StubGate(verdict_safe=False, reason="glass cup on path")
+    env["sup"].vision_gate = gate
+    env["sup"].run_mode = "confirm"
+    received = {}
+
+    async def fn(tool, sanitized, risk_reason=None):
+        received["risk_reason"] = risk_reason
+        return False
+
+    env["sup"]._confirm_fn = fn
+    ok, reason, _ = await env["sup"].validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is False
+    assert "declined" in reason
+    assert received["risk_reason"] == "glass cup on path"
+
+
+async def test_no_gate_preserves_old_behaviour_active(env):
+    env["sup"].vision_gate = None
+    env["sup"].run_mode = "active"
+    ok, _, _ = await env["sup"].validate(
+        "walk", {"vx": 0.1, "duration_s": 0.5}
+    )
+    assert ok is True
+
+
+async def test_gate_skipped_for_non_motion_tools(env):
+    """Non-motion tools take the early `is_motion=False` return — they
+    must not consume the gate even when one is wired in."""
+    gate = _StubGate(verdict_safe=False, reason="should never be called")
+    env["sup"].vision_gate = gate
+    env["sup"].run_mode = "active"
+    ok, _, _ = await env["sup"].validate("say", {"text": "hi"})
+    assert ok is True
+    assert gate.calls == 0

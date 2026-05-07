@@ -135,3 +135,79 @@ async def test_too_bright_frame_is_risk():
     assert v.source == "frame_fail"
     assert "bright" in v.reason.lower() or "white" in v.reason.lower()
     vision.describe.assert_not_called()
+
+
+# ---------- vision_llm path ----------------------------------------------
+
+@pytest.mark.asyncio
+async def test_llm_safe_verdict():
+    vision = AsyncMock()
+    vision.describe = AsyncMock(return_value="SAFE: clear empty floor for 3 m")
+    gate = VisionRiskGate(vision_client=vision, camera_hub=_StubCam(), cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is True
+    assert v.source == "vision_llm"
+    assert "clear empty floor" in v.reason
+    vision.describe.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_llm_risk_verdict():
+    vision = AsyncMock()
+    vision.describe = AsyncMock(return_value="RISK: person sitting 0.7 m ahead")
+    gate = VisionRiskGate(vision_client=vision, camera_hub=_StubCam(), cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is False
+    assert v.source == "vision_llm"
+    assert "person" in v.reason
+
+
+@pytest.mark.asyncio
+async def test_llm_takes_only_first_line():
+    vision = AsyncMock()
+    vision.describe = AsyncMock(return_value="SAFE: ok\nRISK: also there is a thing")
+    gate = VisionRiskGate(vision_client=vision, camera_hub=_StubCam(), cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is True
+    assert v.source == "vision_llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_garbage_is_parse_fail_and_risk():
+    vision = AsyncMock()
+    vision.describe = AsyncMock(return_value="I think it might be fine actually")
+    gate = VisionRiskGate(vision_client=vision, camera_hub=_StubCam(), cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is False
+    assert v.source == "parse_fail"
+
+
+@pytest.mark.asyncio
+async def test_llm_timeout_is_risk():
+    async def _slow(*_a, **_k):
+        await asyncio.sleep(10.0)
+        return "SAFE: never returned"
+
+    vision = MagicMock()
+    vision.describe = _slow
+    gate = VisionRiskGate(
+        vision_client=vision, camera_hub=_StubCam(),
+        cfg=_cfg(timeout_s=0.05),
+    )
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is False
+    assert v.source == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_llm_exception_is_api_error():
+    async def _boom(*_a, **_k):
+        raise RuntimeError("rate limit")
+
+    vision = MagicMock()
+    vision.describe = _boom
+    gate = VisionRiskGate(vision_client=vision, camera_hub=_StubCam(), cfg=_cfg())
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is False
+    assert v.source == "api_error"
+    assert "rate limit" in v.reason

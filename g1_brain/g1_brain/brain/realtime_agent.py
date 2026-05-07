@@ -1,19 +1,31 @@
 """BrainRealtimeAgent — extends va_demo.realtime_agent.RealtimeAgent.
 
-We do not modify va-demo. We subclass and override the three hooks:
+We do not modify va-demo. We subclass and:
 
-- ``_resolve_instructions()`` returns the new brain prompt.
-- ``_resolve_tool_schemas()`` returns the SkillServer's full tool list.
-- ``_execute_tool()`` delegates everything to the SkillServer (which runs the
-  SafetySupervisor internally).
+- override ``_resolve_instructions`` / ``_resolve_tool_schemas`` /
+  ``_execute_tool`` (parent contract), and
+- intercept the WS event stream so we can emit a small set of higher-level
+  callbacks the BrainConversationStateMachine and ConversationLogger
+  consume:
 
-We also add ``inject_perception_event()`` so the GestureAutoTrigger (in the
-mock_imitation package) can inform the LLM that the user just made a
-mirrorable hand sign, without forcing a specific action.
+  * ``on_user_transcript(text)`` — when the user's audio is transcribed
+  * ``on_assistant_transcript_done(text)`` — when the model's audio reply
+    has a final transcript
+  * ``on_tool_use(call_id, name, args)`` — model has emitted a tool call
+  * ``on_tool_result(call_id, name, result)`` — client has executed it
+  * ``on_response_canceled(reason)`` — we sent ``response.cancel`` (barge-in)
+  * ``on_plan_done()`` — the WHOLE turn (possibly multi-response, multi-tool
+    plan) has completed: leaf ``response.done`` arrived with no function-call
+    output items still pending. This is the signal the state machine uses
+    to transition from SPEAKING → drain wait → IDLE.
 
-The va_demo package must be on sys.path before this module is imported. The
-``apps/agent_main.py`` entry point is responsible for adding it (per the
-design doc §1.4 "import not rewrite" contract).
+We also expose two control methods used by the state machine for barge-in:
+
+- ``cancel_in_flight()`` — sends ``response.cancel`` + ``input_audio_buffer.clear``
+- ``input_audio_buffer_clear()`` — drops uncommitted user audio (used for
+  CAPTURING-to-CAPTURING restart on a second wake within the same turn)
+
+va-demo is unchanged. See docs/audio-control-update01.md.
 """
 from __future__ import annotations
 
@@ -57,6 +69,17 @@ class BrainRealtimeAgent(RealtimeAgent):
     # cannot call mock_imitate spontaneously when it sees the user wave.
     mock_imitate_enabled: bool = True
 
+    # ---- new hooks consumed by ConversationStateMachine + Logger ----
+    # Each is invoked from the asyncio loop thread (we are already inside the
+    # downlink coroutine). All are sync callables; if the consumer needs to
+    # do async work they should schedule it themselves.
+    on_user_transcript: Optional[Callable[[str], None]] = None
+    on_assistant_transcript_done: Optional[Callable[[str], None]] = None
+    on_tool_use: Optional[Callable[[str, str, Dict[str, Any]], None]] = None
+    on_tool_result: Optional[Callable[[str, str, Dict[str, Any]], None]] = None
+    on_response_canceled: Optional[Callable[[str], None]] = None
+    on_plan_done: Optional[Callable[[], None]] = None
+
     def __post_init__(self):
         super().__post_init__()
         if self.skill_server is None:
@@ -64,6 +87,10 @@ class BrainRealtimeAgent(RealtimeAgent):
                 "BrainRealtimeAgent created without skill_server; tool calls "
                 "will all fail with ok=false. Wire one before calling run()."
             )
+        # Plan-level tracking. A "plan" is one user turn — possibly N model
+        # responses chained by tool calls. plan_done fires when the leaf
+        # response.done arrives with no function_call output items.
+        self._plan_active: bool = False
 
     # ------------------------------------------------------------------ hooks
 
@@ -100,6 +127,249 @@ class BrainRealtimeAgent(RealtimeAgent):
         except Exception as e:  # noqa: BLE001 — we want to surface anything
             log.exception("skill_server.execute(%s) raised", name)
             return {"ok": False, "reason": f"exception: {e!s}"}
+
+    # ------------------------------------------------ event-stream interception
+
+    async def _handle_event(self, ws, evt: Dict[str, Any]):
+        """Mirror va-demo's dispatcher but emit higher-level callbacks.
+
+        Re-implemented (rather than super().handle_event() + before/after
+        hooks) because we need to intercept ``response.done`` and decide
+        plan-end *before* the parent's on_response_done callback fires —
+        otherwise the state machine sees response.done before it knows
+        whether more responses are coming.
+        """
+        import base64
+
+        t = evt.get("type", "")
+        if t == "response.audio.delta":
+            b64 = evt.get("delta", "")
+            if b64:
+                self.speaker.write(base64.b64decode(b64))
+                if self.on_response_audio_delta is not None:
+                    try:
+                        self.on_response_audio_delta()
+                    except Exception:
+                        log.exception("on_response_audio_delta raised")
+        elif t == "response.audio.done":
+            pass
+        elif t == "response.audio_transcript.delta":
+            piece = evt.get("delta", "")
+            if piece:
+                print(piece, end="", flush=True)
+                if self.spoken_cache is not None:
+                    self.spoken_cache.add(piece)
+        elif t == "response.audio_transcript.done":
+            print()  # newline
+            transcript = evt.get("transcript", "")
+            if transcript:
+                if self.spoken_cache is not None:
+                    self.spoken_cache.add(transcript)
+                self._emit_assistant_transcript_done(transcript)
+        elif t == "conversation.item.input_audio_transcription.completed":
+            transcript = evt.get("transcript", "")
+            if transcript:
+                print(f"\n[user] {transcript}", flush=True)
+                self._emit_user_transcript(transcript)
+        elif t == "input_audio_buffer.speech_started":
+            log.debug("user speech started")
+        elif t == "response.done":
+            # Decide plan-end BEFORE notifying the state machine.
+            had_fcall = self._response_had_function_call(evt)
+            if self.on_response_done is not None:
+                try:
+                    self.on_response_done()
+                except Exception:
+                    log.exception("on_response_done raised")
+            if not had_fcall:
+                # Leaf response. The whole plan is done.
+                self._emit_plan_done()
+            # else: a function_call_output + new response.create will follow
+            # (handled in _dispatch_tool); plan stays active.
+        elif t == "response.function_call_arguments.done":
+            await self._dispatch_tool(ws, evt)
+        elif t == "error":
+            log.error("realtime error: %s", evt.get("error"))
+        elif t in ("session.created", "session.updated", "response.created",
+                   "rate_limits.updated", "response.output_item.added",
+                   "response.output_item.done", "response.content_part.added",
+                   "response.content_part.done", "input_audio_buffer.committed",
+                   "input_audio_buffer.speech_stopped", "conversation.item.created"):
+            log.debug("rt event: %s", t)
+        else:
+            log.debug("rt event (unhandled): %s", t)
+
+    @staticmethod
+    def _response_had_function_call(response_done_evt: Dict[str, Any]) -> bool:
+        """True iff the response payload contains any function_call output item.
+
+        Realtime's response.done event has shape:
+          {"type": "response.done", "response": {"id": ...,
+            "output": [{"type": "function_call" | "message" | ...}, ...]}}
+        We look for any function_call entry. If even one is present, the
+        client is responsible for executing it and sending response.create
+        for the continuation, so this is NOT plan-end.
+        """
+        try:
+            output = response_done_evt.get("response", {}).get("output", []) or []
+        except AttributeError:
+            return False
+        for item in output:
+            if isinstance(item, dict) and item.get("type") == "function_call":
+                return True
+        return False
+
+    async def _dispatch_tool(self, ws, evt: Dict[str, Any]):
+        """Execute a tool call, emit callbacks, send result + next response.create.
+
+        Reimplemented from va-demo (rather than super-call) so we can fire
+        on_tool_use / on_tool_result around the execution. Behaviour matches
+        the parent: validate via self.safety, execute via self._execute_tool,
+        send function_call_output, then response.create to continue the turn.
+        """
+        call_id = evt.get("call_id") or ""
+        name = evt.get("name") or ""
+        try:
+            args = json.loads(evt.get("arguments", "") or "{}")
+        except json.JSONDecodeError:
+            args = {}
+
+        log.info("tool call: %s(%s)", name, args)
+        self._emit_tool_use(call_id, name, args)
+
+        ok, reason, sanitized = await self.safety.validate(name, args)
+        if not ok:
+            result: Dict[str, Any] = {"ok": False, "reason": reason}
+        else:
+            try:
+                result = await self._execute_tool(name, sanitized)
+            except Exception as e:  # noqa: BLE001
+                log.exception("tool exception: %s", e)
+                result = {"ok": False, "reason": f"exception: {e!s}"}
+
+        self._emit_tool_result(call_id, name, result)
+
+        try:
+            await ws.send(json.dumps({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result, ensure_ascii=False),
+                },
+            }))
+            # Ask the model to continue (turn the tool result into a spoken
+            # reply, or chain another tool call).
+            await ws.send(json.dumps({"type": "response.create"}))
+        except Exception:  # noqa: BLE001
+            # WS may have been closed under us (e.g. shutdown); the plan is
+            # effectively done from the state machine's point of view.
+            log.exception("failed to send tool result / response.create")
+            self._emit_plan_done()
+
+    # ------------------------------------------------ control: barge-in helpers
+
+    async def cancel_in_flight(self) -> None:
+        """Cancel any in-flight response and drop uncommitted input audio.
+
+        Best-effort: each WS send is wrapped because either may fail when
+        there is no active response or no buffered input. The state machine
+        calls this in the barge-in path; it should never raise.
+        """
+        ws = self._ws
+        if ws is None:
+            return
+        try:
+            await ws.send(json.dumps({"type": "response.cancel"}))
+        except Exception:  # noqa: BLE001
+            log.debug("response.cancel send failed", exc_info=True)
+        try:
+            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+        except Exception:  # noqa: BLE001
+            log.debug("input_audio_buffer.clear send failed", exc_info=True)
+        # Local: drop any TTS audio queued for playback so the user hears
+        # silence immediately, not the tail of the cancelled reply.
+        try:
+            self.speaker.clear()
+        except Exception:  # noqa: BLE001
+            log.debug("speaker.clear failed", exc_info=True)
+        # Tell consumers (logger) we cancelled. State machine drives its own
+        # transition; this hook is informational only.
+        if self.on_response_canceled is not None:
+            try:
+                self.on_response_canceled("barge_in")
+            except Exception:
+                log.exception("on_response_canceled raised")
+        # Plan is no longer in flight.
+        self._plan_active = False
+
+    async def input_audio_buffer_clear(self) -> None:
+        """Drop server-side uncommitted user audio (mid-capture restart)."""
+        ws = self._ws
+        if ws is None:
+            return
+        try:
+            await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+        except Exception:  # noqa: BLE001
+            log.debug("input_audio_buffer.clear send failed", exc_info=True)
+
+    def reset_plan_tracker(self) -> None:
+        """Mark the current plan as no-longer-active (barge-in side effect)."""
+        self._plan_active = False
+
+    async def commit_and_respond(self):
+        """Override parent's commit_and_respond to mark plan_active."""
+        if self._ws is None:
+            return
+        self._plan_active = True
+        await self._ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+        await self._ws.send(json.dumps({"type": "response.create"}))
+
+    # ------------------------------------------------ callback emitters
+
+    def _emit_user_transcript(self, text: str) -> None:
+        if self.on_user_transcript is None:
+            return
+        try:
+            self.on_user_transcript(text)
+        except Exception:
+            log.exception("on_user_transcript raised")
+
+    def _emit_assistant_transcript_done(self, text: str) -> None:
+        if self.on_assistant_transcript_done is None:
+            return
+        try:
+            self.on_assistant_transcript_done(text)
+        except Exception:
+            log.exception("on_assistant_transcript_done raised")
+
+    def _emit_tool_use(self, call_id: str, name: str, args: Dict[str, Any]) -> None:
+        if self.on_tool_use is None:
+            return
+        try:
+            self.on_tool_use(call_id, name, args)
+        except Exception:
+            log.exception("on_tool_use raised")
+
+    def _emit_tool_result(self, call_id: str, name: str, result: Dict[str, Any]) -> None:
+        if self.on_tool_result is None:
+            return
+        try:
+            self.on_tool_result(call_id, name, result)
+        except Exception:
+            log.exception("on_tool_result raised")
+
+    def _emit_plan_done(self) -> None:
+        # Idempotency: only fire once per plan.
+        if not self._plan_active:
+            return
+        self._plan_active = False
+        if self.on_plan_done is None:
+            return
+        try:
+            self.on_plan_done()
+        except Exception:
+            log.exception("on_plan_done raised")
 
     # ---------------------------------------------------- perception → brain
 

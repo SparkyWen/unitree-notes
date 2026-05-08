@@ -279,12 +279,28 @@ def unitree_g1_flat_arm_disturbance_env_cfg(
   cfg.observations["critic"].terms.update(new_obs)
 
   # ── Mask pose reward on arm joints ──────────────────────────────────────
-  # Large std → near-zero penalty contribution; the arm joints should track
-  # the gesture, not the default rest pose.
+  # std_standing uses a catch-all ".*"; replace the whole dict to avoid a
+  # multiple-match error when arm patterns are added alongside it.
+  # std_walking/running use per-joint patterns already — .update() is fine.
   _arm_loose_std = 1e6
-  for std_key in ("std_standing", "std_walking", "std_running"):
-    std_dict: dict = cfg.rewards["pose"].params[std_key]
-    std_dict.update({
+  cfg.rewards["pose"].params["std_standing"] = {
+    r".*_hip_pitch.*":   0.05,
+    r".*_hip_roll.*":    0.05,
+    r".*_hip_yaw.*":     0.05,
+    r".*_knee.*":        0.05,
+    r".*_ankle_pitch.*": 0.05,
+    r".*_ankle_roll.*":  0.05,
+    r".*waist_yaw.*":    0.05,
+    r".*waist_roll.*":   0.05,
+    r".*waist_pitch.*":  0.05,
+    r".*_shoulder_pitch.*": _arm_loose_std,
+    r".*_shoulder_roll.*":  _arm_loose_std,
+    r".*_shoulder_yaw.*":   _arm_loose_std,
+    r".*_elbow.*":          _arm_loose_std,
+    r".*_wrist.*":          _arm_loose_std,
+  }
+  for std_key in ("std_walking", "std_running"):
+    cfg.rewards["pose"].params[std_key].update({
       r".*_shoulder_pitch.*": _arm_loose_std,
       r".*_shoulder_roll.*":  _arm_loose_std,
       r".*_shoulder_yaw.*":   _arm_loose_std,

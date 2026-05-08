@@ -264,10 +264,26 @@ def unitree_g1_23dof_flat_arm_disturbance_env_cfg(
   cfg.observations["critic"].terms.update(new_obs)
 
   # ── Disable pose reward on arm joints ─────────────────────────────────
+  # std_standing uses a catch-all ".*" so we must replace the whole dict;
+  # adding arm patterns alongside ".*" would cause a multiple-match error.
+  # std_walking/running already have per-joint patterns — .update() is fine.
   _arm_loose_std = 1e6
-  for std_key in ("std_standing", "std_walking", "std_running"):
-    std_dict: dict = cfg.rewards["pose"].params[std_key]
-    std_dict.update({
+  cfg.rewards["pose"].params["std_standing"] = {
+    r".*_hip_pitch.*":   0.05,
+    r".*_hip_roll.*":    0.05,
+    r".*_hip_yaw.*":     0.05,
+    r".*_knee.*":        0.05,
+    r".*_ankle_pitch.*": 0.05,
+    r".*_ankle_roll.*":  0.05,
+    r".*waist_yaw.*":    0.05,
+    r".*_shoulder_pitch.*": _arm_loose_std,
+    r".*_shoulder_roll.*":  _arm_loose_std,
+    r".*_shoulder_yaw.*":   _arm_loose_std,
+    r".*_elbow.*":          _arm_loose_std,
+    r".*_wrist.*":          _arm_loose_std,
+  }
+  for std_key in ("std_walking", "std_running"):
+    cfg.rewards["pose"].params[std_key].update({
       r".*_shoulder_pitch.*": _arm_loose_std,
       r".*_shoulder_roll.*":  _arm_loose_std,
       r".*_shoulder_yaw.*":   _arm_loose_std,

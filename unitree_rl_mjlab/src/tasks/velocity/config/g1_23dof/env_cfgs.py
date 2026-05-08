@@ -276,19 +276,19 @@ def unitree_g1_23dof_flat_arm_disturbance_env_cfg(
     r".*_ankle_pitch.*": 0.05,
     r".*_ankle_roll.*":  0.05,
     r".*waist_yaw.*":    0.05,
-    r".*_shoulder_pitch.*": _arm_loose_std,
-    r".*_shoulder_roll.*":  _arm_loose_std,
-    r".*_shoulder_yaw.*":   _arm_loose_std,
-    r".*_elbow.*":          _arm_loose_std,
-    r".*_wrist.*":          _arm_loose_std,
+    r".*shoulder_pitch.*": _arm_loose_std,
+    r".*shoulder_roll.*":  _arm_loose_std,
+    r".*shoulder_yaw.*":   _arm_loose_std,
+    r".*elbow.*":          _arm_loose_std,
+    r".*wrist.*":          _arm_loose_std,
   }
   for std_key in ("std_walking", "std_running"):
     cfg.rewards["pose"].params[std_key].update({
-      r".*_shoulder_pitch.*": _arm_loose_std,
-      r".*_shoulder_roll.*":  _arm_loose_std,
-      r".*_shoulder_yaw.*":   _arm_loose_std,
-      r".*_elbow.*":          _arm_loose_std,
-      r".*_wrist.*":          _arm_loose_std,
+      r".*shoulder_pitch.*": _arm_loose_std,
+      r".*shoulder_roll.*":  _arm_loose_std,
+      r".*shoulder_yaw.*":   _arm_loose_std,
+      r".*elbow.*":          _arm_loose_std,
+      r".*wrist.*":          _arm_loose_std,
     })
 
   # ── Arm tracking reward ───────────────────────────────────────────────

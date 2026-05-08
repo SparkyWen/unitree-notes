@@ -123,7 +123,7 @@ class ArmReferenceCommand(CommandTerm):
             N, self._lib.n_gestures, device=self.device
         )
 
-        self.metrics["gesture_active_frac"] = torch.zeros(1, device=self.device)
+        self.metrics["gesture_active_frac"] = torch.zeros(N, device=self.device)
 
     # ── Public interface ────────────────────────────────────────────────────
 
@@ -221,7 +221,7 @@ class ArmReferenceCommand(CommandTerm):
             self._arm_qpos_ref[act] = self._lib.get_frame(self._gesture_id[act], fi)
         self._arm_qpos_ref[~self._active] = 0.0
 
-        self.metrics["gesture_active_frac"][:] = self._active.float().mean()
+        self.metrics["gesture_active_frac"][:] = self._active.float()
 
     # ── Helpers ─────────────────────────────────────────────────────────────
 

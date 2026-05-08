@@ -26,7 +26,7 @@ from src.tasks.velocity.mdp.arm_disturbance import (
 )
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
 
-_SRC_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # .../src
+_SRC_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent  # .../src
 _GESTURES_NPZ_23DOF = str(
   _SRC_ROOT / "assets" / "motions" / "g1" / "gestures_23dof.npz"
 )

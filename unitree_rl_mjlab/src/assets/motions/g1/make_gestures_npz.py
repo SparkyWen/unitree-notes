@@ -1,4 +1,4 @@
-"""Generate gestures.npz for Unitree-G1-Flat-Arm-Disturbance training.
+"""Generate gestures.npz for arm-disturbance training.
 
 Samples each LLM-callable gesture at `--fps` Hz by linearly interpolating
 the keyframe sequences from `g1_sim_rl_combo.build_arm_actions()` and
@@ -6,20 +6,22 @@ the keyframe sequences from `g1_sim_rl_combo.build_arm_actions()` and
 from the velocity/v0 deploy.yaml so the gesture trajectories are in the same
 absolute joint-space as the RL environment.
 
-Output:
-  gestures.npz
-    arm_qpos  float32  [N_g, T_max, 14]  absolute arm joint positions (rad)
+Output (--dof 23, default):
+  gestures_23dof.npz
+    arm_qpos  float32  [N_g, T_max, 10]  arm joint positions (rad), 5 per arm
     lengths   int32    [N_g]             valid frames per gesture
-    names     object   [N_g]             gesture name strings (GESTURE_NAMES order)
+    names     object   [N_g]             gesture name strings
 
-Usage (run from the unitree_rl_mjlab/ directory, or anywhere with the repo on
-PYTHONPATH):
+Output (--dof 29):
+  gestures.npz
+    arm_qpos  float32  [N_g, T_max, 14]  arm joint positions (rad), 7 per arm
+
+Usage:
 
     source ~/unitree_sdk2_python/unitree-env/bin/activate
     cd ~/unitree-notes/unitree_rl_mjlab
-    python src/assets/motions/g1/make_gestures_npz.py \\
-        --out src/assets/motions/g1/gestures.npz \\
-        --fps 50
+    python src/assets/motions/g1/make_gestures_npz.py  # 23-DOF (default)
+    python src/assets/motions/g1/make_gestures_npz.py --dof 29  # 29-DOF
 """
 
 from __future__ import annotations
@@ -45,10 +47,18 @@ from g1_brain.skills.keyframe_extras import build_extra_arm_actions  # noqa: E40
 from g1_brain.skills.tool_schemas import GESTURE_NAMES  # noqa: E402
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
-_DEPLOY_YAML = (
+_DEPLOY_YAML_29DOF = (
     _REPO_ROOT
     / "unitree_rl_mjlab/deploy/robots/g1/config/policy/velocity/v0/params/deploy.yaml"
 )
+_DEPLOY_YAML_23DOF = (
+    _REPO_ROOT
+    / "unitree_rl_mjlab/deploy/robots/g1_23dof/config/policy/velocity/v0/params/deploy.yaml"
+)
+
+# 23-DOF arm space uses 5 joints per arm (drops wrist_pitch + wrist_yaw).
+# These are the column indices into the 14-D (29-DOF) arm trajectory to keep.
+_23DOF_ARM_COLS = [0, 1, 2, 3, 4, 7, 8, 9, 10, 11]
 
 _COMBO_KEY_FOR_NAME: dict[str, str] = {
     "wave_right":  "1",
@@ -96,22 +106,47 @@ def _interp_gesture(
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--out", default=str(_SCRIPT_DIR / "gestures.npz"))
+    p.add_argument("--out", default=None,
+                   help="Output path. Defaults to gestures_23dof.npz (--dof 23) "
+                        "or gestures.npz (--dof 29).")
     p.add_argument("--fps", type=float, default=50.0)
+    p.add_argument("--dof", type=int, default=23, choices=[23, 29],
+                   help="Target DOF variant. 23 = 5 joints/arm (default); "
+                        "29 = 7 joints/arm.")
     p.add_argument(
         "--deploy-yaml",
-        default=str(_DEPLOY_YAML),
-        help="Path to velocity/v0 deploy.yaml (provides arm_rest).",
+        default=None,
+        help="Path to velocity/v0 deploy.yaml (provides arm_rest). "
+             "Defaults to the matching DOF variant.",
     )
     args = p.parse_args()
 
+    if args.out is None:
+        args.out = str(_SCRIPT_DIR / ("gestures_23dof.npz" if args.dof == 23 else "gestures.npz"))
+    if args.deploy_yaml is None:
+        args.deploy_yaml = str(_DEPLOY_YAML_23DOF if args.dof == 23 else _DEPLOY_YAML_29DOF)
+
     # Load arm defaults from deploy.yaml.
+    # For 23-DOF we read the 23-DOF yaml but still generate 14-D trajectories
+    # using the 29-DOF arm ordering (wrist rest = 0, same as 29-DOF), then
+    # slice to 10-D by dropping wrist_pitch/yaw columns.
     with open(args.deploy_yaml) as f:
         cfg = yaml.safe_load(f)
     action_offset = np.asarray(cfg["actions"]["JointPositionAction"]["offset"], dtype=np.float64)
     action_scale  = np.asarray(cfg["actions"]["JointPositionAction"]["scale"],  dtype=np.float64)
-    arm_rest   = action_offset[ARM_START:ARM_END].copy()
-    arm_scale  = action_scale[ARM_START:ARM_END].copy()
+
+    if args.dof == 23:
+        # 23-DOF deploy.yaml has 23 entries; arm joints are at indices 13:23.
+        arm_rest_10  = action_offset[13:23].copy()
+        arm_scale_10 = action_scale[13:23].copy()
+        # Pad to 14-D for build_arm_actions (wrist_pitch/yaw stay at 0).
+        arm_rest   = np.zeros(14, dtype=np.float64)
+        arm_scale  = np.full(14, 0.07, dtype=np.float64)  # small default for wrist
+        arm_rest[_23DOF_ARM_COLS]  = arm_rest_10
+        arm_scale[_23DOF_ARM_COLS] = arm_scale_10
+    else:
+        arm_rest   = action_offset[ARM_START:ARM_END].copy()
+        arm_scale  = action_scale[ARM_START:ARM_END].copy()
     arm_offset = arm_rest.copy()  # same as arm_rest in the velocity policy
 
     print(f"arm_rest  = {arm_rest}")
@@ -143,9 +178,15 @@ def main() -> None:
               f"({seq.shape[0]/args.fps:.2f}s)  "
               f"max|Δq|={np.abs(seq - arm_rest[None,:]).max():.3f}")
 
+    # For 23-DOF: drop wrist_pitch/yaw columns (indices 5,6,12,13 in 14-D arm space).
+    if args.dof == 23:
+        seqs = [s[:, _23DOF_ARM_COLS] for s in seqs]
+
+    arm_dim = seqs[0].shape[1]
+
     # Pad to uniform length.
     max_t = max(s.shape[0] for s in seqs)
-    arm_qpos = np.zeros((len(GESTURE_NAMES), max_t, seqs[0].shape[1]), dtype=np.float32)
+    arm_qpos = np.zeros((len(GESTURE_NAMES), max_t, arm_dim), dtype=np.float32)
     lengths = np.zeros(len(GESTURE_NAMES), dtype=np.int32)
     for i, seq in enumerate(seqs):
         t = seq.shape[0]
@@ -159,7 +200,7 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(out_path, arm_qpos=arm_qpos, lengths=lengths, names=names_arr)
-    print(f"\nSaved {out_path}  shape=({len(GESTURE_NAMES)}, {max_t}, 14)  "
+    print(f"\nSaved {out_path}  shape=({len(GESTURE_NAMES)}, {max_t}, {arm_dim})  "
           f"lengths={lengths.tolist()}")
 
 

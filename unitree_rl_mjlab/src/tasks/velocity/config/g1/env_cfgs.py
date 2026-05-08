@@ -19,6 +19,11 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from src.tasks.velocity.mdp.arm_disturbance import (
   ArmDisturbanceActionCfg,
   ArmReferenceCommandCfg,
+  _ARM_JOINT_PATTERNS_29DOF,
+  arm_track_l2,
+  gesture_intensity,
+  gesture_onehot_obs,
+  arm_qpos_ref_horizon_obs,
 )
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
 
@@ -254,18 +259,19 @@ def unitree_g1_flat_arm_disturbance_env_cfg(
     scale=G1_ACTION_SCALE,
     use_default_offset=True,
     command_name="arm_ref",
+    arm_joint_patterns=_ARM_JOINT_PATTERNS_29DOF,  # 29-DOF: 7 per arm
   )
 
   # ── Additional observations ──────────────────────────────────────────────
   # gesture_onehot: 9-D one-hot indicating which gesture is playing (0 = idle).
   new_obs = {
     "gesture_onehot": ObservationTermCfg(
-      func=mdp.gesture_onehot_obs,
+      func=gesture_onehot_obs,
       params={"command_name": "arm_ref"},
     ),
     # arm_qpos_ref_horizon: 5 future arm frames × 14 joints = 70-D.
     "arm_qpos_ref_horizon": ObservationTermCfg(
-      func=mdp.arm_qpos_ref_horizon_obs,
+      func=arm_qpos_ref_horizon_obs,
       params={"command_name": "arm_ref", "k": 5},
     ),
   }
@@ -291,16 +297,16 @@ def unitree_g1_flat_arm_disturbance_env_cfg(
   # Weight is kept small (0.05) relative to balance rewards (~1.0) so the
   # policy learns balance first and arm-tracking second.
   cfg.rewards["arm_track_l2"] = RewardTermCfg(
-    func=mdp.arm_track_l2,
+    func=arm_track_l2,
     weight=0.05,
-    params={"command_name": "arm_ref"},
+    params={"command_name": "arm_ref", "arm_start": 15, "arm_end": 29},
   )
 
   # ── Curriculum: ramp disturbance frequency ───────────────────────────────
   # Step 0–120k: trigger interval 8–16 s (sparse disturbance, easy)
   # Step 120k+ : trigger interval 4–8 s  (nominal disturbance, full training)
   cfg.curriculum["gesture_intensity"] = CurriculumTermCfg(
-    func=mdp.gesture_intensity,
+    func=gesture_intensity,
     params={
       "command_name": "arm_ref",
       "stages": [

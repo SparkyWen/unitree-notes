@@ -5,6 +5,7 @@ from .arm_disturbance import (  # noqa: F401
     ArmDisturbanceActionCfg as ArmDisturbanceActionCfg,
     ArmReferenceCommand as ArmReferenceCommand,
     ArmReferenceCommandCfg as ArmReferenceCommandCfg,
+    _ARM_JOINT_PATTERNS_29DOF as _ARM_JOINT_PATTERNS_29DOF,
     arm_qpos_ref_obs as arm_qpos_ref_obs,
     arm_qpos_ref_horizon_obs as arm_qpos_ref_horizon_obs,
     arm_track_l2 as arm_track_l2,

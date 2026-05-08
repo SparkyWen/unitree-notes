@@ -1,12 +1,15 @@
-"""Arm-disturbance MDP components for Unitree-G1-Flat-Arm-Disturbance.
+"""Arm-disturbance MDP components for arm-gesture disturbance training.
+
+Supports both 23-DOF (default) and 29-DOF G1 configurations via configurable
+arm joint patterns and slice indices.
 
 Provides:
   GestureLibrary        — loads gestures.npz pre-sampled at cfg.fps Hz
   ArmReferenceCommand   — Poisson-triggered gesture playback per env
   ArmReferenceCommandCfg
-  arm_qpos_ref_obs      — obs: current arm reference [N, 14]
+  arm_qpos_ref_obs      — obs: current arm reference [N, arm_dim]
   gesture_onehot_obs    — obs: one-hot gesture indicator [N, N_g]
-  arm_qpos_ref_horizon_obs — obs: k-step look-ahead [N, k*14]
+  arm_qpos_ref_horizon_obs — obs: k-step look-ahead [N, k*arm_dim]
   arm_track_l2          — reward: L2 penalty vs gesture reference
   ArmDisturbanceAction  — JointPositionAction with arm override
   ArmDisturbanceActionCfg
@@ -30,18 +33,24 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-# Arm joint indices in the G1 29-DOF joint vector (matches g1_sim_rl_combo.py).
-_ARM_START = 15
-_ARM_END = 29
-_ARM_DIM = _ARM_END - _ARM_START  # 14
+# Arm joint indices for 23-DOF G1 (default): joints 13..22 are arms.
+# For 29-DOF G1 pass arm_start=15, arm_end=29 explicitly to arm_track_l2.
+_ARM_START = 13
+_ARM_END = 23
+_ARM_DIM = _ARM_END - _ARM_START  # 10
 
-# Regex patterns that identify arm joints in the MJCF joint-name list.
+# Regex patterns for 23-DOF arms (5 per arm: shoulder×3, elbow, wrist_roll).
+# For 29-DOF pass _ARM_JOINT_PATTERNS_29DOF to ArmDisturbanceActionCfg.
 _ARM_JOINT_PATTERNS = (
     r".*_shoulder_pitch_joint",
     r".*_shoulder_roll_joint",
     r".*_shoulder_yaw_joint",
     r".*_elbow_joint",
     r".*_wrist_roll_joint",
+)
+
+# 29-DOF adds wrist_pitch and wrist_yaw (7 per arm = 14 total).
+_ARM_JOINT_PATTERNS_29DOF = _ARM_JOINT_PATTERNS + (
     r".*_wrist_pitch_joint",
     r".*_wrist_yaw_joint",
 )
@@ -275,9 +284,14 @@ def arm_qpos_ref_horizon_obs(
 def arm_track_l2(
     env: ManagerBasedRlEnv,
     command_name: str = "arm_ref",
+    arm_start: int = _ARM_START,
+    arm_end: int = _ARM_END,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
     """Penalise arm deviation from gesture reference; zero for idle envs.
+
+    arm_start/arm_end: slice of joint_pos corresponding to arm joints.
+    Defaults to 23-DOF values (13, 23); pass (15, 29) for 29-DOF.
 
     Returns −||q_arm − arm_ref||² per env (non-positive).
     """
@@ -286,8 +300,8 @@ def arm_track_l2(
     if not cmd.active.any():
         return penalty
     asset: Entity = env.scene[asset_cfg.name]
-    q_arm = asset.data.joint_pos[:, _ARM_START:_ARM_END]  # [N, 14]
-    ref = cmd.arm_qpos_ref  # [N, 14]
+    q_arm = asset.data.joint_pos[:, arm_start:arm_end]  # [N, arm_dim]
+    ref = cmd.arm_qpos_ref  # [N, arm_dim]
     penalty = -((q_arm - ref) ** 2).sum(dim=-1)  # [N]
     penalty[~cmd.active] = 0.0
     return penalty
@@ -314,13 +328,12 @@ class ArmDisturbanceAction(JointPositionAction):
         arm_idxs = [
             i
             for i, name in enumerate(self._target_names)
-            if any(re.fullmatch(p, name) for p in _ARM_JOINT_PATTERNS)
+            if any(re.fullmatch(p, name) for p in cfg.arm_joint_patterns)
         ]
-        if len(arm_idxs) != _ARM_DIM:
+        if not arm_idxs:
             raise RuntimeError(
-                f"ArmDisturbanceAction expected {_ARM_DIM} arm joints, "
-                f"found {len(arm_idxs)}: "
-                f"{[self._target_names[i] for i in arm_idxs]}"
+                f"ArmDisturbanceAction: no arm joints matched patterns "
+                f"{cfg.arm_joint_patterns}"
             )
         self._arm_act_idxs = torch.tensor(
             arm_idxs, dtype=torch.long, device=self.device
@@ -334,10 +347,11 @@ class ArmDisturbanceAction(JointPositionAction):
             cmd = None
 
         if cmd is not None and isinstance(cmd, ArmReferenceCommand) and cmd.active.any():
-            arm_ref = cmd.arm_qpos_ref  # [N, 14] absolute joint pos
+            arm_ref = cmd.arm_qpos_ref  # [N, arm_dim] absolute joint pos
             # torch.where over the arm columns, preserving the original values
             # for inactive envs.
-            active_2d = cmd.active.unsqueeze(1).expand(-1, _ARM_DIM)  # [N, 14]
+            arm_dim = len(self._arm_act_idxs)
+            active_2d = cmd.active.unsqueeze(1).expand(-1, arm_dim)  # [N, arm_dim]
             current_arm = self._processed_actions[:, self._arm_act_idxs]  # [N, 14]
             self._processed_actions[:, self._arm_act_idxs] = torch.where(
                 active_2d, arm_ref, current_arm
@@ -352,6 +366,10 @@ class ArmDisturbanceActionCfg(JointPositionActionCfg):
 
     command_name: str = "arm_ref"
     """Name of the ArmReferenceCommand in the command manager."""
+
+    arm_joint_patterns: tuple[str, ...] = _ARM_JOINT_PATTERNS
+    """Regex patterns identifying arm joints. Defaults to 23-DOF (5 per arm).
+    Pass _ARM_JOINT_PATTERNS_29DOF for 29-DOF (7 per arm)."""
 
     def build(self, env: ManagerBasedRlEnv) -> ArmDisturbanceAction:
         return ArmDisturbanceAction(self, env)

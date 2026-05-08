@@ -1,5 +1,7 @@
 """Unitree G1-23DOF velocity environment configurations."""
 
+from pathlib import Path
+
 from src.assets.robots import (
   G1_23DOF_ACTION_SCALE,
   get_g1_23dof_robot_cfg,
@@ -7,12 +9,27 @@ from src.assets.robots import (
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+from src.tasks.velocity.mdp.arm_disturbance import (
+  ArmDisturbanceActionCfg,
+  ArmReferenceCommandCfg,
+  arm_qpos_ref_horizon_obs,
+  arm_track_l2,
+  gesture_intensity,
+  gesture_onehot_obs,
+)
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+
+_SRC_ROOT = Path(__file__).resolve().parent.parent.parent.parent  # .../src
+_GESTURES_NPZ_23DOF = str(
+  _SRC_ROOT / "assets" / "motions" / "g1" / "gestures_23dof.npz"
+)
 
 
 def unitree_g1_23dof_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -191,5 +208,90 @@ def unitree_g1_23dof_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     twist_cmd.ranges.lin_vel_x = (-0.5, 1.0)
     twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
     twist_cmd.ranges.ang_vel_z = (-0.5, 0.5)
+
+  return cfg
+
+
+def unitree_g1_23dof_flat_arm_disturbance_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """G1-23DOF flat env with randomised arm-gesture disturbance.
+
+  Extends ``unitree_g1_23dof_flat_env_cfg`` with:
+    - ``ArmReferenceCommand``: Poisson-triggered gesture playback at 8–16 s
+      intervals, ramping to 4–8 s after 120 k steps.
+    - ``ArmDisturbanceAction``: arm joint targets overridden with gesture
+      reference when a gesture is active (5 joints per arm = 10-D).
+    - New actor + critic observations: ``gesture_onehot`` (9-D) and
+      ``arm_qpos_ref_horizon`` (5×10 = 50-D).
+    - Arm joint ``pose`` reward disabled (std → 1e6).
+    - Weak ``arm_track_l2`` reward (weight 0.05).
+  """
+  cfg = unitree_g1_23dof_flat_env_cfg(play=play)
+
+  # ── Arm-reference command ──────────────────────────────────────────────
+  cfg.commands["arm_ref"] = ArmReferenceCommandCfg(
+    gesture_file=_GESTURES_NPZ_23DOF,
+    fps=50.0,
+    trigger_interval_range_s=(8.0, 16.0),
+    entity_name="robot",
+    resampling_time_range=(1e9, 1e9),
+  )
+
+  # ── Replace standard action with arm-override variant ─────────────────
+  cfg.actions["joint_pos"] = ArmDisturbanceActionCfg(
+    entity_name="robot",
+    actuator_names=(".*",),
+    scale=G1_23DOF_ACTION_SCALE,
+    use_default_offset=True,
+    command_name="arm_ref",
+    # default arm_joint_patterns = 23-DOF (5 per arm: shoulder×3, elbow, wrist_roll)
+  )
+
+  # ── Additional observations ───────────────────────────────────────────
+  new_obs = {
+    "gesture_onehot": ObservationTermCfg(
+      func=gesture_onehot_obs,
+      params={"command_name": "arm_ref"},
+    ),
+    # arm_qpos_ref_horizon: 5 future frames × 10 joints = 50-D.
+    "arm_qpos_ref_horizon": ObservationTermCfg(
+      func=arm_qpos_ref_horizon_obs,
+      params={"command_name": "arm_ref", "k": 5},
+    ),
+  }
+  cfg.observations["actor"].terms.update(new_obs)
+  cfg.observations["critic"].terms.update(new_obs)
+
+  # ── Disable pose reward on arm joints ─────────────────────────────────
+  _arm_loose_std = 1e6
+  for std_key in ("std_standing", "std_walking", "std_running"):
+    std_dict: dict = cfg.rewards["pose"].params[std_key]
+    std_dict.update({
+      r".*_shoulder_pitch.*": _arm_loose_std,
+      r".*_shoulder_roll.*":  _arm_loose_std,
+      r".*_shoulder_yaw.*":   _arm_loose_std,
+      r".*_elbow.*":          _arm_loose_std,
+      r".*_wrist.*":          _arm_loose_std,
+    })
+
+  # ── Arm tracking reward ───────────────────────────────────────────────
+  cfg.rewards["arm_track_l2"] = RewardTermCfg(
+    func=arm_track_l2,
+    weight=0.05,
+    params={"command_name": "arm_ref", "arm_start": 13, "arm_end": 23},
+  )
+
+  # ── Curriculum: ramp disturbance frequency ────────────────────────────
+  cfg.curriculum["gesture_intensity"] = CurriculumTermCfg(
+    func=gesture_intensity,
+    params={
+      "command_name": "arm_ref",
+      "stages": [
+        {"step": 0,            "trigger_interval_range_s": (8.0, 16.0)},
+        {"step": 120_000 * 24, "trigger_interval_range_s": (4.0, 8.0)},
+      ],
+    },
+  )
 
   return cfg

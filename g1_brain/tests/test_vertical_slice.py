@@ -11,10 +11,13 @@ require va-demo to be on sys.path.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import math
 import sys
 import types
+from typing import List, Tuple
 
+import numpy as np
 import pytest
 
 from g1_brain.scene_state import (
@@ -31,6 +34,52 @@ from g1_brain.safety import (
     EstopClient,
 )
 from g1_brain.skills import SkillServer
+from g1_brain.skills import skill_server as ss_mod
+
+
+# CI does not install onnxruntime + unitree_sdk2py, so the real
+# `_load_combo_module` (which imports g1_sim_rl_combo) cannot run there.
+# Mirror the autouse stub from test_skill_server.py so the SkillServer's
+# gesture table is built from a tiny fake combo module instead.
+@dataclasses.dataclass
+class _FakeArmAction:
+    key: str
+    name: str
+    keyframes: List[Tuple[float, "np.ndarray"]]
+
+
+def _fake_combo_module():
+    def build_arm_actions(arm_rest, arm_scale):
+        names = [
+            ("1", "wave right arm"),
+            ("2", "wave left arm"),
+            ("3", "hands up (cheer)"),
+            ("4", "T-pose"),
+            ("5", "salute"),
+            ("6", "clap (twice)"),
+            ("7", "boxer guard"),
+            ("8", "punch combo (jab L+R)"),
+        ]
+        out = []
+        for key, name in names:
+            target = arm_rest + 0.1 * arm_scale
+            out.append(_FakeArmAction(
+                key=key, name=name,
+                keyframes=[(1.5, target.copy()), (1.0, target.copy()),
+                           (1.5, arm_rest.copy())],
+            ))
+        return out
+
+    return types.SimpleNamespace(
+        ArmAction=_FakeArmAction,
+        build_arm_actions=build_arm_actions,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _patch_combo_loader(monkeypatch):
+    """Stop SkillServer from importing the heavy g1_sim_rl_combo module."""
+    monkeypatch.setattr(ss_mod, "_load_combo_module", _fake_combo_module)
 
 
 @pytest.fixture

@@ -1,0 +1,357 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  repo-hygiene:
+    name: repo-hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check required workspace layout
+        run: |
+          set -euo pipefail
+
+          echo "Checking required top-level files and directories..."
+
+          required_paths=(
+            "README.md"
+            "instructions.md"
+            ".gitignore"
+            "docs"
+            "g1_sim_demo"
+            "g1_real_demo"
+            "va-demo"
+            "g1_brain"
+            "unitree_mujoco"
+            "unitree_sdk2_python"
+          )
+
+          for path in "${required_paths[@]}"; do
+            if [ ! -e "$path" ]; then
+              echo "Missing required path: $path"
+              exit 1
+            fi
+          done
+
+          echo "Required workspace layout looks good."
+
+      - name: Block real env files
+        run: |
+          set -euo pipefail
+
+          echo "Checking for committed .env files..."
+
+          found_env_files="$(
+            find . \
+              -path "./.git" -prune -o \
+              -type f \( -name ".env" -o -name ".env.*" \) \
+              ! -name ".env.example" \
+              ! -name ".env.sample" \
+              ! -name ".env.template" \
+              -print
+          )"
+
+          if [ -n "$found_env_files" ]; then
+            echo "Forbidden env files found:"
+            echo "$found_env_files"
+            echo "Real .env files must never be committed."
+            exit 1
+          fi
+
+          echo "No forbidden env files found."
+
+      - name: Check obvious secret patterns
+        run: |
+          set -euo pipefail
+
+          echo "Scanning for obvious secret patterns..."
+
+          if grep -RInI -E \
+            "(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----)" \
+            . \
+            --exclude-dir=.git \
+            --exclude-dir=.venv \
+            --exclude-dir=venv \
+            --exclude-dir=node_modules \
+            --exclude="*.png" \
+            --exclude="*.jpg" \
+            --exclude="*.jpeg" \
+            --exclude="*.gif" \
+            --exclude="*.mp4" \
+            --exclude="*.webm" \
+            --exclude="*.pt" \
+            --exclude="*.onnx"; then
+            echo "Possible secret detected. Please remove it and rotate the key if needed."
+            exit 1
+          fi
+
+          echo "No obvious secret patterns found."
+
+      - name: Check files near GitHub hard size limit
+        run: |
+          set -euo pipefail
+
+          echo "Checking for files larger than 95 MB..."
+
+          large_files="$(
+            find . \
+              -path "./.git" -prune -o \
+              -type f -size +95M -print
+          )"
+
+          if [ -n "$large_files" ]; then
+            echo "Files larger than 95 MB found:"
+            echo "$large_files"
+            echo "GitHub blocks normal pushes above 100 MB. Use Git LFS or remove the file."
+            exit 1
+          fi
+
+          echo "No files larger than 95 MB found."
+
+      - name: Write CI summary
+        run: |
+          {
+            echo "### repo-hygiene"
+            echo ""
+            echo "- Required workspace layout: passed"
+            echo "- Real .env files: not found"
+            echo "- Obvious secret patterns: not found"
+            echo "- Files >95 MB: not found"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  python-static:
+    name: python-static
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install minimal static-check dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyyaml>=6.0"
+
+      - name: Compile in-house Python files
+        run: |
+          set -euo pipefail
+
+          echo "Compiling in-house Python files only..."
+
+          python -m compileall -q \
+            g1_sim_demo \
+            g1_real_demo \
+            va-demo/va_demo \
+            va-demo/scripts \
+            g1_brain/g1_brain \
+            g1_brain/tests
+
+          echo "Python syntax compile check passed."
+
+      - name: Validate YAML configs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          import yaml
+
+          config_roots = [
+              Path("va-demo/configs"),
+              Path("g1_brain/configs"),
+          ]
+
+          files = []
+          for root in config_roots:
+              if not root.exists():
+                  continue
+              files.extend(root.rglob("*.yaml"))
+              files.extend(root.rglob("*.yml"))
+
+          if not files:
+              print("No YAML config files found.")
+              sys.exit(0)
+
+          for path in sorted(files):
+              print(f"Parsing {path}")
+              with path.open("r", encoding="utf-8") as f:
+                  yaml.safe_load(f)
+
+          print(f"Validated {len(files)} YAML config file(s).")
+          PY
+
+      - name: Write CI summary
+        run: |
+          {
+            echo "### python-static"
+            echo ""
+            echo "- Python version: ${{ env.PYTHON_VERSION }}"
+            echo "- compileall: passed"
+            echo "- YAML config parsing: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  va-demo-tests:
+    name: va-demo-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libportaudio2 \
+            libgl1 \
+            libglib2.0-0 \
+            libsm6 \
+            libxext6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            va-demo/requirements.txt
+
+      - name: Install va-demo dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
+          # Match the repo's documented agi env more closely and avoid accidental NumPy 2.x surprises.
+          python -m pip install "numpy==1.26.4" "scipy<2"
+
+          python -m pip install -r va-demo/requirements.txt
+          python -m pip install "pytest>=7" "pytest-asyncio>=0.21"
+
+      - name: Run va-demo unit tests
+        working-directory: va-demo
+        env:
+          PYTHONPATH: ${{ github.workspace }}/va-demo:${{ github.workspace }}/g1_sim_demo
+        run: |
+          python -m pytest tests/ -q
+
+      - name: va-demo import and CLI smoke check
+        working-directory: va-demo
+        env:
+          PYTHONPATH: ${{ github.workspace }}/va-demo:${{ github.workspace }}/g1_sim_demo
+        run: |
+          python -c "import va_demo.safety, va_demo.skills, va_demo.prompts, va_demo.main"
+          python -m va_demo.main --help
+
+      - name: Write CI summary
+        run: |
+          {
+            echo "### va-demo-tests"
+            echo ""
+            echo "- va-demo pytest: passed"
+            echo "- va-demo import smoke: passed"
+            echo "- va-demo CLI help: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  g1-brain-tests:
+    name: g1-brain-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            xvfb \
+            libportaudio2 \
+            libgl1 \
+            libglib2.0-0 \
+            libsm6 \
+            libxext6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            va-demo/requirements.txt
+            g1_brain/pyproject.toml
+            g1_brain/requirements.txt
+
+      - name: Install g1_brain dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+
+          # Match the repo's documented agi env more closely and avoid accidental NumPy 2.x surprises.
+          python -m pip install "numpy==1.26.4" "scipy<2"
+
+          # va_demo is reused by g1_brain, so install its deps first.
+          python -m pip install -r va-demo/requirements.txt
+
+          # g1_brain expects the broader agi-style environment.
+          python -m pip install "mujoco==3.5.0" "onnxruntime>=1.17"
+
+          # Install g1_brain itself with test dependencies.
+          python -m pip install -e "g1_brain[test]"
+
+      - name: Run g1_brain unit tests
+        working-directory: g1_brain
+        env:
+          PYTHONPATH: ${{ github.workspace }}/g1_brain:${{ github.workspace }}/va-demo:${{ github.workspace }}/g1_sim_demo
+          MUJOCO_GL: egl
+        run: |
+          xvfb-run -a python -m pytest tests/ -q
+
+      - name: g1_brain import smoke check
+        working-directory: g1_brain
+        env:
+          PYTHONPATH: ${{ github.workspace }}/g1_brain:${{ github.workspace }}/va-demo:${{ github.workspace }}/g1_sim_demo
+          MUJOCO_GL: egl
+        run: |
+          python -c "import g1_brain.scene_state, g1_brain.safety, g1_brain.skills"
+
+      - name: Write CI summary
+        run: |
+          {
+            echo "### g1-brain-tests"
+            echo ""
+            echo "- g1_brain pytest: passed"
+            echo "- g1_brain import smoke: passed"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -6,12 +6,12 @@ sends static joint-angle keyframes (good for waving / posing while the
 elastic band holds the robot up), this demo loads the trained ONNX policy
 shipped with `unitree_rl_mjlab` and runs the *full* RL deployment pipeline:
 
-    rt/lowstate  ─►  build 98-D obs  ─►  policy.onnx  ─►  29-D raw action
+    rt/lowstate  ─►  build 80-D obs  ─►  policy.onnx  ─►  23-D raw action
         ▲                                                       │
         │                                                       ▼
         └───  publish lowcmd (q_target, Kp, Kd)  ◄─  scale + offset
 
-The same pipeline runs on the real G1 (see `unitree_rl_mjlab/deploy/robots/g1/`).
+The same pipeline runs on the real G1 (see `unitree_rl_mjlab/deploy/robots/g1_23dof/`).
 
 Run order:
   Terminal 1:
@@ -40,7 +40,7 @@ Dependencies (one-time):
   # OR pip install onnxruntime-gpu # if you really want CUDA
 
 The policy and its deployment yaml come from:
-  ~/unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1/config/policy/velocity/v0/
+  ~/unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1_23dof/config/policy/velocity/v0/
 
 Note: this policy was trained with vx ∈ [-0.5, 1.0] m/s. So 'f' is "fast walk",
 not real running. To get real running, retrain with a wider velocity range
@@ -79,11 +79,11 @@ from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.utils.thread import RecurrentThread
 
 
-G1_NUM_MOTOR = 29
+G1_NUM_MOTOR = 23
 
 POLICY_DIR = (
     Path.home()
-    / "unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1"
+    / "unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1_23dof"
     / "config/policy/velocity/v0"
 )
 POLICY_ONNX = POLICY_DIR / "exported" / "policy.onnx"
@@ -134,7 +134,7 @@ class DeployCfg:
 # Policy wrapper
 # ---------------------------------------------------------------------------
 class Policy:
-    OBS_DIM = 98          # 3 + 3 + 3 + 2 + 29 + 29 + 29
+    OBS_DIM = 80          # 3 + 3 + 3 + 2 + 23 + 23 + 23
     ACT_DIM = G1_NUM_MOTOR
 
     def __init__(self, onnx_path: Path):
@@ -388,10 +388,10 @@ class RLController:
             projected_gravity,        # 3
             cmd,                      # 3
             gait,                     # 2
-            joint_pos_rel,            # 29
-            joint_vel_rel,            # 29
-            self.last_raw_action,     # 29
-        ])  # → 98
+            joint_pos_rel,            # 23
+            joint_vel_rel,            # 23
+            self.last_raw_action,     # 23
+        ])  # → 80
 
     def _publish(self, q_des: np.ndarray):
         # mode_pr = 0 (PR mode); same as g1_sim_keyboard.py and the deploy

@@ -74,6 +74,9 @@ MIMIC_ONNX = MIMIC_DIR / "exported" / "policy.onnx"
 MIMIC_YAML = MIMIC_DIR / "params" / "deploy.yaml"
 MIMIC_NPZ  = MIMIC_DIR / "params" / "dance1_subject2.npz"
 
+# The mimic policy was trained on 29-DOF (including waist roll/pitch).
+# Override G1_NUM_MOTOR locally so deploy.yaml shape checks pass.
+_MIMIC_NUM_MOTOR = 29
 WAIST_YAW, WAIST_ROLL, WAIST_PITCH = 12, 13, 14
 EXPECTED_OBS_DIM = 154   # 58 + 6 + 3 + 29 + 29 + 29
 
@@ -155,7 +158,7 @@ class MimicDeployCfg:
                           ("default_q", self.default_q),
                           ("action_scale", self.action_scale),
                           ("action_offset", self.action_offset)):
-            if arr.shape != (G1_NUM_MOTOR,):
+            if arr.shape != (_MIMIC_NUM_MOTOR,):
                 raise ValueError(f"deploy.yaml '{name}' shape {arr.shape}")
 
 

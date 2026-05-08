@@ -93,7 +93,7 @@ Run order
 
 Walking keys:   w/s, a/d, q/e, r (stop), f (full forward)
 Arm gestures:   1 wave R, 2 wave L, 3 hands up, 4 T-pose,
-                5 salute, 6 clap, 7 guard, 8 punch combo, 0 release
+                5 salute, 6 clap, 7 guard, 8 punch combo, b bow, 0 release
 System:         space (soften), ? (help), x (quit)
 """
 
@@ -290,9 +290,8 @@ GRAVITY_W = np.array([0.0, 0.0, -1.0], dtype=np.float64)
 # while a gesture override is active — see ``_arm_obs_masked`` flag.
 # Sign convention (matches the MJCF):
 #   shoulder_pitch  − = arm forward/up
-#   shoulder_roll   + = arm out (left side; mirrored on right)
+#   shoulder_roll   + = arm out (left side; − on right side = arm out)
 #   elbow           + = elbow bent
-#   wrist_pitch     − = palm down / forward
 # ---------------------------------------------------------------------------
 def _slot(j: int) -> int:
     """Map global joint index (13..22) to arm-local index (0..9)."""
@@ -406,8 +405,27 @@ def punch_left_pose(arm_rest: np.ndarray) -> np.ndarray:
     return p
 
 
+def bow_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Arms swept forward and slightly inward with elbows bent.
+
+    23-DOF has no WaistPitch, so the torso can't lean. This pose brings
+    both arms forward as they would hang during a forward bow — shoulder
+    pitched forward, elbows bent, hands meeting at roughly chest height
+    in front of the body. Recognisable as a polite bow gesture.
+    """
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-0.7,
+        LeftShoulderRoll=-0.3,
+        LeftElbow=1.0,
+        RightShoulderPitch=-0.7,
+        RightShoulderRoll=0.3,
+        RightElbow=1.0,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Action = ordered list of (duration_seconds, arm_pose_14d) keyframes.
+# Action = ordered list of (duration_seconds, arm_pose_10d) keyframes.
 # The arm controller blends the live "from" arm pose to the keyframe target
 # over `duration` using cosine ease-in-out, then advances to the next.
 # Every gesture ends with a keyframe back to ARM_REST so we hand control
@@ -453,6 +471,7 @@ def build_arm_actions(arm_rest: np.ndarray,
     grd     = guard_pose(arm_rest)
     pr      = punch_right_pose(arm_rest)
     pl      = punch_left_pose(arm_rest)
+    bw      = bow_pose(arm_rest)
 
     return [
         ArmAction("1", "wave right arm",
@@ -481,6 +500,9 @@ def build_arm_actions(arm_rest: np.ndarray,
                    (0.4, pr), (0.35, grd),
                    (0.4, pl), (0.35, grd),
                    (1.2, arm_rest)]),
+        ArmAction("b", "bow (arms-forward)",
+                  [(1.8, bw), hold(bw, 1.0),
+                   (1.8, arm_rest)]),
     ]
 
 

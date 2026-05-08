@@ -41,6 +41,12 @@ WARMSTART_LINK_NAME="warmstart_23dof_velocity"
 NUM_ENVS="${NUM_ENVS:-4096}"
 GPU_IDS="${GPU_IDS:-0}"
 MAX_ITER="${MAX_ITER:-10001}"
+
+# tyro expects list[int] notation, e.g. [0] or [0,1].
+# Convert bare comma-separated ids (e.g. "0" or "0,1") to bracket form.
+if [[ "${GPU_IDS}" != \[* ]]; then
+    GPU_IDS="[${GPU_IDS}]"
+fi
 RECORD_VIDEO="${RECORD_VIDEO:-true}"
 
 # ── Activate venv ─────────────────────────────────────────────────────────────
@@ -92,7 +98,7 @@ echo "==> Starting training (Unitree-G1-23Dof-Flat-Arm-Disturbance) ..."
 
 VIDEO_FLAG=""
 if [ "${RECORD_VIDEO}" = "true" ]; then
-    VIDEO_FLAG="--video true"
+    VIDEO_FLAG="--video True"
 fi
 
 if [ "${COLD_START}" = "true" ]; then

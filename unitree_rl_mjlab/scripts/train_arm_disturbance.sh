@@ -19,6 +19,14 @@
 #   NUM_ENVS   – number of parallel environments  (default: 4096)
 #   GPU_IDS    – comma-separated GPU ids, e.g. "0,1"  (default: 0)
 #   MAX_ITER   – max training iterations  (default: 10001)
+#   RECORD_VIDEO – set to "false" to disable periodic video snapshots (default: true)
+#
+# Video clips are saved to:
+#   logs/rsl_rl/g1_23dof_arm_disturbance/<run>/videos/train/
+# To watch training live, run in a separate terminal (once a checkpoint exists):
+#   cd ~/unitree-notes/unitree_rl_mjlab
+#   PYTHONPATH=. python scripts/play.py Unitree-G1-23Dof-Flat-Arm-Disturbance \
+#     --agent.experiment-name g1_23dof_arm_disturbance --num-envs 4
 
 set -euo pipefail
 
@@ -33,10 +41,14 @@ WARMSTART_LINK_NAME="warmstart_23dof_velocity"
 NUM_ENVS="${NUM_ENVS:-4096}"
 GPU_IDS="${GPU_IDS:-0}"
 MAX_ITER="${MAX_ITER:-10001}"
+RECORD_VIDEO="${RECORD_VIDEO:-true}"
 
 # ── Activate venv ─────────────────────────────────────────────────────────────
 # shellcheck disable=SC1091
 source "${VENV}/bin/activate"
+
+# Add repo root to PYTHONPATH so 'import src.tasks' resolves correctly.
+export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 # ── Step 1: generate gestures_23dof.npz ──────────────────────────────────────
 if [ ! -f "${GESTURES_NPZ}" ]; then
@@ -78,14 +90,22 @@ fi
 cd "${REPO_ROOT}"
 echo "==> Starting training (Unitree-G1-23Dof-Flat-Arm-Disturbance) ..."
 
+VIDEO_FLAG=""
+if [ "${RECORD_VIDEO}" = "true" ]; then
+    VIDEO_FLAG="--video true"
+fi
+
 if [ "${COLD_START}" = "true" ]; then
+    # shellcheck disable=SC2086
     python scripts/train.py \
         Unitree-G1-23Dof-Flat-Arm-Disturbance \
         --env.scene.num-envs "${NUM_ENVS}" \
         --agent.experiment-name g1_23dof_arm_disturbance \
         --agent.max-iterations "${MAX_ITER}" \
-        --gpu-ids "${GPU_IDS}"
+        --gpu-ids "${GPU_IDS}" \
+        ${VIDEO_FLAG}
 else
+    # shellcheck disable=SC2086
     python scripts/train.py \
         Unitree-G1-23Dof-Flat-Arm-Disturbance \
         --env.scene.num-envs "${NUM_ENVS}" \
@@ -93,5 +113,6 @@ else
         --agent.load-run "${WARMSTART_LINK_NAME}" \
         --agent.experiment-name g1_23dof_arm_disturbance \
         --agent.max-iterations "${MAX_ITER}" \
-        --gpu-ids "${GPU_IDS}"
+        --gpu-ids "${GPU_IDS}" \
+        ${VIDEO_FLAG}
 fi

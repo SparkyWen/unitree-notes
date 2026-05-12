@@ -283,6 +283,9 @@ def unitree_g1_23dof_flat_arm_disturbance_env_cfg(
     r".*elbow.*":          _arm_loose_std,
     r".*wrist.*":          _arm_loose_std,
   }
+  # Remove any surviving catch-all ".*" — present in the base config and would
+  # cause a multiple-match error against the arm-specific patterns above.
+  cfg.rewards["pose"].params["std_standing"].pop(".*", None)
   for std_key in ("std_walking", "std_running"):
     cfg.rewards["pose"].params[std_key].update({
       r".*shoulder_pitch.*": _arm_loose_std,

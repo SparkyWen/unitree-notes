@@ -6,19 +6,19 @@
 #   cd ~/unitree-notes/unitree_rl_mjlab
 #   bash scripts/train_arm_disturbance.sh
 #
-# What this does:
-#   1. Activates the unitree-env virtualenv.
-#   2. Generates gestures_23dof.npz (idempotent — skips if already present).
-#   3. (Optional) If a g1_23dof_velocity run exists, symlinks it so
-#      --agent.resume can warm-start from that checkpoint.
-#   4. Launches training (cold-start if no checkpoint found).
+# Start-mode priority (automatic):
+#   1. Resume from most recent g1_23dof_arm_disturbance run (if any).
+#   2. Warm-start from most recent g1_23dof_velocity run (if any).
+#   3. Cold start.
 #
 # Optional env vars:
-#   SRC_RUN    – name of a g1_23dof_velocity run to warm-start from
-#                (default: latest run under logs/rsl_rl/g1_23dof_velocity/)
+#   ARM_RUN    – exact run name under logs/rsl_rl/g1_23dof_arm_disturbance/
+#                to resume from (default: latest)
+#   SRC_RUN    – exact run name under logs/rsl_rl/g1_23dof_velocity/ for
+#                warm-start (default: latest); ignored if an arm run is found
 #   NUM_ENVS   – number of parallel environments  (default: 4096)
 #   GPU_IDS    – comma-separated GPU ids, e.g. "0,1"  (default: 0)
-#   MAX_ITER   – max training iterations  (default: 10001)
+#   MAX_ITER   – max training iterations  (default: 20001)
 #   RECORD_VIDEO – set to "false" to disable periodic video snapshots (default: true)
 #
 # Video clips are saved to:
@@ -34,8 +34,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="${VENV:-$HOME/unitree_sdk2_python/unitree-env}"
 GESTURES_NPZ="${REPO_ROOT}/src/assets/motions/g1/gestures_23dof.npz"
 
+ARM_LOG="${REPO_ROOT}/logs/rsl_rl/g1_23dof_arm_disturbance"
 SRC_LOG="${REPO_ROOT}/logs/rsl_rl/g1_23dof_velocity"
-DST_LOG="${REPO_ROOT}/logs/rsl_rl/g1_23dof_arm_disturbance"
 WARMSTART_LINK_NAME="warmstart_23dof_velocity"
 
 NUM_ENVS="${NUM_ENVS:-4096}"
@@ -68,31 +68,45 @@ else
     echo "==> gestures_23dof.npz exists — skipping generation."
 fi
 
-# ── Step 2: attempt to resolve warm-start checkpoint ─────────────────────────
-COLD_START=true
-if [ -n "${SRC_RUN:-}" ]; then
-    SRC_RUN_DIR="${SRC_LOG}/${SRC_RUN}"
+# ── Step 2: determine start mode ─────────────────────────────────────────────
+START_MODE="cold"
+LOAD_RUN=""
+
+# Priority 1: resume from an existing arm-disturbance checkpoint.
+if [ -n "${ARM_RUN:-}" ]; then
+    ARM_RESUME_DIR="${ARM_LOG}/${ARM_RUN}"
 else
-    SRC_RUN_DIR="$(ls -dt "${SRC_LOG}"/2* 2>/dev/null | head -1 || true)"
+    ARM_RESUME_DIR="$(ls -dt "${ARM_LOG}"/2* 2>/dev/null | head -1 || true)"
 fi
 
-if [ -n "${SRC_RUN_DIR}" ] && [ -d "${SRC_RUN_DIR}" ]; then
-    COLD_START=false
-    echo "==> Warm-start source: ${SRC_RUN_DIR}"
-
-    # ── Step 3: symlink into g1_23dof_arm_disturbance log dir ────────────────
-    mkdir -p "${DST_LOG}"
-    LINK_PATH="${DST_LOG}/${WARMSTART_LINK_NAME}"
-    if [ -L "${LINK_PATH}" ]; then
-        rm "${LINK_PATH}"
+if [ -n "${ARM_RESUME_DIR}" ] && [ -d "${ARM_RESUME_DIR}" ]; then
+    START_MODE="resume"
+    LOAD_RUN="$(basename "${ARM_RESUME_DIR}")"
+    echo "==> Resuming arm-disturbance run: ${LOAD_RUN}"
+else
+    # Priority 2: warm-start from a g1_23dof_velocity checkpoint.
+    if [ -n "${SRC_RUN:-}" ]; then
+        SRC_RUN_DIR="${SRC_LOG}/${SRC_RUN}"
+    else
+        SRC_RUN_DIR="$(ls -dt "${SRC_LOG}"/2* 2>/dev/null | head -1 || true)"
     fi
-    ln -s "${SRC_RUN_DIR}" "${LINK_PATH}"
-    echo "==> Linked: ${LINK_PATH} -> ${SRC_RUN_DIR}"
-else
-    echo "==> No g1_23dof_velocity checkpoint found — starting from cold init."
+
+    if [ -n "${SRC_RUN_DIR}" ] && [ -d "${SRC_RUN_DIR}" ]; then
+        START_MODE="warmstart"
+        mkdir -p "${ARM_LOG}"
+        LINK_PATH="${ARM_LOG}/${WARMSTART_LINK_NAME}"
+        if [ -L "${LINK_PATH}" ]; then
+            rm "${LINK_PATH}"
+        fi
+        ln -s "${SRC_RUN_DIR}" "${LINK_PATH}"
+        LOAD_RUN="${WARMSTART_LINK_NAME}"
+        echo "==> Warm-start: ${LINK_PATH} -> ${SRC_RUN_DIR}"
+    else
+        echo "==> No checkpoint found — cold start."
+    fi
 fi
 
-# ── Step 4: launch training ───────────────────────────────────────────────────
+# ── Step 3: launch training ───────────────────────────────────────────────────
 cd "${REPO_ROOT}"
 echo "==> Starting training (Unitree-G1-23Dof-Flat-Arm-Disturbance) ..."
 
@@ -101,7 +115,7 @@ if [ "${RECORD_VIDEO}" = "true" ]; then
     VIDEO_FLAG="--video True"
 fi
 
-if [ "${COLD_START}" = "true" ]; then
+if [ "${START_MODE}" = "cold" ]; then
     # shellcheck disable=SC2086
     python scripts/train.py \
         Unitree-G1-23Dof-Flat-Arm-Disturbance \
@@ -116,7 +130,7 @@ else
         Unitree-G1-23Dof-Flat-Arm-Disturbance \
         --env.scene.num-envs "${NUM_ENVS}" \
         --agent.resume true \
-        --agent.load-run "${WARMSTART_LINK_NAME}" \
+        --agent.load-run "${LOAD_RUN}" \
         --agent.experiment-name g1_23dof_arm_disturbance \
         --agent.max-iterations "${MAX_ITER}" \
         --gpu-ids "${GPU_IDS}" \

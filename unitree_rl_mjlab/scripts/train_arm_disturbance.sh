@@ -31,7 +31,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VENV="${VENV:-$HOME/unitree_sdk2_python/unitree-env}"
+VENV="${VENV:-$HOME/Git/unitree_mujoco/.venv}"
 GESTURES_NPZ="${REPO_ROOT}/src/assets/motions/g1/gestures_23dof.npz"
 
 ARM_LOG="${REPO_ROOT}/logs/rsl_rl/g1_23dof_arm_disturbance"

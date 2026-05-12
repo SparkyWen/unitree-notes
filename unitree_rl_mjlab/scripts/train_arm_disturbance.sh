@@ -129,7 +129,7 @@ else
     python scripts/train.py \
         Unitree-G1-23Dof-Flat-Arm-Disturbance \
         --env.scene.num-envs "${NUM_ENVS}" \
-        --agent.resume true \
+        --agent.resume True \
         --agent.load-run "${LOAD_RUN}" \
         --agent.experiment-name g1_23dof_arm_disturbance \
         --agent.max-iterations "${MAX_ITER}" \

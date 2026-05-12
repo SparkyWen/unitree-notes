@@ -10,7 +10,8 @@ Provides:
   arm_qpos_ref_obs      — obs: current arm reference [N, arm_dim]
   gesture_onehot_obs    — obs: one-hot gesture indicator [N, N_g]
   arm_qpos_ref_horizon_obs — obs: k-step look-ahead [N, k*arm_dim]
-  arm_track_l2          — reward: L2 penalty vs gesture reference
+  arm_track_l2          — reward: L2 penalty vs gesture reference (gesture active)
+  arm_idle_l2           — reward: L2 penalty vs default pose  (gesture idle)
   ArmDisturbanceAction  — JointPositionAction with arm override
   ArmDisturbanceActionCfg
   gesture_intensity     — curriculum: ramp trigger rate / amplitude
@@ -304,6 +305,31 @@ def arm_track_l2(
     ref = cmd.arm_qpos_ref  # [N, arm_dim]
     penalty = -((q_arm - ref) ** 2).sum(dim=-1)  # [N]
     penalty[~cmd.active] = 0.0
+    return penalty
+
+
+def arm_idle_l2(
+    env: ManagerBasedRlEnv,
+    command_name: str = "arm_ref",
+    arm_start: int = _ARM_START,
+    arm_end: int = _ARM_END,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+    """Penalise arm deviation from default pose when no gesture is active.
+
+    Symmetric counterpart to arm_track_l2: suppresses uninstructed arm
+    movement during idle intervals without interfering with gesture playback.
+    Zero for envs with an active gesture so the arm override can reach
+    non-default targets freely.
+
+    Returns −||q_arm − q_arm_default||² per env; zero for active-gesture envs.
+    """
+    cmd: ArmReferenceCommand = env.command_manager.get_term(command_name)  # type: ignore[assignment]
+    asset: Entity = env.scene[asset_cfg.name]
+    q_arm = asset.data.joint_pos[:, arm_start:arm_end]
+    q_default = asset.data.default_joint_pos[:, arm_start:arm_end]
+    penalty = -((q_arm - q_default) ** 2).sum(dim=-1)
+    penalty[cmd.active] = 0.0
     return penalty
 
 

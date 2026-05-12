@@ -40,7 +40,7 @@ WARMSTART_LINK_NAME="warmstart_23dof_velocity"
 
 NUM_ENVS="${NUM_ENVS:-4096}"
 GPU_IDS="${GPU_IDS:-0}"
-MAX_ITER="${MAX_ITER:-10001}"
+MAX_ITER="${MAX_ITER:-20001}"
 
 # tyro expects list[int] notation, e.g. [0] or [0,1].
 # Convert bare comma-separated ids (e.g. "0" or "0,1") to bracket form.

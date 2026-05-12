@@ -19,6 +19,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from src.tasks.velocity.mdp.arm_disturbance import (
   ArmDisturbanceActionCfg,
   ArmReferenceCommandCfg,
+  arm_idle_l2,
   arm_qpos_ref_horizon_obs,
   arm_track_l2,
   gesture_intensity,
@@ -291,10 +292,21 @@ def unitree_g1_23dof_flat_arm_disturbance_env_cfg(
       r".*wrist.*":          _arm_loose_std,
     })
 
-  # ── Arm tracking reward ───────────────────────────────────────────────
+  # ── Arm tracking reward (active during gesture) ───────────────────────
   cfg.rewards["arm_track_l2"] = RewardTermCfg(
     func=arm_track_l2,
     weight=0.05,
+    params={"command_name": "arm_ref", "arm_start": 13, "arm_end": 23},
+  )
+
+  # ── Arm rest reward (active during idle) ─────────────────────────────
+  # Penalise arm deviation from default pose when no gesture is playing.
+  # Zero during gestures so the arm override is not fought. Weight 0.2
+  # is strong enough to suppress spurious arm waving without disrupting
+  # the leg/balance gradient signal.
+  cfg.rewards["arm_idle_l2"] = RewardTermCfg(
+    func=arm_idle_l2,
+    weight=0.2,
     params={"command_name": "arm_ref", "arm_start": 13, "arm_end": 23},
   )
 

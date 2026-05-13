@@ -15,7 +15,7 @@ robot:
   # mismatch here means the robot's first-person view sees a different world
   # than the simulator — describe_scene then reports "empty floor" while the
   # operator can clearly see boxes/ramps/heightfield in the simulator window.
-  mjcf_path: "${HOME}/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml"
+  mjcf_path: "${HOME}/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml"
 
 cameras:
   # === Two cameras, two completely different jobs ==========================
@@ -207,7 +207,7 @@ mock_imitation:
 
 logging:
   level: "INFO"
-  log_dir: "${HOME}/unitree/unitree-notes/g1_brain/logs"
+  log_dir: "${HOME}/unitree-notes/g1_brain/logs"
   rotate_mb: 50
 
 audio_control:
@@ -242,7 +242,7 @@ audio_control:
   # harness with memory retrieval / SQLite FTS5 can ingest these files.
   transcript:
     enabled: true
-    dir: "${HOME}/unitree/unitree-notes/g1_brain/logs/conversations"
+    dir: "${HOME}/unitree-notes/g1_brain/logs/conversations"
     # Rotate by count: at agent_main start, delete oldest files beyond this.
     keep_last_n: 50
     # Trim text payloads larger than this (full text remains in agent.log).

@@ -685,7 +685,7 @@ async def _run(args: argparse.Namespace) -> int:
                     "process failed to import. Falling back to --no-skills.\n"
                     "  -> Start the simulator in another terminal:\n"
                     "       conda activate unitree && export MUJOCO_GL=glfw\n"
-                    "       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python\n"
+                    "       cd ~/unitree-notes/unitree_mujoco/simulate_python\n"
                     "       python unitree_mujoco.py"
                 )
                 try:
@@ -778,7 +778,7 @@ async def _run(args: argparse.Namespace) -> int:
                             "running.\n"
                             "  -> Start it in another terminal:\n"
                             "       conda activate unitree && export MUJOCO_GL=glfw\n"
-                            "       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python\n"
+                            "       cd ~/unitree-notes/unitree_mujoco/simulate_python\n"
                             "       python unitree_mujoco.py\n"
                             "  -> Or rerun with --no-skills (or --vision-only) "
                             "to bypass the RL controller."

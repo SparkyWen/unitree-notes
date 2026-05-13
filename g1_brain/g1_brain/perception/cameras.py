@@ -95,7 +95,7 @@ class CameraHub:
         mjcf = cfg.get("mjcf_path") or self._robot_mjcf_path or os.path.expanduser(
             os.environ.get(
                 "G1_MJCF_PATH",
-                "~/unitree/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml",
+                "~/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml",
             )
         )
         # head.subscribe_dds in yaml may explicitly disable; otherwise inherit

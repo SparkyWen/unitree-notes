@@ -14,6 +14,12 @@
     <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
       markrgb="0.8 0.8 0.8" width="300" height="300"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+
+    <!-- Vision-validation test photo. MuJoCo 3.5's built-in texture loader
+         is PNG-only — convert any JPG with cv2.imwrite or `convert in.jpg
+         out.png` first. Path is relative to this MJCF. -->
+    <texture type="2d" name="test_photo" file="images/mygo_cover.png"/>
+    <material name="test_photo" texture="test_photo" texuniform="false" rgba="1 1 1 1"/>
   </asset>
 
   <worldbody>
@@ -35,5 +41,15 @@
     -->
     <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"
           friction="1.5 0.05 0.005" condim="6" priority="1"/>
+
+    <!-- Test photo wall. 2 m in front of the robot (camera default fwd = +X),
+         centred at z=1.24 m which is roughly the head-camera mount height.
+         Visible size 1.5 m wide x 1.0 m tall (size= are half-extents).
+         contype/conaffinity=0 -> no collisions, so it does not interfere
+         with the locomotion policy. xyaxes orients the box so its front
+         face (towards -X) carries the texture mapping cleanly. -->
+    <geom name="test_photo_wall" type="box" pos="2.0 0 1.24"
+          xyaxes="0 -1 0 0 0 1" size="0.75 0.5 0.02"
+          material="test_photo" contype="0" conaffinity="0"/>
   </worldbody>
 </mujoco>

@@ -32,9 +32,23 @@ GESTURE_KEY_MAP: Dict[str, str] = {
 
 
 def _ensure_g1_sim_demo_on_path():
-    p = Path.home() / "unitree" / "unitree-notes" / "g1_sim_demo"
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+    # Look in a few likely layouts: the monorepo sibling (most reliable, since
+    # va_demo and g1_sim_demo are both in the same repo), then the historical
+    # ~/unitree/unitree-notes layout, then a flatter ~/unitree-notes layout.
+    candidates = [
+        Path(__file__).resolve().parent.parent.parent / "g1_sim_demo",
+        Path.home() / "unitree" / "unitree-notes" / "g1_sim_demo",
+        Path.home() / "unitree-notes" / "g1_sim_demo",
+    ]
+    for p in candidates:
+        if (p / "g1_sim_rl_combo.py").exists():
+            if str(p) not in sys.path:
+                sys.path.insert(0, str(p))
+            return
+    raise ModuleNotFoundError(
+        "g1_sim_rl_combo.py not found in any expected location: "
+        + ", ".join(str(c) for c in candidates)
+    )
 
 
 class SkillBackend:

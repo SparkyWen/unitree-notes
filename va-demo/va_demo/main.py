@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+from dotenv import load_dotenv
 
 from . import audio_io, camera, safety, skills, tts, vision
 from .conversation_state import ConversationConfig, ConversationStateMachine
@@ -79,21 +80,50 @@ async def _run(args):
     mic.start()
     speaker.start()
 
-    # ---- camera ----
-    cam = camera.Camera(
-        host=cfg["camera"]["host"],
-        request_port=cfg["camera"]["request_port"],
-        request_bgr=True,
-    )
-
-    # ---- robot skills (optional) ----
-    skill_backend: Optional[skills.SkillBackend] = None
+    # ---- DDS init (must happen before camera if MuJoCoHeadCamera will
+    # subscribe to rt/lowstate, otherwise its ChannelSubscriber.Init silently
+    # noops with a 'NoneType._ref' warning) ----
+    dds_initialized = False
     if not args.no_skills:
         from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
         ChannelFactoryInitialize(cfg["robot"]["domain_id"], cfg["robot"]["interface"])
         log.info("DDS initialized: domain=%d iface=%s",
                  cfg["robot"]["domain_id"], cfg["robot"]["interface"])
+        dds_initialized = True
+
+    # ---- camera ----
+    if args.mujoco_camera:
+        from . import mujoco_camera as mjcam
+
+        cam_cfg = cfg.get("camera", {}) or {}
+        mjcf_path = os.path.expanduser(os.path.expandvars(
+            cam_cfg.get("mjcf_path")
+            or os.environ.get(
+                "G1_MJCF_PATH",
+                "~/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof.xml",
+            )
+        ))
+        cam = mjcam.MuJoCoHeadCamera(
+            mjcf_path=mjcf_path,
+            camera_name=cam_cfg.get("camera_name", "head_camera"),
+            width=int(cam_cfg.get("head_width", 640)),
+            height=int(cam_cfg.get("head_height", 480)),
+            poll_hz=float(cam_cfg.get("head_poll_hz", 20.0)),
+            subscribe_dds=dds_initialized,
+        )
+        log.info("mujoco-camera enabled: mjcf=%s subscribe_dds=%s",
+                 mjcf_path, dds_initialized)
+    else:
+        cam = camera.Camera(
+            host=cfg["camera"]["host"],
+            request_port=cfg["camera"]["request_port"],
+            request_bgr=True,
+        )
+
+    # ---- robot skills (optional; DDS init already happened above) ----
+    skill_backend: Optional[skills.SkillBackend] = None
+    if dds_initialized:
         skill_backend = skills.build_skill_backend()
         log.info("waiting for ComboController policy_active ...")
         deadline = asyncio.get_event_loop().time() + 30.0
@@ -281,11 +311,28 @@ def parse_args():
                    help="vision-only test mode: drop motion tools (walk/gesture/stop/release_arms) "
                         "from the Realtime schema and skip DDS/ComboController init. "
                         "Implies --no-skills. MuJoCo is not required.")
+    p.add_argument("--mujoco-camera", action="store_true",
+                   help="render head-camera frames from MuJoCo's offscreen view of "
+                        "the simulated G1 instead of pulling from teleimager. MJCF "
+                        "is read from camera.mjcf_path / G1_MJCF_PATH env / a sane "
+                        "default. Subscribes to rt/lowstate to track live joint pose "
+                        "when DDS is up (i.e. without --no-skills/--vision-only).")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args()
 
 
 def main():
+    # Load environment variables from .env files in order (first wins):
+    # 1. ~/.env (shared across projects)
+    # 2. ./va-demo/.env (project-specific overrides, if any)
+    home_env = Path.home() / ".env"
+    if home_env.exists():
+        load_dotenv(dotenv_path=home_env)
+
+    local_env = Path(__file__).resolve().parent.parent / ".env"
+    if local_env.exists():
+        load_dotenv(dotenv_path=local_env, override=False)
+
     args = parse_args()
     _setup_logging(args.verbose)
 

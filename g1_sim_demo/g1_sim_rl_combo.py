@@ -206,10 +206,9 @@ _KEY_TO_GESTURE_IDX: dict = {
     "2": 1,  # wave_left
     "3": 2,  # hands_up
     "4": 3,  # t_pose
-    "5": 4,  # salute
-    "6": 5,  # clap
-    "7": 6,  # guard
-    "8": 7,  # punch_combo
+    # keys 5-8 intentionally absent: gestures_23dof.npz was baked from the
+    # old (wrong) pose functions, so the library trajectories are incorrect.
+    # Falling through to the keyframe else-branch picks up the fixed poses.
     "hug": 8,  # for keyframe_extras / SkillServer
 }
 
@@ -386,44 +385,67 @@ def t_pose_pose(arm_rest: np.ndarray) -> np.ndarray:
 
 
 def salute_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Right hand to forehead."""
+    """Right hand to forehead — military salute.
+
+    Upper arm elevated and to the right (pitch=-0.8, roll=-1.0), similar
+    to wave_right but more elevated.  At yaw=0 the elbow's natural bend
+    plane (set by the MJCF shoulder chain) swings the forearm upward and
+    inward toward the head at this arm elevation — no axial yaw needed.
+    Elbow=1.55 rad gives enough bend to bring the hand to the forehead.
+    """
     return _abs_pose_from(
         arm_rest,
-        RightShoulderPitch=-0.6,
-        RightShoulderRoll=-0.4,
+        RightShoulderPitch=-0.8,
+        RightShoulderRoll=-1.0,
         RightElbow=1.55,
     )
 
 
 def clap_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Both hands meeting at chest/face height — real clap geometry.
+
+    Both arms come forward (pitch=-0.8) and cross INWARD (roll=-0.5 left,
+    +0.5 right).  At yaw=0 the natural elbow bend swings the forearms
+    upward and inward so the hands meet in front of the face — no axial
+    yaw needed.
+    """
     return _abs_pose_from(
         arm_rest,
         LeftShoulderPitch=-0.8,
-        LeftShoulderRoll=0.4,
-        LeftElbow=1.2,
-        RightShoulderPitch=-0.8,
-        RightShoulderRoll=-0.4,
-        RightElbow=1.2,
-    )
-
-
-def guard_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Boxer guard: both fists in front of face."""
-    return _abs_pose_from(
-        arm_rest,
-        LeftShoulderPitch=-0.6,
-        LeftShoulderRoll=0.5,
+        LeftShoulderRoll=-0.5,
         LeftElbow=1.4,
-        RightShoulderPitch=-0.6,
-        RightShoulderRoll=-0.5,
+        RightShoulderPitch=-0.8,
+        RightShoulderRoll=0.5,
         RightElbow=1.4,
     )
 
 
+def guard_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Boxer guard: two vertical forearms ( I I ) in front of the face.
+
+    pitch=-1.2 tilts the upper arm forward-and-upward (mostly forward,
+    slightly down from horizontal).  At that elevation the MJCF shoulder
+    chain's natural elbow bend plane (yaw=0) already swings the forearm
+    mostly UPWARD (+Z ≈ 0.93) with only a slight forward lean — producing
+    the 'I I' shape without any axial yaw twist.  roll=±0.4 spaces the
+    arms slightly wider than the body so both forearms are visible
+    side-by-side from the front.
+    """
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-1.2,
+        LeftShoulderRoll=0.4,
+        LeftElbow=1.5,
+        RightShoulderPitch=-1.2,
+        RightShoulderRoll=-0.4,
+        RightElbow=1.5,
+    )
+
+
 def punch_right_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Right arm extended forward (jab), left arm in guard."""
+    """Right arm extended forward (jab), left arm stays in guard."""
     p = guard_pose(arm_rest)
-    p[_slot(J.RightShoulderPitch)] = -1.0
+    p[_slot(J.RightShoulderPitch)] = -1.2
     p[_slot(J.RightShoulderRoll)]  = -0.1
     p[_slot(J.RightElbow)]         =  0.1
     return p
@@ -431,28 +453,32 @@ def punch_right_pose(arm_rest: np.ndarray) -> np.ndarray:
 
 def punch_left_pose(arm_rest: np.ndarray) -> np.ndarray:
     p = guard_pose(arm_rest)
-    p[_slot(J.LeftShoulderPitch)] = -1.0
+    p[_slot(J.LeftShoulderPitch)] = -1.2
     p[_slot(J.LeftShoulderRoll)]  =  0.1
     p[_slot(J.LeftElbow)]         =  0.1
     return p
 
 
 def bow_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Arms swept forward and slightly inward with elbows bent.
+    """Namaste / prayer-hands bow substitute for 23-DOF.
 
-    23-DOF has no WaistPitch, so the torso can't lean. This pose brings
-    both arms forward as they would hang during a forward bow — shoulder
-    pitched forward, elbows bent, hands meeting at roughly chest height
-    in front of the body. Recognisable as a polite bow gesture.
+    23-DOF has no WaistPitch, so the torso cannot lean forward — a
+    physically correct forward bow is impossible.  The closest recognisable
+    gesture is bringing both hands together at chest height (合掌 / namaste),
+    which reads universally as a respectful bow.
+
+    Both arms come forward (-0.7 pitch) and strongly INWARD (roll -0.4 left,
+    +0.4 right) with elbows bent (1.3), so the hands meet at roughly
+    chest/sternum height in front of the body.
     """
     return _abs_pose_from(
         arm_rest,
         LeftShoulderPitch=-0.7,
-        LeftShoulderRoll=-0.3,
-        LeftElbow=1.0,
+        LeftShoulderRoll=-0.4,
+        LeftElbow=1.3,
         RightShoulderPitch=-0.7,
-        RightShoulderRoll=0.3,
-        RightElbow=1.0,
+        RightShoulderRoll=0.4,
+        RightElbow=1.3,
     )
 
 
@@ -532,7 +558,7 @@ def build_arm_actions(arm_rest: np.ndarray,
                    (0.4, pr), (0.35, grd),
                    (0.4, pl), (0.35, grd),
                    (1.2, arm_rest)]),
-        ArmAction("b", "bow (arms-forward)",
+        ArmAction("b", "bow (namaste — no waist pitch on 23DOF)",
                   [(1.8, bw), hold(bw, 1.0),
                    (1.8, arm_rest)]),
     ]
@@ -1678,11 +1704,19 @@ def main():
             elif ch in _KEY_TO_GESTURE_IDX and ctl._n_gestures > 0:
                 # Library gesture: arm targets come from gestures_23dof.npz;
                 # the policy receives matching gesture_onehot + arm_qpos_ref_horizon.
+                # Fall back to keyframes if the library was built with fewer
+                # gestures than needed (e.g. only 4 of the 9) — without this
+                # check, start_library_gesture silently no-ops and nothing happens.
                 gid = _KEY_TO_GESTURE_IDX[ch]
                 act = actions_by_key.get(ch)
                 name = act.name if act else f"gesture {gid}"
-                print(f"[combo] library gesture '{ch}' = {name} (id={gid})")
-                ctl.start_library_gesture(gid)
+                if gid < ctl._n_gestures:
+                    print(f"[combo] library gesture '{ch}' = {name} (id={gid})")
+                    ctl.start_library_gesture(gid)
+                elif act is not None:
+                    print(f"[combo] arm gesture '{ch}' = {name} "
+                          f"(keyframe fallback; library has {ctl._n_gestures} gestures)")
+                    ctl.push_arm_action(act.keyframes)
                 continue
             else:
                 act = actions_by_key.get(ch)

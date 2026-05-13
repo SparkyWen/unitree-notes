@@ -181,23 +181,16 @@ def _slot(j: int) -> int:
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPT_DIR = Path(__file__).resolve().parent
 
-# The arm-disturbance ONNX (obs_dim=139, act_dim=23) lives in g1_sim_demo/policy/.
-# The deploy.yaml (joint layout, gains) is still from the g1_23dof baseline.
+# Both the ONNX and the deploy config live in g1_sim_demo/policy/ so this
+# file is portable when copied to any repo (e.g. cs47-command-center).
 POLICY_ONNX = _SCRIPT_DIR / "policy" / "policy.onnx"
-POLICY_YAML = (
-    _REPO_ROOT
-    / "unitree_rl_mjlab/deploy/robots/g1_23dof"
-    / "config/policy/velocity/v0/params/deploy.yaml"
-)
+POLICY_YAML = _SCRIPT_DIR / "policy" / "params" / "deploy.yaml"
 
 # ---------------------------------------------------------------------------
 # Gesture library (gestures_23dof.npz, built from build_arm_actions at 50 Hz).
 # obs: gesture_onehot [N_g] + arm_qpos_ref_horizon [k * ARM_DIM].
 # ---------------------------------------------------------------------------
-_GESTURE_FILE = (
-    _REPO_ROOT
-    / "unitree_rl_mjlab/src/assets/motions/g1/gestures_23dof.npz"
-)
+_GESTURE_FILE = _SCRIPT_DIR / "policy" / "gestures_23dof.npz"
 _GESTURE_FPS = 50.0       # Hz at which the library was sampled
 _GESTURE_K   = 5          # look-ahead horizon in obs
 # gesture key → library index (must match names order in gestures_23dof.npz)

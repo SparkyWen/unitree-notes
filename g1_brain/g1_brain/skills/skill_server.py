@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 
 def _ensure_g1_sim_demo_on_path() -> None:
     """Make `import g1_sim_rl_combo` resolve. Mirrors va_demo.skills."""
-    p = Path.home() / "unitree" / "unitree-notes" / "g1_sim_demo"
+    p = Path.home() / "unitree-notes" / "g1_sim_demo"
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 

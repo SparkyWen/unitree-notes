@@ -46,15 +46,15 @@ DEFAULT_CONFIG = REPO_ROOT / "g1_brain" / "configs" / "g1_brain.yaml"
 
 
 def _ensure_sibling_repos_on_path() -> None:
-    """Add ~/unitree/unitree-notes/{va-demo,g1_sim_demo} to sys.path.
+    """Add ~/unitree-notes/{va-demo,g1_sim_demo} to sys.path.
 
     Both packages live alongside g1_brain in the unitree-notes workspace and
     are imported directly; we do not pip-install them.
     """
     home = Path.home()
     candidates = [
-        home / "unitree" / "unitree-notes" / "va-demo",
-        home / "unitree" / "unitree-notes" / "g1_sim_demo",
+        home / "unitree-notes" / "va-demo",
+        home / "unitree-notes" / "g1_sim_demo",
     ]
     for p in candidates:
         sp = str(p)

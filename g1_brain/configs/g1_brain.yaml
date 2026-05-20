@@ -141,11 +141,24 @@ safety:
     # run_mode. RISK -> fall through to the existing terminal y/N. With this
     # off, behaviour reverts bit-for-bit to the pre-design build.
     enabled: true
-    timeout_s: 5.0          # GPT-5.5 hard timeout; on timeout -> RISK
+    # Was 5.0s in the initial spec, but real GPT-5.5 vision latency at
+    # detail=auto is routinely 3-7s and detail=high pushes it past 10s,
+    # so the gate was timing out on most calls before the model could
+    # answer. 12s gives a cold-start call comfortable headroom; the
+    # VisionRiskGate also plumbs (timeout_s + 1.0) down to the OpenAI
+    # SDK as an HTTP-level timeout so timed-out requests no longer leak
+    # executor threads (see safety/vision_risk_gate.py).
+    timeout_s: 12.0         # GPT-5.5 hard timeout; on timeout -> RISK
     max_frame_age_s: 2.0    # head-cam JPEG older than this -> RISK
     min_brightness: 30      # 0-255 mean luminance; below -> RISK (too dark)
     max_brightness: 235     # 0-255 mean luminance; above -> RISK (white-out)
-    detail: "auto"          # OpenAI image detail: low / high / auto / original
+    # The safety gate only needs coarse hazard detection (people,
+    # stairs, obstacles, fragile items) — none of which require
+    # high-res image processing. "low" cuts GPT-5.5 vision latency
+    # from 3-7s to ~1-3s. The user-facing describe_scene tool keeps
+    # its independent default (openai.vision_detail) so detailed
+    # scene narration is unaffected.
+    detail: "low"           # OpenAI image detail: low / high / auto / original
 
 openai:
   realtime_model: "gpt-realtime"

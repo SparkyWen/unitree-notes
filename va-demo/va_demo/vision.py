@@ -29,13 +29,33 @@ class VisionClient:
         image_jpeg_b64: str,
         prompt: str,
         detail: Optional[str] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> str:
-        """Run one vision call; returns the model's text response."""
+        """Run one vision call; returns the model's text response.
+
+        ``request_timeout_s`` is plumbed down to the OpenAI SDK as a
+        per-request HTTP timeout via ``client.with_options(timeout=...)``.
+        This matters because the SDK call runs in a thread executor, so an
+        outer ``asyncio.wait_for`` cannot actually cancel the in-flight
+        HTTP request — without an HTTP-level timeout, a slow call leaks an
+        executor thread until the SDK's default ~10-minute timeout fires.
+        Setting an HTTP-level timeout here lets the SDK raise
+        ``APITimeoutError`` and free the thread promptly even when the
+        caller's outer ``wait_for`` has already given up.
+        """
 
         detail = detail or self._default_detail
+        http_timeout: Optional[float] = (
+            float(request_timeout_s) if request_timeout_s is not None else None
+        )
         loop = asyncio.get_event_loop()
 
         def _call() -> str:
+            client = (
+                self._client.with_options(timeout=http_timeout)
+                if http_timeout is not None
+                else self._client
+            )
             data_url = f"data:image/jpeg;base64,{image_jpeg_b64}"
             inputs = [
                 {
@@ -47,7 +67,7 @@ class VisionClient:
                 }
             ]
             try:
-                resp = self._client.responses.create(model=self._model, input=inputs)
+                resp = client.responses.create(model=self._model, input=inputs)
                 text = getattr(resp, "output_text", None)
                 if text:
                     return text
@@ -63,7 +83,7 @@ class VisionClient:
                 return "\n".join(pieces) if pieces else ""
             except AttributeError:
                 # Older SDK: fall back to chat.completions.
-                resp = self._client.chat.completions.create(
+                resp = client.chat.completions.create(
                     model=self._model,
                     messages=[
                         {

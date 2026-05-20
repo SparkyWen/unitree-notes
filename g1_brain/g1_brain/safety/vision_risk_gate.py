@@ -11,8 +11,10 @@ a horizontal capability the operator turns on via
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional, Set
 
@@ -273,26 +275,74 @@ class VisionRiskGate:
         prompt = _PROMPT_TEMPLATE.format(
             action_sentence=_describe_action(tool, sanitized)
         )
+        # Plumb an HTTP-level timeout slightly looser than our outer
+        # wait_for so the OpenAI SDK aborts cleanly *after* we have already
+        # returned a "timeout" verdict — otherwise the synchronous SDK
+        # call sits in a leaked executor thread until the SDK's default
+        # ~10-minute timeout fires, and subsequent gate calls fight for
+        # thread-pool slots.
+        describe_kwargs: Dict[str, Any] = dict(
+            image_jpeg_b64=jpeg_b64,
+            prompt=prompt,
+            detail=self._detail,
+        )
+        # `request_timeout_s` was added to va_demo.vision.VisionClient.describe
+        # alongside this change. Test stubs and older VisionClient versions
+        # may not accept the kwarg, so probe the signature before passing it.
+        if self._describe_accepts_request_timeout_s():
+            describe_kwargs["request_timeout_s"] = self._timeout_s + 1.0
+        t0 = time.monotonic()
         try:
             text = await asyncio.wait_for(
-                self._vision.describe(
-                    image_jpeg_b64=jpeg_b64,
-                    prompt=prompt,
-                    detail=self._detail,
-                ),
+                self._vision.describe(**describe_kwargs),
                 timeout=self._timeout_s,
             )
         except asyncio.TimeoutError:
+            dt = time.monotonic() - t0
+            log.warning(
+                "[vision_gate] vision call timed out after %.2fs (budget=%.1fs)",
+                dt,
+                self._timeout_s,
+            )
             return RiskVerdict(
                 False,
                 f"vision call timed out after {self._timeout_s:.1f}s",
                 "timeout",
             )
         except Exception as e:  # noqa: BLE001
-            log.warning("vision_gate api error: %s", e)
+            dt = time.monotonic() - t0
+            log.warning("[vision_gate] api error after %.2fs: %s", dt, e)
             return RiskVerdict(False, f"vision api error: {e!s}"[:120], "api_error")
 
+        dt = time.monotonic() - t0
+        log.info(
+            "[vision_gate] vision call returned in %.2fs (budget=%.1fs)",
+            dt,
+            self._timeout_s,
+        )
         return _parse_verdict(text)
+
+    def _describe_accepts_request_timeout_s(self) -> bool:
+        """Whether the wrapped vision client's describe() accepts ``request_timeout_s``.
+
+        Cached on first call. Older VisionClient versions and many test stubs
+        do not advertise this kwarg; passing it unconditionally would TypeError.
+        Inspecting the signature lets us stay compatible with both.
+        """
+        cached = getattr(self, "_accepts_rt_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            sig = inspect.signature(self._vision.describe)
+            params = sig.parameters
+            accepts = (
+                "request_timeout_s" in params
+                or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+            )
+        except (TypeError, ValueError):
+            accepts = False
+        self._accepts_rt_cache = accepts
+        return accepts
 
     def _mean_luminance(self) -> Optional[float]:
         """Mean of the BGR head frame, or None if not retrievable.

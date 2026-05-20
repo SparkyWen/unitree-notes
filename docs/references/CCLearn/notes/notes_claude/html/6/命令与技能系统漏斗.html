@@ -1,0 +1,149 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">命令与技能系统漏斗</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">从八路来源到三种执行类型：getCommands() 是所有斜杠与 SkillTool 调用的唯一交汇点</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+
+<!-- 列 1 · 命令来源 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Source 01</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">内置命令与技能</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">85+ 硬编码命令目录加 17 个 bundled 技能，随 CLI 发布，含 25 个 Ant 内部命令</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">commands/* · skills/bundled/</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Source 02</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">用户与项目技能</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">从 .claude/skills 递归搜索 .md 文件，按 frontmatter 解析成 PromptCommand</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">loadSkillsDir.ts</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Source 03</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">插件与动态技能</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">已安装插件注入的命令技能，加 paths 文件匹配触发的条件动态技能</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">loadPluginCommands.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 合并与过滤 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Merge</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">八路合并</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">loadAllCommands 按 cwd memoize，依次叠加 bundled、内置插件、用户、工作流、插件与动态八条来源</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">loadAllCommands</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Filter</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">可用性与开关过滤</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">meetsAvailabilityRequirement 按订阅类型筛，isEnabled 按 feature gate 决定最终可见命令集</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">availability · isEnabled</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 统一命令表 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Core · Registry</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">getCommands 统一入口</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">所有斜杠命令、SkillTool 查询、命令补全的唯一数据源，返回过滤后的命令列表</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">commands.ts · 754 行</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">去重与内置优先</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">命名冲突时内置命令永远胜出，防止插件或动态技能意外覆盖核心能力</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">dedup · builtin wins</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Dynamic</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">条件技能热刷新</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">文件操作期间按 paths 字段匹配注入临时技能，随后清空 memoize 缓存强制重算</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">activateConditionalSkills</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 类型分流 蓝 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Type A · Prompt</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">PromptCommand</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">返回 ContentBlockParam 数组注入对话，模型可调用，支持 inline 或 fork 子代理执行</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">type: 'prompt'</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Type B · Local</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">LocalCommand</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">延迟 import 实现模块后直接执行，返回 text 或 compact 结果，不发送给模型</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">type: 'local'</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Type C · Local JSX</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">LocalJSXCommand</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">渲染 React 组件到 Ink 终端，通过 onDone 回调异步返回结果与后续行为选项</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">type: 'local-jsx'</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 执行入口 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Entry · A</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">用户斜杠触发</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">processUserInput 检测 / 前缀后按 name 或 aliases 在统一命令表里精确查找</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">processUserInput.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Entry · B</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">模型 SkillTool 调用</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">模型在对话中 tool_use SkillTool，findCommand 从同一张表里定位技能并执行</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">tools/SkillTool/SkillTool.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Entry · C</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">inline 与 fork 分支</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">inline 直接注入当前对话，fork 借 prepareForkedCommandContext 起独立子代理</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">prepareForkedCommandContext</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>命令来源</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>合并与过滤</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>统一命令表</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>类型分流</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>执行入口</div>
+</div>
+
+</div>

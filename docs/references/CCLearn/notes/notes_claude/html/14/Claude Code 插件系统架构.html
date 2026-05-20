@@ -1,0 +1,211 @@
+<style>
+.pg-root { padding: 1rem 0 0; font-family: var(--font-sans); color: var(--color-text-primary); }
+.pg-header { margin-bottom: 18px; }
+.pg-title { font-size: 22px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+.pg-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 14px; font-weight: 400; }
+.pg-rule { height: 0.5px; background: var(--color-border-tertiary); margin: 0 0 20px; }
+.pg-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; margin-bottom: 18px; }
+.pg-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.pg-col-head { font-size: 9px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; padding: 0 2px; }
+.pg-card { border-radius: 8px; border: 0.5px solid; padding: 10px 10px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.pg-card-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.78; font-weight: 500; }
+.pg-card-title { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.pg-card-desc { font-size: 10px; line-height: 1.55; opacity: 0.88; font-weight: 400; }
+.pg-card-path { font-size: 9px; font-family: var(--font-mono); padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-top: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-purple { --bg: #EEEDFE; --bd: #CECBF6; --tt: #26215C; --tx: #3C3489; --pill-bg: #CECBF6; --pill-tx: #26215C; }
+.ph-blue   { --bg: #E6F1FB; --bd: #B5D4F4; --tt: #042C53; --tx: #0C447C; --pill-bg: #B5D4F4; --pill-tx: #042C53; }
+.ph-amber  { --bg: #FAEEDA; --bd: #FAC775; --tt: #412402; --tx: #633806; --pill-bg: #FAC775; --pill-tx: #412402; }
+.ph-teal   { --bg: #E1F5EE; --bd: #9FE1CB; --tt: #04342C; --tx: #085041; --pill-bg: #9FE1CB; --pill-tx: #04342C; }
+.ph-coral  { --bg: #FAECE7; --bd: #F5C4B3; --tt: #4A1B0C; --tx: #712B13; --pill-bg: #F5C4B3; --pill-tx: #4A1B0C; }
+.ph-green  { --bg: #EAF3DE; --bd: #C0DD97; --tt: #173404; --tx: #27500A; --pill-bg: #C0DD97; --pill-tx: #173404; }
+@media (prefers-color-scheme: dark) {
+  .ph-purple { --bg: #3C3489; --bd: #7F77DD; --tt: #EEEDFE; --tx: #CECBF6; --pill-bg: #26215C; --pill-tx: #CECBF6; }
+  .ph-blue   { --bg: #0C447C; --bd: #378ADD; --tt: #E6F1FB; --tx: #B5D4F4; --pill-bg: #042C53; --pill-tx: #B5D4F4; }
+  .ph-amber  { --bg: #633806; --bd: #EF9F27; --tt: #FAEEDA; --tx: #FAC775; --pill-bg: #412402; --pill-tx: #FAC775; }
+  .ph-teal   { --bg: #085041; --bd: #1D9E75; --tt: #E1F5EE; --tx: #9FE1CB; --pill-bg: #04342C; --pill-tx: #9FE1CB; }
+  .ph-coral  { --bg: #712B13; --bd: #D85A30; --tt: #FAECE7; --tx: #F5C4B3; --pill-bg: #4A1B0C; --pill-tx: #F5C4B3; }
+  .ph-green  { --bg: #27500A; --bd: #639922; --tt: #EAF3DE; --tx: #C0DD97; --pill-bg: #173404; --pill-tx: #C0DD97; }
+}
+.pg-card { background: var(--bg); border-color: var(--bd); }
+.pg-card-label { color: var(--tx); }
+.pg-card-title { color: var(--tt); }
+.pg-card-desc { color: var(--tx); }
+.pg-card-path { background: var(--pill-bg); color: var(--pill-tx); }
+.pg-col-head { color: var(--tx); }
+.pg-strip { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 10px; color: var(--color-text-secondary); padding: 12px 0 4px; border-top: 0.5px solid var(--color-border-tertiary); }
+.pg-strip-item { display: flex; align-items: center; gap: 5px; }
+.pg-strip-dot { width: 8px; height: 8px; border-radius: 50%; border: 0.5px solid; flex-shrink: 0; }
+.pg-strip-arrow { color: var(--color-text-tertiary); font-size: 10px; }
+.dot-purple { background: #7F77DD; border-color: #534AB7; }
+.dot-blue   { background: #378ADD; border-color: #185FA5; }
+.dot-amber  { background: #EF9F27; border-color: #BA7517; }
+.dot-teal   { background: #1D9E75; border-color: #0F6E56; }
+.dot-coral  { background: #D85A30; border-color: #993C1D; }
+.dot-green  { background: #639922; border-color: #3B6D11; }
+</style>
+<div class="pg-root">
+  <div class="pg-header">
+    <h1 class="pg-title">Claude Code 插件系统架构</h1>
+    <p class="pg-sub">从市场发现、契约校验、加载器核心、组件集成到生命周期操作与多层安全防护的完整拓扑</p>
+    <div class="pg-rule"></div>
+  </div>
+  <div class="pg-grid">
+    <div class="pg-col">
+      <div class="pg-col-head ph-purple">01 · 市场发现</div>
+      <div class="pg-card ph-purple">
+        <div class="pg-card-label">MARKETPLACE</div>
+        <div class="pg-card-title">市场管理器</div>
+        <div class="pg-card-desc">管理市场注册、缓存、更新与按 ID 查询插件条目的主入口</div>
+        <div class="pg-card-path">marketplaceManager.ts · 2643</div>
+      </div>
+      <div class="pg-card ph-purple">
+        <div class="pg-card-label">SOURCES</div>
+        <div class="pg-card-title">五类市场源</div>
+        <div class="pg-card-desc">URL、Git、本地目录或文件、npm 条目与官方 GCS CDN 统一接入</div>
+        <div class="pg-card-path">MarketplaceSource</div>
+      </div>
+      <div class="pg-card ph-purple">
+        <div class="pg-card-label">RECONCILE</div>
+        <div class="pg-card-title">市场调和器</div>
+        <div class="pg-card-desc">对齐 settings 声明与 known_marketplaces.json 的物化缓存状态</div>
+        <div class="pg-card-path">reconciler.ts</div>
+      </div>
+    </div>
+    <div class="pg-col">
+      <div class="pg-col-head ph-blue">02 · 契约与元数据</div>
+      <div class="pg-card ph-blue">
+        <div class="pg-card-label">SCHEMA</div>
+        <div class="pg-card-title">Schema 定义</div>
+        <div class="pg-card-desc">plugin.json、marketplace.json、installed.json 等全部 Zod 契约</div>
+        <div class="pg-card-path">schemas.ts · 1681 lines</div>
+      </div>
+      <div class="pg-card ph-blue">
+        <div class="pg-card-label">VALIDATE</div>
+        <div class="pg-card-title">清单与目录验证</div>
+        <div class="pg-card-desc">JSON 解析、Zod 校验、frontmatter 检查与循环依赖检测</div>
+        <div class="pg-card-path">validatePlugin.ts · 903</div>
+      </div>
+      <div class="pg-card ph-blue">
+        <div class="pg-card-label">INSTALLED</div>
+        <div class="pg-card-title">已安装元数据</div>
+        <div class="pg-card-desc">V2 格式记录每个插件的作用域、路径、版本与时间戳,支持多作用域</div>
+        <div class="pg-card-path">installedPluginsManager</div>
+      </div>
+    </div>
+    <div class="pg-col">
+      <div class="pg-col-head ph-amber">03 · 加载器核心</div>
+      <div class="pg-card ph-amber">
+        <div class="pg-card-label">CORE · 01</div>
+        <div class="pg-card-title">多源发现</div>
+        <div class="pg-card-desc">按优先级合并内置、市场、内联、托管与 add-dir 五类来源的启用清单</div>
+        <div class="pg-card-path">pluginLoader.ts · 3302</div>
+      </div>
+      <div class="pg-card ph-amber">
+        <div class="pg-card-label">CORE · 02</div>
+        <div class="pg-card-title">版本解析与缓存</div>
+        <div class="pg-card-desc">按 semver、Git SHA 或内容 hash 解析版本,落地版本化目录与 ZIP</div>
+        <div class="pg-card-path">calculatePluginVersion</div>
+      </div>
+      <div class="pg-card ph-amber">
+        <div class="pg-card-label">CORE · 03</div>
+        <div class="pg-card-title">清单加载与组装</div>
+        <div class="pg-card-desc">读取 plugin.json 或目录推断,组装成 LoadedPlugin 并做依赖降级</div>
+        <div class="pg-card-path">LoadedPlugin</div>
+      </div>
+    </div>
+    <div class="pg-col">
+      <div class="pg-col-head ph-teal">04 · 组件集成</div>
+      <div class="pg-card ph-teal">
+        <div class="pg-card-label">COMMANDS</div>
+        <div class="pg-card-title">命令与技能加载</div>
+        <div class="pg-card-desc">扫描 commands 与 skills 目录,解析 frontmatter 并构建 PromptCommand</div>
+        <div class="pg-card-path">loadPluginCommands · 946</div>
+      </div>
+      <div class="pg-card ph-teal">
+        <div class="pg-card-label">AGENTS</div>
+        <div class="pg-card-title">自定义 Agent</div>
+        <div class="pg-card-desc">从 agents 目录加载 .md 定义文件,注入 Agent 类型与默认模型</div>
+        <div class="pg-card-path">loadPluginAgents.ts</div>
+      </div>
+      <div class="pg-card ph-teal">
+        <div class="pg-card-label">HOOKS</div>
+        <div class="pg-card-title">钩子配置合并</div>
+        <div class="pg-card-desc">读取每个插件的 hooks.json,展开 PLUGIN_DIR 等变量后合并生效</div>
+        <div class="pg-card-path">loadPluginHooks.ts</div>
+      </div>
+      <div class="pg-card ph-teal">
+        <div class="pg-card-label">MCP · LSP</div>
+        <div class="pg-card-title">MCP 与 LSP 桥接</div>
+        <div class="pg-card-desc">读取 mcp.json,处理 MCPB 二进制包并为 MCP 与 LSP 注入服务器</div>
+        <div class="pg-card-path">mcpPluginIntegration</div>
+      </div>
+    </div>
+    <div class="pg-col">
+      <div class="pg-col-head ph-coral">05 · 生命周期</div>
+      <div class="pg-card ph-coral">
+        <div class="pg-card-label">INSTALL</div>
+        <div class="pg-card-title">安装流水线</div>
+        <div class="pg-card-desc">策略检查、Git clone 或 npm pack、写入安装记录并启用到作用域</div>
+        <div class="pg-card-path">installPluginOp()</div>
+      </div>
+      <div class="pg-card ph-coral">
+        <div class="pg-card-label">UNINSTALL</div>
+        <div class="pg-card-title">卸载与孤立清理</div>
+        <div class="pg-card-desc">禁用并移除记录,将缓存标记为孤立由后台清理,可保留数据目录</div>
+        <div class="pg-card-path">uninstallPluginOp()</div>
+      </div>
+      <div class="pg-card ph-coral">
+        <div class="pg-card-label">TOGGLE</div>
+        <div class="pg-card-title">启用与禁用</div>
+        <div class="pg-card-desc">只更新 settings 中的 enabledPlugins 布尔,不动磁盘实体与缓存</div>
+        <div class="pg-card-path">enable · disablePluginOp</div>
+      </div>
+      <div class="pg-card ph-coral">
+        <div class="pg-card-label">UPDATE</div>
+        <div class="pg-card-title">版本更新</div>
+        <div class="pg-card-desc">重算版本并对比,安装新版、更新记录并将旧版本标记为孤立</div>
+        <div class="pg-card-path">updatePluginOp()</div>
+      </div>
+    </div>
+    <div class="pg-col">
+      <div class="pg-col-head ph-green">06 · 安全与辅助</div>
+      <div class="pg-card ph-green">
+        <div class="pg-card-label">SECURITY</div>
+        <div class="pg-card-title">六层安全模型</div>
+        <div class="pg-card-desc">官方名保护、来源策略、插件策略、路径校验、依赖安全与版本锁定</div>
+        <div class="pg-card-path">blocklist · policy</div>
+      </div>
+      <div class="pg-card ph-green">
+        <div class="pg-card-label">DEPS</div>
+        <div class="pg-card-title">依赖解析</div>
+        <div class="pg-card-desc">检测循环依赖,缺失依赖降级加载并在错误列表中警告</div>
+        <div class="pg-card-path">dependencyResolver.ts</div>
+      </div>
+      <div class="pg-card ph-green">
+        <div class="pg-card-label">AUTO UPDATE</div>
+        <div class="pg-card-title">自动更新与启动检查</div>
+        <div class="pg-card-desc">后台检查新版本、启动时校验版本冲突与策略违规并弹提示</div>
+        <div class="pg-card-path">pluginAutoupdate · startup</div>
+      </div>
+      <div class="pg-card ph-green">
+        <div class="pg-card-label">CLI · MCPB</div>
+        <div class="pg-card-title">CLI 封装与 MCPB 包</div>
+        <div class="pg-card-desc">pluginCliCommands 暴露命令,mcpbHandler 处理 MCP Bundle 二进制分发</div>
+        <div class="pg-card-path">pluginCliCommands · mcpb</div>
+      </div>
+    </div>
+  </div>
+  <div class="pg-strip">
+    <div class="pg-strip-item"><span class="pg-strip-dot dot-purple"></span>市场发现</div>
+    <span class="pg-strip-arrow">→</span>
+    <div class="pg-strip-item"><span class="pg-strip-dot dot-blue"></span>契约元数据</div>
+    <span class="pg-strip-arrow">→</span>
+    <div class="pg-strip-item"><span class="pg-strip-dot dot-amber"></span>加载器核心</div>
+    <span class="pg-strip-arrow">→</span>
+    <div class="pg-strip-item"><span class="pg-strip-dot dot-teal"></span>组件集成</div>
+    <span class="pg-strip-arrow">↘</span>
+    <div class="pg-strip-item"><span class="pg-strip-dot dot-coral"></span>生命周期</div>
+    <span class="pg-strip-arrow">·</span>
+    <div class="pg-strip-item"><span class="pg-strip-dot dot-green"></span>安全辅助</div>
+  </div>
+</div>

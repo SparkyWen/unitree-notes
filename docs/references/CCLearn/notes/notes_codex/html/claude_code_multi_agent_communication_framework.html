@@ -1,0 +1,278 @@
+<style>
+.mac-wrap{padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary);max-width:100%}
+.mac-head{margin-bottom:20px}
+.mac-title{font-size:22px;font-weight:500;letter-spacing:-0.01em;margin:0 0 6px}
+.mac-sub{font-size:12px;color:var(--color-text-secondary);margin:0 0 14px;line-height:1.5}
+.mac-rule{height:1px;background:var(--color-border-tertiary);border:0;margin:0 0 20px}
+.mac-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}
+@media (max-width:900px){.mac-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mac-col{display:flex;flex-direction:column;gap:10px}
+.mac-colhead{font-size:9px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;padding:0 2px 4px}
+.mac-card{border-radius:8px;border:0.5px solid;padding:11px 12px;display:flex;flex-direction:column;gap:6px}
+.mac-tag{font-size:9px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;opacity:0.75}
+.mac-ct{font-size:12px;font-weight:500;line-height:1.35}
+.mac-cd{font-size:10px;line-height:1.5;opacity:0.82}
+.mac-files{display:flex;flex-wrap:wrap;gap:3px;margin-top:2px}
+.mac-pill{font-family:var(--font-mono);font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,0.05);white-space:nowrap}
+
+.p-purple{background:#EEEDFE;border-color:#AFA9EC;color:#3C3489}
+.p-purple .mac-pill{background:rgba(60,52,137,0.09);color:#3C3489}
+.p-amber{background:#FAEEDA;border-color:#EF9F27;color:#633806}
+.p-amber .mac-pill{background:rgba(99,56,6,0.09);color:#633806}
+.p-teal{background:#E1F5EE;border-color:#5DCAA5;color:#085041}
+.p-teal .mac-pill{background:rgba(8,80,65,0.09);color:#085041}
+.p-coral{background:#FAECE7;border-color:#F0997B;color:#712B13}
+.p-coral .mac-pill{background:rgba(113,43,19,0.09);color:#712B13}
+
+.h-purple{color:#534AB7}
+.h-amber{color:#854F0B}
+.h-teal{color:#0F6E56}
+.h-coral{color:#993C1D}
+
+.mac-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:14px 0 4px;border-top:1px solid var(--color-border-tertiary)}
+.mac-step{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--color-text-secondary)}
+.mac-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.d-purple{background:#7F77DD}.d-amber{background:#EF9F27}.d-teal{background:#1D9E75}.d-coral{background:#D85A30}
+.mac-arr{color:var(--color-text-tertiary);font-size:11px}
+
+@media (prefers-color-scheme: dark){
+  .p-purple{background:#26215C;border-color:#7F77DD;color:#CECBF6}
+  .p-purple .mac-pill{background:rgba(206,203,246,0.1);color:#CECBF6}
+  .p-amber{background:#412402;border-color:#EF9F27;color:#FAC775}
+  .p-amber .mac-pill{background:rgba(250,199,117,0.1);color:#FAC775}
+  .p-teal{background:#04342C;border-color:#1D9E75;color:#9FE1CB}
+  .p-teal .mac-pill{background:rgba(159,225,203,0.1);color:#9FE1CB}
+  .p-coral{background:#4A1B0C;border-color:#D85A30;color:#F5C4B3}
+  .p-coral .mac-pill{background:rgba(245,196,179,0.1);color:#F5C4B3}
+  .h-purple{color:#AFA9EC}
+  .h-amber{color:#FAC775}
+  .h-teal{color:#5DCAA5}
+  .h-coral{color:#F0997B}
+}
+</style>
+<div class="mac-wrap">
+  <div class="mac-head">
+    <div class="mac-title">Claude Code 多 Agent 通信框架</div>
+    <div class="mac-sub">从 agent 调度入口到任务协作总线、消息通道与 swarm 执行后端的四相位全景</div>
+    <hr class="mac-rule"/>
+  </div>
+
+  <div class="mac-grid">
+
+    <div class="mac-col">
+      <div class="mac-colhead h-purple">相位 01 · AGENT 调度入口</div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 01 · 顶层调度</div>
+        <div class="mac-ct">AgentTool 调度入口</div>
+        <div class="mac-cd">leader agent 发起子 agent 行为的主实现,本身只做编排不做任务协作</div>
+        <div class="mac-files"><span class="mac-pill">AgentTool.tsx</span><span class="mac-pill">prompt.ts</span></div>
+      </div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 02 · FORK 分支</div>
+        <div class="mac-ct">forkSubagent 建立分支</div>
+        <div class="mac-cd">fork 出新 agent 分支并建立新的 agent runtime 关系</div>
+        <div class="mac-files"><span class="mac-pill">forkSubagent.ts</span></div>
+      </div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 03 · RUN 运行</div>
+        <div class="mac-ct">runAgent 真正执行</div>
+        <div class="mac-cd">连接 query runtime 与任务系统,驱动 agent 实际运转并回流输出</div>
+        <div class="mac-files"><span class="mac-pill">runAgent.ts</span></div>
+      </div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 04 · RESUME 恢复</div>
+        <div class="mac-ct">resumeAgent 断点续跑</div>
+        <div class="mac-cd">恢复已有 agent,让多 agent 会话具备可继续性而非一次性</div>
+        <div class="mac-files"><span class="mac-pill">resumeAgent.ts</span></div>
+      </div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 05 · 并发 SPAWN</div>
+        <div class="mac-ct">spawnMultiAgent 共享编排</div>
+        <div class="mac-cd">多 agent 并发 spawn 的共享编排层,工具链共用的底座</div>
+        <div class="mac-files"><span class="mac-pill">spawnMultiAgent.ts</span></div>
+      </div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 06 · AGENT 来源</div>
+        <div class="mac-ct">内建与外部双路加载</div>
+        <div class="mac-cd">内建 agent 与用户目录 agent 可同时注入,能力边界可扩展</div>
+        <div class="mac-files"><span class="mac-pill">builtInAgents.ts</span><span class="mac-pill">loadAgentsDir.ts</span><span class="mac-pill">built-in/*.ts</span></div>
+      </div>
+
+      <div class="mac-card p-purple">
+        <div class="mac-tag">Layer 07 · 辅助与 UI</div>
+        <div class="mac-ct">展示与颜色辅助层</div>
+        <div class="mac-cd">agent 在界面上的视觉区分与通用工具辅助,保证多 agent 可读性</div>
+        <div class="mac-files"><span class="mac-pill">agentToolUtils.ts</span><span class="mac-pill">agentDisplay.ts</span><span class="mac-pill">agentColorManager.ts</span></div>
+      </div>
+    </div>
+
+    <div class="mac-col">
+      <div class="mac-colhead h-amber">相位 02 · TASK 协作总线 · 核心</div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 08 · 协作核心</div>
+        <div class="mac-ct">TaskCreate 总线入口</div>
+        <div class="mac-cd">创建 task,是整个多 agent 协作总线的起点,也是协作的真正共享对象</div>
+        <div class="mac-files"><span class="mac-pill">TaskCreateTool.ts</span></div>
+      </div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 09 · 状态查询</div>
+        <div class="mac-ct">TaskGet 单点查询</div>
+        <div class="mac-cd">读取单个 task 状态,leader 据此判断是否推进下一步</div>
+        <div class="mac-files"><span class="mac-pill">TaskGetTool.ts</span></div>
+      </div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 10 · 全局视图</div>
+        <div class="mac-ct">TaskList 协作面板</div>
+        <div class="mac-cd">列出全部 task,让 leader 看到完整协作面板与多分支推进度</div>
+        <div class="mac-files"><span class="mac-pill">TaskListTool.ts</span></div>
+      </div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 11 · 进度回报</div>
+        <div class="mac-ct">TaskUpdate 回写通道</div>
+        <div class="mac-cd">worker 回写状态与内容,是子 agent 汇报的主入口</div>
+        <div class="mac-files"><span class="mac-pill">TaskUpdateTool.ts</span></div>
+      </div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 12 · 终止分支</div>
+        <div class="mac-ct">TaskStop 中断控制</div>
+        <div class="mac-cd">leader 终止某条协作分支,支持弃单和早停策略</div>
+        <div class="mac-files"><span class="mac-pill">TaskStopTool.ts</span></div>
+      </div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 13 · 结果回流</div>
+        <div class="mac-ct">TaskOutput 输出桥</div>
+        <div class="mac-cd">显式把 task 结果回流到 runtime 与 UI,闭合协作链</div>
+        <div class="mac-files"><span class="mac-pill">TaskOutputTool.tsx</span></div>
+      </div>
+
+      <div class="mac-card p-amber">
+        <div class="mac-tag">Layer 14 · 运行时绑定</div>
+        <div class="mac-ct">Hooks 与分配消息</div>
+        <div class="mac-cd">task 同时服务 runtime 与界面层,通过 hook 与分配消息双向联动</div>
+        <div class="mac-files"><span class="mac-pill">useTasksV2.ts</span><span class="mac-pill">useTaskListWatcher.ts</span><span class="mac-pill">TaskAssignmentMessage.tsx</span></div>
+      </div>
+    </div>
+
+    <div class="mac-col">
+      <div class="mac-colhead h-teal">相位 03 · MAILBOX 消息通道</div>
+
+      <div class="mac-card p-teal">
+        <div class="mac-tag">Layer 15 · 显式发消息</div>
+        <div class="mac-ct">SendMessage 业务入口</div>
+        <div class="mac-cd">agent 之间显式发送消息的工具入口,承担非结构化通知职责</div>
+        <div class="mac-files"><span class="mac-pill">SendMessageTool.ts</span><span class="mac-pill">UI.tsx</span><span class="mac-pill">prompt.ts</span></div>
+      </div>
+
+      <div class="mac-card p-teal">
+        <div class="mac-tag">Layer 16 · 运行时容器</div>
+        <div class="mac-ct">mailbox 上下文</div>
+        <div class="mac-cd">运行时消息通道容器,agent 的收件箱挂载点</div>
+        <div class="mac-files"><span class="mac-pill">context/mailbox.tsx</span><span class="mac-pill">utils/mailbox.ts</span></div>
+      </div>
+
+      <div class="mac-card p-teal">
+        <div class="mac-tag">Layer 17 · 异步队列</div>
+        <div class="mac-ct">QueuedMessage 排队</div>
+        <div class="mac-cd">支撑异步投递,不要求对端立即消费,类 actor 模型</div>
+        <div class="mac-files"><span class="mac-pill">QueuedMessageContext.tsx</span></div>
+      </div>
+
+      <div class="mac-card p-teal">
+        <div class="mac-tag">Layer 18 · 队友信箱</div>
+        <div class="mac-ct">teammateMailbox 专属</div>
+        <div class="mac-cd">面向 teammate 场景的信箱辅助,区分普通 agent 与协作队友</div>
+        <div class="mac-files"><span class="mac-pill">teammateMailbox.ts</span></div>
+      </div>
+
+      <div class="mac-card p-teal">
+        <div class="mac-tag">Layer 19 · Bridge 连接</div>
+        <div class="mac-ct">useMailboxBridge 桥接</div>
+        <div class="mac-cd">把 mailbox 与 bridge 层打通,让消息从运行时流向 bridge</div>
+        <div class="mac-files"><span class="mac-pill">useMailboxBridge.ts</span></div>
+      </div>
+
+      <div class="mac-card p-teal">
+        <div class="mac-tag">Layer 20 · 跨环境转运</div>
+        <div class="mac-ct">bridgeMessaging 远端扩展</div>
+        <div class="mac-cd">bridge 层消息转运,把 mailbox 从本地扩展到跨进程远端会话</div>
+        <div class="mac-files"><span class="mac-pill">bridge/bridgeMessaging.ts</span></div>
+      </div>
+    </div>
+
+    <div class="mac-col">
+      <div class="mac-colhead h-coral">相位 04 · SWARM 执行后端</div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 21 · Backend 注册</div>
+        <div class="mac-ct">backends/registry 选择器</div>
+        <div class="mac-cd">根据环境检测选择具体 swarm backend,是执行后端分发枢纽</div>
+        <div class="mac-files"><span class="mac-pill">registry.ts</span><span class="mac-pill">detection.ts</span><span class="mac-pill">types.ts</span></div>
+      </div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 22 · 进程内后端</div>
+        <div class="mac-ct">InProcessBackend</div>
+        <div class="mac-cd">在当前进程内运行 worker agent,最轻量的 swarm 执行形态</div>
+        <div class="mac-files"><span class="mac-pill">InProcessBackend.ts</span><span class="mac-pill">inProcessRunner.ts</span><span class="mac-pill">spawnInProcess.ts</span></div>
+      </div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 23 · 终端后端</div>
+        <div class="mac-ct">Tmux / iTerm / Pane</div>
+        <div class="mac-cd">把 worker 放到独立终端 pane 中执行,真实多进程并行协作</div>
+        <div class="mac-files"><span class="mac-pill">TmuxBackend.ts</span><span class="mac-pill">ITermBackend.ts</span><span class="mac-pill">PaneBackendExecutor.ts</span><span class="mac-pill">it2Setup.ts</span></div>
+      </div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 24 · Spawn 辅助</div>
+        <div class="mac-ct">spawnUtils 公共逻辑</div>
+        <div class="mac-cd">各 backend 共用的 spawn 辅助,抹平不同执行环境差异</div>
+        <div class="mac-files"><span class="mac-pill">spawnUtils.ts</span><span class="mac-pill">constants.ts</span></div>
+      </div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 25 · 权限同步</div>
+        <div class="mac-ct">Leader 权限桥</div>
+        <div class="mac-cd">leader 向 worker 同步权限,独立于任务与消息的第三条通信链</div>
+        <div class="mac-files"><span class="mac-pill">leaderPermissionBridge.ts</span><span class="mac-pill">permissionSync.ts</span><span class="mac-pill">swarmWorkerHandler.ts</span></div>
+      </div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 26 · 断线重连</div>
+        <div class="mac-ct">reconnection 会话续命</div>
+        <div class="mac-cd">swarm 重连逻辑,让长生命周期协作环境在中断后可恢复</div>
+        <div class="mac-files"><span class="mac-pill">reconnection.ts</span></div>
+      </div>
+
+      <div class="mac-card p-coral">
+        <div class="mac-tag">Layer 27 · Teammate 管理</div>
+        <div class="mac-ct">布局 · 模式 · 模型</div>
+        <div class="mac-cd">teammate 布局、模式快照、模型与 prompt 补充,说明 swarm 传输的不只是消息</div>
+        <div class="mac-files"><span class="mac-pill">teammateLayoutManager.ts</span><span class="mac-pill">teammateModeSnapshot.ts</span><span class="mac-pill">teammateModel.ts</span><span class="mac-pill">teammateInit.ts</span><span class="mac-pill">teammatePromptAddendum.ts</span><span class="mac-pill">teamHelpers.ts</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mac-flow">
+    <div class="mac-step"><span class="mac-dot d-purple"></span>Agent 调度入口</div>
+    <span class="mac-arr">→</span>
+    <div class="mac-step"><span class="mac-dot d-amber"></span>Task 协作总线</div>
+    <span class="mac-arr">→</span>
+    <div class="mac-step"><span class="mac-dot d-teal"></span>Mailbox 消息通道</div>
+    <span class="mac-arr">→</span>
+    <div class="mac-step"><span class="mac-dot d-coral"></span>Swarm 执行后端</div>
+  </div>
+</div>

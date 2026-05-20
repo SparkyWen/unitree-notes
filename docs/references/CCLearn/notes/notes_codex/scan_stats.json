@@ -1,0 +1,25 @@
+{
+  "total_files": 1954,
+  "ext_counts": {
+    ".md": 2,
+    ".lock": 1,
+    ".js": 19,
+    ".map": 1,
+    ".json": 1,
+    ".ts": 1337,
+    "[no_ext]": 16,
+    ".sample": 14,
+    ".idx": 1,
+    ".pack": 1,
+    ".rev": 1,
+    ".tsx": 552,
+    ".node": 6,
+    ".exe": 2
+  },
+  "kind_counts": {
+    "root": 7,
+    "git": 28,
+    "source": 1902,
+    "vendor": 17
+  }
+}

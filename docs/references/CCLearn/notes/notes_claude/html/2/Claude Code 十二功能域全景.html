@@ -1,0 +1,162 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">Claude Code 十二功能域全景</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">按语义横切的功能地图：每个卡片标注文件数与行数，体积差异即重要性信号</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+
+<!-- 列 1 · 入口与界面 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Domain 01</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">启动与初始化</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">CLI 快速路径分发、main.tsx 完整启动、11 个版本迁移与全局状态单例装配</div>
+<div style="font-size:9px;color:#534AB7;margin-top:6px">22 文件 · 8.5K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints · bootstrap · migrations</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Domain 06</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">终端 UI 渲染</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">REPL 主屏幕加自研 Ink reconciler，把 React 组件树打成 ANSI 终端输出</div>
+<div style="font-size:9px;color:#534AB7;margin-top:6px">488 文件 · 35K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">screens · ink · components</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 能力注册 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Domain 04</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">命令与技能</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">斜杠命令、会话管理命令与 17 个捆绑技能的加载路由，支持插件命令动态注入</div>
+<div style="font-size:9px;color:#0F6E56;margin-top:6px">227 文件 · 30.5K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">commands · skills</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Domain 03</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具系统</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">Bash、File、Web、MCP、Skill 等 190+ 文件工具生态，附带编排与流式执行器</div>
+<div style="font-size:9px;color:#0F6E56;margin-top:6px">190+ 文件 · 53K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">tools · services/tools</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 核心引擎 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Domain 02 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">核心对话引擎</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">query.ts 主循环与 QueryEngine 封装，配合 tokenBudget、停机 hooks 与状态转换</div>
+<div style="font-size:9px;color:#854F0B;margin-top:6px">6 文件 · 3.7K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts · QueryEngine.ts · query/</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">体积与地位反比</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">十二个功能域中体量最小的一个，却是所有数据流与控制流的唯一交汇点</div>
+<div style="font-size:9px;color:#854F0B;margin-top:6px">占总行数 &lt; 2%</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 外部通信 蓝 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Domain 05</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">API 与模型交互</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">Claude 流式 API、错误分类重试与 auto/reactive 两路消息压缩应对上下文窗口</div>
+<div style="font-size:9px;color:#185FA5;margin-top:6px">~40 文件 · 15K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/api · services/compact</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Domain 09</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">MCP 协议集成</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">3.3K 行客户端 + 2.5K 行 OAuth，接入官方注册表与任意外部 MCP 服务</div>
+<div style="font-size:9px;color:#185FA5;margin-top:6px">~30 文件 · 10K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/mcp · MCPTool</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Domain 08</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">远程桥接通信</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">Bridge 入口、REPL 桥接、JWT 刷新与 SSE/WebSocket 传输把本地引擎暴露给远端</div>
+<div style="font-size:9px;color:#185FA5;margin-top:6px">~42 文件 · 14K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">bridge · remote · cli/transports</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 扩展与代理 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Domain 11</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">后台任务与多代理</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">本地、远程、进程内与 git worktree fork 四种子 agent 模式，加 13 文件 swarm 群组</div>
+<div style="font-size:9px;color:#993C1D;margin-top:6px">~30 文件 · 8K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">tasks · coordinator · utils/swarm</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Domain 12</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">插件与扩展</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">3.3K 行插件加载器 + 2.6K 行市场管理，让用户注入命令、工具与 MCP 服务</div>
+<div style="font-size:9px;color:#993C1D;margin-top:6px">~50 文件 · 10K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">plugins · utils/plugins</span></div>
+</div>
+
+</div>
+
+<!-- 列 6 · 基础支撑 粉 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FBEAF0;border:0.5px solid #D4537E;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993556;text-transform:uppercase">Domain 07</div>
+<div style="font-size:12px;font-weight:500;color:#4B1528;margin-top:4px">权限与安全</div>
+<div style="font-size:10px;line-height:1.5;color:#72243E;margin-top:6px">文件系统权限、4.4K 行 Bash 解析器与 2.7K 行 AST 安全检查，三重挡危险命令</div>
+<div style="font-size:9px;color:#993556;margin-top:6px">~55 文件 · 22K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F4C0D1;color:#4B1528;padding:2px 6px;border-radius:10px">utils/permissions · utils/bash</span></div>
+</div>
+
+<div style="background:#FBEAF0;border:0.5px solid #D4537E;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993556;text-transform:uppercase">Domain 10</div>
+<div style="font-size:12px;font-weight:500;color:#4B1528;margin-top:4px">状态与持久化</div>
+<div style="font-size:10px;line-height:1.5;color:#72243E;margin-top:6px">240+ 字段 AppState、5K 行会话存档与 1.8K 行配置管理，所有模块的数据交换点</div>
+<div style="font-size:9px;color:#993556;margin-top:6px">~15 文件 · 10K 行</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F4C0D1;color:#4B1528;padding:2px 6px;border-radius:10px">state · sessionStorage · config</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:6px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>入口与界面</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>能力注册</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>核心引擎</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>外部通信</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>扩展与代理</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D4537E"></span>基础支撑</div>
+</div>
+
+</div>

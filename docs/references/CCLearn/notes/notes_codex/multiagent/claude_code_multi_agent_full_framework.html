@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code 多 Agent 通信框架全景</title>
+<style>
+:root{
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --font-mono:"SF Mono",Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+  --bg:#FAFAF7;
+  --fg:#1C1C1A;
+  --fg-muted:#5F5E5A;
+  --fg-faint:#888780;
+  --rule:rgba(0,0,0,0.08);
+  --card-shadow:none;
+
+  --c-purple-50:#EEEDFE; --c-purple-200:#AFA9EC; --c-purple-600:#534AB7; --c-purple-800:#3C3489;
+  --c-amber-50:#FAEEDA;  --c-amber-200:#FAC775;  --c-amber-600:#BA7517;  --c-amber-800:#633806;
+  --c-teal-50:#E1F5EE;   --c-teal-200:#5DCAA5;   --c-teal-600:#0F6E56;   --c-teal-800:#085041;
+  --c-coral-50:#FAECE7;  --c-coral-200:#F0997B;  --c-coral-600:#993C1D;  --c-coral-800:#712B13;
+  --c-slate-50:#F1EFE8;  --c-slate-200:#B4B2A9;  --c-slate-600:#5F5E5A;  --c-slate-800:#2C2C2A;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#18181A;
+    --fg:#EDECE4;
+    --fg-muted:#B4B2A9;
+    --fg-faint:#888780;
+    --rule:rgba(255,255,255,0.1);
+
+    --c-purple-50:#26215C; --c-purple-200:#7F77DD; --c-purple-600:#AFA9EC; --c-purple-800:#CECBF6;
+    --c-amber-50:#412402;  --c-amber-200:#BA7517;  --c-amber-600:#EF9F27;  --c-amber-800:#FAC775;
+    --c-teal-50:#04342C;   --c-teal-200:#0F6E56;   --c-teal-600:#5DCAA5;   --c-teal-800:#9FE1CB;
+    --c-coral-50:#4A1B0C;  --c-coral-200:#993C1D;  --c-coral-600:#F0997B;  --c-coral-800:#F5C4B3;
+    --c-slate-50:#2C2C2A;  --c-slate-200:#5F5E5A;  --c-slate-600:#B4B2A9;  --c-slate-800:#EDECE4;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:var(--font-sans);-webkit-font-smoothing:antialiased}
+body{max-width:1400px;margin:0 auto;padding:48px 32px 80px;line-height:1.6}
+
+/* ---------- Header ---------- */
+.doc-head{margin-bottom:40px}
+.doc-title{font-size:28px;font-weight:500;letter-spacing:-0.01em;margin:0 0 8px}
+.doc-sub{font-size:13px;color:var(--fg-muted);margin:0 0 4px}
+.doc-meta{font-size:11px;color:var(--fg-faint);font-family:var(--font-mono);margin:6px 0 16px}
+.doc-rule{height:1px;background:var(--rule);border:0;margin:0}
+
+/* ---------- Phase section ---------- */
+.phase{margin:56px 0 0;padding-top:32px;border-top:1px solid var(--rule)}
+.phase:first-of-type{border-top:0;padding-top:0}
+.phase-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
+.phase-num{font-size:10px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;font-family:var(--font-mono);padding:3px 8px;border-radius:4px}
+.phase-title{font-size:22px;font-weight:500;margin:0;letter-spacing:-0.005em}
+.phase-desc{font-size:12px;color:var(--fg-muted);margin:4px 0 20px;line-height:1.6;max-width:900px}
+
+/* phase colors */
+.p-purple .phase-num{background:var(--c-purple-50);color:var(--c-purple-800)}
+.p-amber  .phase-num{background:var(--c-amber-50); color:var(--c-amber-800)}
+.p-teal   .phase-num{background:var(--c-teal-50);  color:var(--c-teal-800)}
+.p-coral  .phase-num{background:var(--c-coral-50); color:var(--c-coral-800)}
+
+/* ---------- Flow diagram ---------- */
+.flow{background:var(--bg);border:0.5px solid var(--rule);border-radius:10px;padding:18px 20px;margin:0 0 24px;font-family:var(--font-mono);font-size:10.5px;line-height:1.65;color:var(--fg-muted);white-space:pre;overflow-x:auto}
+
+/* ---------- Card grid ---------- */
+.section-label{font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:var(--fg-faint);margin:26px 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.card{border:0.5px solid;border-radius:8px;padding:13px 14px;display:flex;flex-direction:column;gap:7px;transition:border-color 0.15s}
+.card:hover{border-color:currentColor}
+.card-tag{font-size:9px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;opacity:0.72;font-family:var(--font-mono)}
+.card-title{font-size:12.5px;font-weight:500;line-height:1.35}
+.card-desc{font-size:10.5px;line-height:1.55;opacity:0.88}
+.card-file{font-family:var(--font-mono);font-size:9px;padding:3px 7px;border-radius:4px;align-self:flex-start;background:rgba(0,0,0,0.06);word-break:break-all;max-width:100%}
+
+/* purple cards */
+.p-purple .card{background:var(--c-purple-50);border-color:var(--c-purple-200);color:var(--c-purple-800)}
+.p-purple .card-file{background:rgba(60,52,137,0.1);color:var(--c-purple-800)}
+
+/* amber cards */
+.p-amber .card{background:var(--c-amber-50);border-color:var(--c-amber-200);color:var(--c-amber-800)}
+.p-amber .card-file{background:rgba(99,56,6,0.1);color:var(--c-amber-800)}
+
+/* teal cards */
+.p-teal .card{background:var(--c-teal-50);border-color:var(--c-teal-200);color:var(--c-teal-800)}
+.p-teal .card-file{background:rgba(8,80,65,0.1);color:var(--c-teal-800)}
+
+/* coral cards */
+.p-coral .card{background:var(--c-coral-50);border-color:var(--c-coral-200);color:var(--c-coral-800)}
+.p-coral .card-file{background:rgba(113,43,19,0.1);color:var(--c-coral-800)}
+
+@media (prefers-color-scheme: dark){
+  .p-purple .card-file{background:rgba(206,203,246,0.12)}
+  .p-amber .card-file{background:rgba(250,199,117,0.12)}
+  .p-teal .card-file{background:rgba(159,225,203,0.12)}
+  .p-coral .card-file{background:rgba(245,196,179,0.12)}
+}
+
+/* ---------- Conclusions ---------- */
+.concl{margin-top:24px;padding:16px 20px;border-radius:10px;background:rgba(0,0,0,0.02);border:0.5px dashed var(--rule)}
+@media (prefers-color-scheme: dark){ .concl{background:rgba(255,255,255,0.02)} }
+.concl-title{font-size:10px;font-weight:500;letter-spacing:0.12em;text-transform:uppercase;color:var(--fg-faint);margin:0 0 10px}
+.concl ol{margin:0;padding-left:18px;counter-reset:concl}
+.concl li{font-size:11.5px;line-height:1.65;color:var(--fg);margin-bottom:6px}
+.concl li:last-child{margin-bottom:0}
+
+/* ---------- Footer flow ---------- */
+.footer-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:28px 0 0;margin-top:48px;border-top:1px solid var(--rule);justify-content:center}
+.fstep{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--fg-muted)}
+.fdot{width:9px;height:9px;border-radius:50%}
+.fd-purple{background:var(--c-purple-600)}
+.fd-amber{background:var(--c-amber-600)}
+.fd-teal{background:var(--c-teal-600)}
+.fd-coral{background:var(--c-coral-600)}
+.farr{color:var(--fg-faint);font-size:12px}
+
+/* ---------- Key takeaway box ---------- */
+.takeaway{margin:18px 0 24px;padding:14px 18px;border-left:2px solid;border-radius:0 6px 6px 0;font-size:11.5px;line-height:1.65}
+.p-purple .takeaway{border-color:var(--c-purple-600);background:var(--c-purple-50);color:var(--c-purple-800)}
+.p-amber  .takeaway{border-color:var(--c-amber-600); background:var(--c-amber-50); color:var(--c-amber-800)}
+.p-teal   .takeaway{border-color:var(--c-teal-600);  background:var(--c-teal-50);  color:var(--c-teal-800)}
+.p-coral  .takeaway{border-color:var(--c-coral-600); background:var(--c-coral-50); color:var(--c-coral-800)}
+</style>
+</head>
+<body>
+
+<!-- ============ HEADER ============ -->
+<div class="doc-head">
+  <h1 class="doc-title">Claude Code 多 Agent 通信框架全景</h1>
+  <p class="doc-sub">从 AgentTool 调度入口到 Task 协作总线、Mailbox 消息通道与 Swarm 执行后端的完整四相位深拆</p>
+  <div class="doc-meta">cc/claude_code · 37_multi_agent_communication_full_framework · 深拆 01–04 合集</div>
+  <hr class="doc-rule">
+</div>
+
+<!-- ============ PHASE 01: AgentTool ============ -->
+<section class="phase p-purple">
+  <div class="phase-head">
+    <span class="phase-num">Phase 01 · Agent 调度入口</span>
+    <h2 class="phase-title">AgentTool / fork / run / resume 链</h2>
+  </div>
+  <p class="phase-desc">研究 leader agent 如何创建子 agent、fork / run / resume 三条主链如何组织,以及 AgentTool 在多 agent 协作里的职责边界。AgentTool 本体只做 orchestration,真正的任务协作总线、消息通道与执行后端都在它下游。</p>
+
+  <div class="flow">leader agent / query runtime
+      │
+      ▼
+AgentTool.tsx
+  - 决定调用哪类 agent
+      │
+      ├── forkSubagent.ts      ── 创建新 agent 分支
+      │
+      ├── runAgent.ts          ── 真正运行 agent
+      │
+      └── resumeAgent.ts       ── 恢复已有 agent
+      │
+      ▼
+spawnMultiAgent.ts / builtInAgents / loadAgentsDir
+      │
+      ▼
+返回 agent handle / task / status / output 回流</div>
+
+  <div class="takeaway">AgentTool 是多 agent 调度入口,不是 agent 本体 —— fork、run、resume 是 3 条不同运行路径,spawnMultiAgent 是多 agent 并发的共享编排层,built-in 与 loadAgentsDir 让 agent 能力既可内建也可外部加载。</div>
+
+  <div class="section-label">调度核心</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 01 · 顶层入口</div>
+      <div class="card-title">AgentTool 主实现</div>
+      <div class="card-desc">多 agent 调度入口,让 leader agent 能发起子 agent 行为,本身不负责任务协作</div>
+      <div class="card-file">tools/AgentTool/AgentTool.tsx</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 02 · Prompt</div>
+      <div class="card-title">AgentTool schema</div>
+      <div class="card-desc">AgentTool 的 prompt 与 schema 定义,决定 leader 如何被教会使用这个工具</div>
+      <div class="card-file">tools/AgentTool/prompt.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">三条运行路径</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Path A · Fork</div>
+      <div class="card-title">forkSubagent 分支</div>
+      <div class="card-desc">fork 出新的 agent 分支,建立新的 agent runtime 关系与上下文隔离</div>
+      <div class="card-file">tools/AgentTool/forkSubagent.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Path B · Run</div>
+      <div class="card-title">runAgent 真正执行</div>
+      <div class="card-desc">连接 query runtime、任务系统与输出回流,是 agent 真正开始运转的入口</div>
+      <div class="card-file">tools/AgentTool/runAgent.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Path C · Resume</div>
+      <div class="card-title">resumeAgent 恢复</div>
+      <div class="card-desc">恢复已有 agent 的会话,让多 agent 协作具备可继续性而非一次性</div>
+      <div class="card-file">tools/AgentTool/resumeAgent.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">并发编排与 Agent 来源</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 03 · 并发底座</div>
+      <div class="card-title">spawnMultiAgent 共享层</div>
+      <div class="card-desc">多 agent 并发 spawn 的共享编排逻辑,被 fork / run / resume 共用</div>
+      <div class="card-file">tools/shared/spawnMultiAgent.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 04 · 外部加载</div>
+      <div class="card-title">loadAgentsDir 自定义</div>
+      <div class="card-desc">从用户目录加载自定义 agent,让 agent 能力可扩展而非写死</div>
+      <div class="card-file">tools/AgentTool/loadAgentsDir.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 05 · 内建汇总</div>
+      <div class="card-title">builtInAgents 注册表</div>
+      <div class="card-desc">汇总所有内建 agent 定义,与 loadAgentsDir 形成能力双源</div>
+      <div class="card-file">tools/AgentTool/builtInAgents.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 06 · 内建实现</div>
+      <div class="card-title">内建 agent 定义集</div>
+      <div class="card-desc">guide / explore / generalPurpose / plan / verification 等具体内建 agent 实现</div>
+      <div class="card-file">tools/AgentTool/built-in/*.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">辅助与 UI</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 07 · 通用辅助</div>
+      <div class="card-title">agentToolUtils</div>
+      <div class="card-desc">AgentTool 共享的通用辅助逻辑,抽取重复代码到工具层</div>
+      <div class="card-file">tools/AgentTool/agentToolUtils.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 08 · 展示层</div>
+      <div class="card-title">agentDisplay</div>
+      <div class="card-desc">agent 在 UI 上的展示辅助,把运行中 agent 渲染给人看</div>
+      <div class="card-file">tools/AgentTool/agentDisplay.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 09 · 视觉区分</div>
+      <div class="card-title">agentColorManager</div>
+      <div class="card-desc">给不同 agent 分配颜色,帮助在多 agent 场景下快速辨认来源</div>
+      <div class="card-file">tools/AgentTool/agentColorManager.ts</div>
+    </div>
+  </div>
+
+  <div class="concl">
+    <div class="concl-title">关键结论</div>
+    <ol>
+      <li>AgentTool 是多 agent 调度入口,不是 agent 本体</li>
+      <li>fork / run / resume 是 3 条不同的运行路径,分别对应「新建分支」「真正运行」「恢复会话」</li>
+      <li>spawnMultiAgent 是多 agent 并发生成的重要共享层,是 fork / run / resume 的共同底座</li>
+      <li>built-in agents 与 loadAgentsDir 说明 agent 能力既可内建,也可外部加载</li>
+      <li>AgentTool 本身更偏 orchestration,而不是任务协作总线;task、message、mailbox 还在下游</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ PHASE 02: Task ============ -->
+<section class="phase p-amber">
+  <div class="phase-head">
+    <span class="phase-num">Phase 02 · Task 协作总线 · 核心</span>
+    <h2 class="phase-title">Task 体系作为多 Agent 协作总线</h2>
+  </div>
+  <p class="phase-desc">在 Claude Code 的多 agent 协作里,真正稳定的协作对象往往不是直接 message,而是 task 这个中间对象。因为 task 可以被创建、查询、更新、列举、停止,还有独立 output,天然适合做多 agent 协作总线。</p>
+
+  <div class="flow">leader / coordinator / agent
+      │
+      ▼
+TaskCreateTool
+  -> 创建 task
+      │
+      ▼
+worker / teammate / subagent 处理 task
+      │
+      ├── TaskUpdateTool     ── 更新进度
+      ├── TaskGetTool        ── 查询状态
+      ├── TaskListTool       ── 列出全部
+      ├── TaskOutputTool     ── 取得输出
+      └── TaskStopTool       ── 终止分支
+      │
+      ▼
+TaskAssignmentMessage / hooks/useTasksV2 / useTaskListWatcher
+      │
+      ▼
+leader 看到状态、输出、完成度,再继续调度其他 agent</div>
+
+  <div class="takeaway">task 不是附属物,而是多 agent 协作的核心共享对象 —— Create / Get / List / Update / Stop / Output 这组工具共同构成了 task 总线协议面,而 message 更像局部通知。要理解 Claude Code 的 agent 协作,必须先理解 task 体系,再看 mailbox。</div>
+
+  <div class="section-label">总线协议面 · 六件套</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 10 · 创建</div>
+      <div class="card-title">TaskCreateTool 入口</div>
+      <div class="card-desc">创建 task,是协作总线的起点,也是 leader 下发协作请求的主路径</div>
+      <div class="card-file">tools/TaskCreateTool/TaskCreateTool.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 11 · 单点查询</div>
+      <div class="card-title">TaskGetTool 状态读取</div>
+      <div class="card-desc">查询单个 task 的状态,让 leader 能精确追踪某条协作分支的进度</div>
+      <div class="card-file">tools/TaskGetTool/TaskGetTool.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 12 · 全局视图</div>
+      <div class="card-title">TaskListTool 协作面板</div>
+      <div class="card-desc">列出所有 tasks,让 leader 能看到整个协作的完整面板与推进度</div>
+      <div class="card-file">tools/TaskListTool/TaskListTool.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 13 · 进度回写</div>
+      <div class="card-title">TaskUpdateTool 回报</div>
+      <div class="card-desc">更新 task 状态与内容,是 worker / subagent 回报进度的主入口</div>
+      <div class="card-file">tools/TaskUpdateTool/TaskUpdateTool.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 14 · 终止</div>
+      <div class="card-title">TaskStopTool 中断</div>
+      <div class="card-desc">停止 task,让 leader 能主动终止某条协作分支,支持早停策略</div>
+      <div class="card-file">tools/TaskStopTool/TaskStopTool.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 15 · 结果回流</div>
+      <div class="card-title">TaskOutputTool 输出</div>
+      <div class="card-desc">查看 task 输出,把 task 结果显式回流给运行时与 UI,闭合协作链</div>
+      <div class="card-file">tools/TaskOutputTool/TaskOutputTool.tsx</div>
+    </div>
+  </div>
+
+  <div class="section-label">运行时与 UI 绑定</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 16 · 消息展示</div>
+      <div class="card-title">TaskAssignmentMessage</div>
+      <div class="card-desc">task assignment 的消息展示组件,把任务下发以消息形式呈现在界面上</div>
+      <div class="card-file">components/messages/TaskAssignmentMessage.tsx</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 17 · runtime hook</div>
+      <div class="card-title">useTasksV2</div>
+      <div class="card-desc">tasks 相关的 runtime hook,把 task 状态桥接到运行时层</div>
+      <div class="card-file">hooks/useTasksV2.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 18 · 变更监听</div>
+      <div class="card-title">useTaskListWatcher</div>
+      <div class="card-desc">监听 task list 变化,当任务被创建或更新时驱动 UI 与 runtime 响应</div>
+      <div class="card-file">hooks/useTaskListWatcher.ts</div>
+    </div>
+  </div>
+
+  <div class="concl">
+    <div class="concl-title">关键结论</div>
+    <ol>
+      <li>task 不是附属物,而是多 agent 协作的核心共享对象</li>
+      <li>TaskCreate / Get / List / Update / Stop / Output 这组工具共同构成了 task 总线协议面</li>
+      <li>message 更像局部通知,task 更像结构化协作实体</li>
+      <li>UI hooks 和 assignment message 说明 task 同时服务于 runtime 与界面层</li>
+      <li>如果要理解 Claude Code 的 agent 协作,task 体系必须优先于 mailbox 单独理解</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ PHASE 03: Mailbox ============ -->
+<section class="phase p-teal">
+  <div class="phase-head">
+    <span class="phase-num">Phase 03 · Mailbox 消息通道</span>
+    <h2 class="phase-title">Mailbox / SendMessage / Queued / Bridge Messaging</h2>
+  </div>
+  <p class="phase-desc">研究 agent 之间如何显式发消息、mailbox 与 queued messages 在运行时里是什么角色,以及 bridge messaging 如何把消息扩展到跨进程、跨环境通信。这条链更像 actor / message 系统,而不是同步函数调用。</p>
+
+  <div class="flow">agent A
+  -> SendMessageTool
+      │
+      ▼
+mailbox / queued messages
+  ├── context/mailbox.tsx
+  ├── context/QueuedMessageContext.tsx
+  ├── utils/mailbox.ts
+  └── utils/teammateMailbox.ts
+      │
+      ▼
+hooks/useMailboxBridge.ts
+      │
+      ▼
+bridge/bridgeMessaging.ts
+      │
+      ▼
+agent B / teammate / remote session 收到消息</div>
+
+  <div class="takeaway">SendMessageTool 是显式 agent message passing 的顶层入口 —— mailbox 说明消息不是立即调用而是事件队列模型,queued messages 让通信天然支持异步,bridgeMessaging 把 mailbox 从本地运行时扩展到跨进程远端场景。</div>
+
+  <div class="section-label">显式发送工具</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 19 · 业务入口</div>
+      <div class="card-title">SendMessageTool 主实现</div>
+      <div class="card-desc">agent 间显式发送消息的工具,是整个消息通道的顶层业务入口</div>
+      <div class="card-file">tools/SendMessageTool/SendMessageTool.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 20 · UI 组件</div>
+      <div class="card-title">SendMessageTool UI</div>
+      <div class="card-desc">SendMessageTool 的界面组件,把发送行为可视化给用户与协作者</div>
+      <div class="card-file">tools/SendMessageTool/UI.tsx</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 21 · 常量</div>
+      <div class="card-title">SendMessageTool 常量</div>
+      <div class="card-desc">工具相关的常量定义,抽离 magic number 与字符串配置</div>
+      <div class="card-file">tools/SendMessageTool/constants.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 22 · Prompt</div>
+      <div class="card-title">SendMessageTool schema</div>
+      <div class="card-desc">工具的 prompt 与 schema,教会 agent 如何调用 SendMessage</div>
+      <div class="card-file">tools/SendMessageTool/prompt.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">Mailbox 与队列容器</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 23 · 运行时容器</div>
+      <div class="card-title">mailbox 上下文</div>
+      <div class="card-desc">mailbox React context,承担运行时消息通道容器的角色</div>
+      <div class="card-file">context/mailbox.tsx</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 24 · 异步排队</div>
+      <div class="card-title">QueuedMessageContext</div>
+      <div class="card-desc">queued messages 上下文,支撑异步排队投递,通信天然异步</div>
+      <div class="card-file">context/QueuedMessageContext.tsx</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 25 · 基础辅助</div>
+      <div class="card-title">mailbox utils</div>
+      <div class="card-desc">mailbox 的辅助逻辑,抽取 context 复用的工具函数</div>
+      <div class="card-file">utils/mailbox.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 26 · 队友专属</div>
+      <div class="card-title">teammateMailbox utils</div>
+      <div class="card-desc">teammate 场景的信箱辅助,区分普通 agent 与结对协作队友</div>
+      <div class="card-file">utils/teammateMailbox.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">Bridge 跨环境扩展</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 27 · 桥接 hook</div>
+      <div class="card-title">useMailboxBridge</div>
+      <div class="card-desc">把 mailbox 与 bridge / runtime 连接起来,让消息从本地容器流向 bridge 层</div>
+      <div class="card-file">hooks/useMailboxBridge.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 28 · 跨环境转运</div>
+      <div class="card-title">bridgeMessaging</div>
+      <div class="card-desc">bridge 层的消息转运实现,让 mailbox 从本地扩展到跨进程远端</div>
+      <div class="card-file">bridge/bridgeMessaging.ts</div>
+    </div>
+  </div>
+
+  <div class="concl">
+    <div class="concl-title">关键结论</div>
+    <ol>
+      <li>SendMessageTool 是显式 agent message passing 的顶层入口</li>
+      <li>mailbox 说明消息很多时候不是立即调用,而是事件队列 / 收件箱模型</li>
+      <li>queued messages 让通信天然支持异步</li>
+      <li>bridgeMessaging 把 mailbox 从本地运行时扩展到远端 / 跨进程场景</li>
+      <li>这条链更像 actor / message 系统,而不是同步函数调用</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ PHASE 04: Swarm ============ -->
+<section class="phase p-coral">
+  <div class="phase-head">
+    <span class="phase-num">Phase 04 · Swarm 执行后端</span>
+    <h2 class="phase-title">Swarm Backend / Leader-Worker / Permission / Reconnection</h2>
+  </div>
+  <p class="phase-desc">研究多 agent / swarm 的执行后端是怎么组织的、leader 与 worker 如何做权限同步、以及多 agent 环境下如何做 reconnect、layout、mode snapshot。这层通信不仅传消息,还传执行环境、权限、布局和状态。</p>
+
+  <div class="flow">leader agent
+      │
+      ▼
+utils/swarm/backends/registry.ts
+  - 根据 detection 选择 backend
+      │
+      ├── InProcessBackend      ── 进程内运行
+      ├── TmuxBackend           ── tmux pane
+      ├── ITermBackend          ── iTerm pane
+      └── PaneBackendExecutor   ── 通用 pane 执行器
+      │
+      ▼
+spawnInProcess / inProcessRunner / spawnUtils
+      │
+      ▼
+leaderPermissionBridge / permissionSync
+      │
+      ▼
+worker agents 执行
+      │
+      ▼
+reconnection / teammateLayoutManager / teammateModeSnapshot</div>
+
+  <div class="takeaway">swarm 是有真实后端执行层的,不只是逻辑上的多个 agent —— backend 可切换(in-process / tmux / iTerm / pane),leader-worker 权限同步是独立于 task 与 message 的第三条通信链,reconnection 与 mode snapshot 说明 swarm 是长生命周期协作环境。</div>
+
+  <div class="section-label">Backend 注册与环境检测</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 29 · 分发枢纽</div>
+      <div class="card-title">backends/registry</div>
+      <div class="card-desc">注册与选择 swarm backend,根据环境检测结果分发到具体实现</div>
+      <div class="card-file">utils/swarm/backends/registry.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 30 · 环境检测</div>
+      <div class="card-title">backends/detection</div>
+      <div class="card-desc">检测当前运行环境是否支持 tmux / iTerm / pane,决定 backend 选项</div>
+      <div class="card-file">utils/swarm/backends/detection.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 31 · 类型定义</div>
+      <div class="card-title">backends/types</div>
+      <div class="card-desc">swarm backend 的公共类型定义,各实现共享统一接口</div>
+      <div class="card-file">utils/swarm/backends/types.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 32 · 常量</div>
+      <div class="card-title">swarm/constants</div>
+      <div class="card-desc">swarm 模块的常量集合,供 backend 与 runner 共用</div>
+      <div class="card-file">utils/swarm/constants.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">四种 Backend 具体实现</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Backend A · 进程内</div>
+      <div class="card-title">InProcessBackend</div>
+      <div class="card-desc">在当前 Node 进程内运行 worker,最轻量的 swarm 执行形态</div>
+      <div class="card-file">utils/swarm/backends/InProcessBackend.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Backend B · Tmux</div>
+      <div class="card-title">TmuxBackend</div>
+      <div class="card-desc">把 worker 放到 tmux pane 中执行,利用 tmux 作为多进程协作环境</div>
+      <div class="card-file">utils/swarm/backends/TmuxBackend.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Backend C · iTerm</div>
+      <div class="card-title">ITermBackend</div>
+      <div class="card-desc">在 iTerm 分屏里运行 worker,利用 iTerm2 的原生 pane 能力</div>
+      <div class="card-file">utils/swarm/backends/ITermBackend.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Backend D · 通用 Pane</div>
+      <div class="card-title">PaneBackendExecutor</div>
+      <div class="card-desc">通用的 pane 执行器 backend,抽取 tmux / iTerm 的共同逻辑</div>
+      <div class="card-file">utils/swarm/backends/PaneBackendExecutor.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Backend 辅助</div>
+      <div class="card-title">it2Setup iTerm2 初始化</div>
+      <div class="card-desc">iTerm2 的 setup 逻辑,解决 pane 环境在启动前的配置问题</div>
+      <div class="card-file">utils/swarm/backends/it2Setup.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Backend 辅助</div>
+      <div class="card-title">teammateModeSnapshot</div>
+      <div class="card-desc">teammate 模式快照,保存 pane 侧的协作模式状态</div>
+      <div class="card-file">utils/swarm/backends/teammateModeSnapshot.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">Spawn 执行链</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 33 · 进程内 runner</div>
+      <div class="card-title">inProcessRunner</div>
+      <div class="card-desc">in-process 的主运行逻辑,驱动 InProcessBackend 下的 worker</div>
+      <div class="card-file">utils/swarm/inProcessRunner.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 34 · 进程内 spawn</div>
+      <div class="card-title">spawnInProcess</div>
+      <div class="card-desc">在进程内真正 spawn 出 worker 的实现,连接 AgentTool 与 runner</div>
+      <div class="card-file">utils/swarm/spawnInProcess.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 35 · 公共辅助</div>
+      <div class="card-title">spawnUtils</div>
+      <div class="card-desc">各种 backend 共享的 spawn 辅助,抹平不同执行环境的差异</div>
+      <div class="card-file">utils/swarm/spawnUtils.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">权限同步链 · 独立通信路径</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 36 · 权限桥</div>
+      <div class="card-title">leaderPermissionBridge</div>
+      <div class="card-desc">leader 向 worker 传递权限的桥接层,是 task / message 之外的第三条通信链</div>
+      <div class="card-file">utils/swarm/leaderPermissionBridge.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 37 · 同步逻辑</div>
+      <div class="card-title">permissionSync</div>
+      <div class="card-desc">swarm 的权限同步实现,保证 leader 与 worker 的权限视图一致</div>
+      <div class="card-file">utils/swarm/permissionSync.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 38 · 权限处理器</div>
+      <div class="card-title">swarmWorkerHandler</div>
+      <div class="card-desc">swarm worker 侧的权限处理 handler,接入工具权限系统</div>
+      <div class="card-file">hooks/toolPermission/handlers/swarmWorkerHandler.ts</div>
+    </div>
+  </div>
+
+  <div class="section-label">长生命周期支撑</div>
+  <div class="grid">
+    <div class="card">
+      <div class="card-tag">Layer 39 · 断线重连</div>
+      <div class="card-title">reconnection</div>
+      <div class="card-desc">swarm 的重连逻辑,让长生命周期协作环境在中断后能恢复</div>
+      <div class="card-file">utils/swarm/reconnection.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 40 · Team 辅助</div>
+      <div class="card-title">teamHelpers</div>
+      <div class="card-desc">team / swarm 的通用辅助逻辑,服务于多 teammate 协作场景</div>
+      <div class="card-file">utils/swarm/teamHelpers.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 41 · 初始化</div>
+      <div class="card-title">teammateInit</div>
+      <div class="card-desc">teammate 的初始化逻辑,准备协作会话的起始状态</div>
+      <div class="card-file">utils/swarm/teammateInit.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 42 · 布局管理</div>
+      <div class="card-title">teammateLayoutManager</div>
+      <div class="card-desc">teammate 的布局管理,决定各 worker 在 pane 环境下的空间分配</div>
+      <div class="card-file">utils/swarm/teammateLayoutManager.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 43 · 模型辅助</div>
+      <div class="card-title">teammateModel</div>
+      <div class="card-desc">teammate 的模型辅助逻辑,管理每个 teammate 使用的模型配置</div>
+      <div class="card-file">utils/swarm/teammateModel.ts</div>
+    </div>
+    <div class="card">
+      <div class="card-tag">Layer 44 · Prompt 补充</div>
+      <div class="card-title">teammatePromptAddendum</div>
+      <div class="card-desc">teammate 的 prompt 补充内容,给协作角色注入额外上下文</div>
+      <div class="card-file">utils/swarm/teammatePromptAddendum.ts</div>
+    </div>
+  </div>
+
+  <div class="concl">
+    <div class="concl-title">关键结论</div>
+    <ol>
+      <li>swarm 是有真实后端执行层的,不只是逻辑上的多个 agent</li>
+      <li>backend 可切换:in-process / tmux / iTerm / pane executor</li>
+      <li>leader-worker 权限同步是多 agent 执行环境的一条独立通信链</li>
+      <li>reconnection / mode snapshot / layout manager 说明 swarm 是长生命周期协作环境</li>
+      <li>这层通信不仅传消息,还传执行环境、权限、布局和状态</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ============ FOOTER FLOW ============ -->
+<div class="footer-flow">
+  <div class="fstep"><span class="fdot fd-purple"></span>01 · Agent 调度入口</div>
+  <span class="farr">→</span>
+  <div class="fstep"><span class="fdot fd-amber"></span>02 · Task 协作总线</div>
+  <span class="farr">→</span>
+  <div class="fstep"><span class="fdot fd-teal"></span>03 · Mailbox 消息通道</div>
+  <span class="farr">→</span>
+  <div class="fstep"><span class="fdot fd-coral"></span>04 · Swarm 执行后端</div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Layer 3 · 工具执行层 · Tool Execution Layer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+  :root {
+    --bg: #0a0a0b; --surface: #111113; --surface2: #18181c;
+    --border: #2a2a30; --border-bright: #3a3a44;
+    --amber: #f59e0b; --amber-dim: #92600a; --amber-glow: rgba(245,158,11,0.08);
+    --teal: #2dd4bf; --blue: #60a5fa; --green: #4ade80;
+    --pink: #f472b6; --purple: #a78bfa; --orange: #fb923c; --red: #f87171;
+    --text: #e2e2e8; --text-dim: #888896; --text-muted: #55555f;
+    --layer-color: #4ade80;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Noto Sans SC','JetBrains Mono',monospace; min-height:100vh; padding:40px 32px 60px; }
+
+  .page-header { display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border); padding-bottom:24px; margin-bottom:36px; }
+  .layer-badge { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--bg); background:var(--layer-color); padding:4px 10px; border-radius:2px; margin-bottom:10px; display:inline-block; }
+  .layer-title-zh { font-size:28px; font-weight:700; color:var(--layer-color); line-height:1.2; }
+  .layer-title-en { font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-dim); margin-top:4px; }
+  .header-meta { text-align:right; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-muted); line-height:1.8; }
+
+  .section-label { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+  .section-label::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+  .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px; }
+
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:20px; }
+  .card.green-hl { border-color:rgba(74,222,128,0.35); background:rgba(74,222,128,0.04); }
+  .card.amber-hl { border-color:var(--amber-dim); background:var(--amber-glow); }
+  .card.teal-hl { border-color:rgba(45,212,191,0.3); background:rgba(45,212,191,0.04); }
+  .card.blue-hl { border-color:rgba(96,165,250,0.3); background:rgba(96,165,250,0.04); }
+
+  .card-header { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+  .card-icon { font-size:14px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:var(--surface2); border:1px solid var(--border-bright); border-radius:3px; flex-shrink:0; }
+  .card-title-zh { font-size:13px; font-weight:700; }
+  .card-title-en { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:1px; }
+
+  .file-ref { font-family:'JetBrains Mono',monospace; font-size:11px; padding:2px 7px; border-radius:2px; display:inline-block; margin-bottom:8px; border:1px solid; }
+  .fr-green { color:var(--green); background:rgba(74,222,128,0.07); border-color:rgba(74,222,128,0.2); }
+  .fr-amber { color:var(--amber); background:var(--amber-glow); border-color:var(--amber-dim); }
+  .fr-teal { color:var(--teal); background:rgba(45,212,191,0.07); border-color:rgba(45,212,191,0.2); }
+  .fr-blue { color:var(--blue); background:rgba(96,165,250,0.07); border-color:rgba(96,165,250,0.2); }
+  .fr-pink { color:var(--pink); background:rgba(244,114,182,0.07); border-color:rgba(244,114,182,0.2); }
+  .lines { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); margin-left:4px; }
+
+  .step-flow { display:flex; flex-direction:column; gap:4px; margin-top:8px; }
+  .sf-item { display:flex; align-items:flex-start; gap:8px; padding:7px 9px; border-radius:2px; }
+  .sf-item:nth-child(odd) { background:var(--surface2); }
+  .sf-num { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; color:var(--bg); background:var(--green); min-width:22px; height:18px; border-radius:2px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:2px; }
+  .sf-num.amber { background:var(--amber); }
+  .sf-num.teal { background:var(--teal); }
+  .sf-text { font-size:11px; color:var(--text-dim); line-height:1.5; }
+  .sf-text strong { color:var(--text); }
+  .sf-text .tc { color:var(--teal); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .sf-text .ac { color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .sf-text .gc { color:var(--green); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .sf-text .rc { color:var(--red); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .sf-text .bc { color:var(--blue); font-family:'JetBrains Mono',monospace; font-size:10px; }
+
+  .item-list { list-style:none; }
+  .item-list li { display:flex; align-items:flex-start; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:11px; line-height:1.5; }
+  .item-list li:last-child { border-bottom:none; }
+  .dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+  .d-green { background:var(--green); }
+  .d-amber { background:var(--amber); }
+  .d-teal { background:var(--teal); }
+  .d-blue { background:var(--blue); }
+  .d-pink { background:var(--pink); }
+  .d-purple { background:var(--purple); }
+  .d-red { background:var(--red); }
+  .item-key { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--green); flex-shrink:0; }
+  .item-val { color:var(--text-dim); font-size:11px; }
+
+  code { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal); background:var(--surface2); padding:1px 5px; border-radius:2px; border:1px solid var(--border); }
+
+  .permission-tree { margin-top:10px; }
+  .pt-item { display:flex; align-items:flex-start; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); }
+  .pt-item:last-child { border-bottom:none; }
+  .pt-label { font-family:'JetBrains Mono',monospace; font-size:10px; min-width:150px; flex-shrink:0; }
+  .pt-desc { font-size:11px; color:var(--text-dim); }
+
+  .parallel-box {
+    display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px;
+  }
+  .pb-item { padding:10px 12px; border-radius:3px; border:1px solid; }
+  .pb-item.readonly { border-color:rgba(74,222,128,0.3); background:rgba(74,222,128,0.06); }
+  .pb-item.write { border-color:rgba(251,146,60,0.3); background:rgba(251,146,60,0.06); }
+  .pb-title { font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; margin-bottom:4px; }
+  .pb-item.readonly .pb-title { color:var(--green); }
+  .pb-item.write .pb-title { color:var(--orange); }
+  .pb-desc { font-size:10px; color:var(--text-muted); line-height:1.5; }
+
+  .page-footer { margin-top:40px; padding-top:20px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); }
+  .footer-dot { color:var(--green); margin:0 6px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="layer-badge">Layer 3</div>
+    <div class="layer-title-zh">工具执行层</div>
+    <div class="layer-title-en">Tool Execution Layer · Claude Code Architecture</div>
+  </div>
+  <div class="header-meta">
+    <div>services/tools/</div>
+    <div>toolOrchestration · toolExecution · StreamingToolExecutor · toolHooks</div>
+    <div style="color:var(--green);margin-top:4px;">Architecture Study</div>
+  </div>
+</div>
+
+<!-- ROW 1 -->
+<div class="section-label">工具编排 · Tool Orchestration</div>
+<div class="grid-2">
+
+  <!-- toolOrchestration -->
+  <div class="card green-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--green)">⟳</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--green)">工具编排核心</div>
+        <div class="card-title-en">Tool Orchestration Core</div>
+      </div>
+    </div>
+    <span class="file-ref fr-green">services/tools/toolOrchestration.ts</span>
+
+    <ul class="item-list" style="margin-top:10px;">
+      <li><span class="dot d-green"></span><span class="item-key" style="min-width:200px;">runTools()</span><span class="item-val">核心编排函数 · 统一入口</span></li>
+      <li><span class="dot d-amber"></span><span class="item-key" style="min-width:200px;">partitionToolCalls()</span><span class="item-val">工具分区：只读（可并行）vs 写入（必须串行）</span></li>
+      <li><span class="dot d-teal"></span><span class="item-key" style="min-width:200px;">runToolsConcurrently()</span><span class="item-val">并行执行只读工具（race-free）</span></li>
+      <li><span class="dot d-pink"></span><span class="item-key" style="min-width:200px;">runToolsSerially()</span><span class="item-val">串行执行写入工具（保证顺序）</span></li>
+    </ul>
+
+    <div class="parallel-box">
+      <div class="pb-item readonly">
+        <div class="pb-title">只读工具 · Read-only</div>
+        <div class="pb-desc">isReadOnly() = true · 可并行执行 · runToolsConcurrently() · 无副作用 · 示例: Read, Glob, Search</div>
+      </div>
+      <div class="pb-item write">
+        <div class="pb-title">写入工具 · Write</div>
+        <div class="pb-desc">isReadOnly() = false · 必须串行 · runToolsSerially() · 有文件系统副作用 · 示例: Write, Bash, Edit</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- toolExecution -->
+  <div class="card amber-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--amber)">▶</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--amber)">单工具执行流程</div>
+        <div class="card-title-en">Single Tool Execution · runToolUse()</div>
+      </div>
+    </div>
+    <span class="file-ref fr-amber">services/tools/toolExecution.ts</span>
+    <span class="lines">1745 行</span>
+
+    <div class="step-flow">
+      <div class="sf-item"><div class="sf-num amber">1</div><div class="sf-text"><strong>findToolByName</strong> → 通过名称查找工具定义对象</div></div>
+      <div class="sf-item"><div class="sf-num amber">2</div><div class="sf-text"><strong>validateInput</strong> → <span class="tc">Zod schema 验证</span>输入参数合法性</div></div>
+      <div class="sf-item"><div class="sf-num amber">3</div><div class="sf-text"><strong>tool.isReadOnly()</strong> → 判断工具并行安全性</div></div>
+      <div class="sf-item"><div class="sf-num amber">4</div><div class="sf-text"><strong>canUseTool()</strong> → 权限检查:
+        <div style="margin-top:4px; padding-left:8px; border-left:2px solid rgba(245,158,11,0.3);">
+          检查 <span class="ac">alwaysAllow</span> / <span class="ac">alwaysDeny</span> 规则<br>
+          <span class="gc">runPreToolUseHooks()</span> 预执行 hooks<br>
+          权限分类器（bash / file / mcp 等）<br>
+          用户交互确认（如果需要）
+        </div>
+      </div></div>
+      <div class="sf-item"><div class="sf-num amber">5</div><div class="sf-text"><strong>tool.execute(params, toolUseContext)</strong> → 实际执行工具逻辑</div></div>
+      <div class="sf-item"><div class="sf-num amber">6</div><div class="sf-text"><strong>runPostToolUseHooks()</strong> → 后执行 hooks（外部扩展点）</div></div>
+      <div class="sf-item"><div class="sf-num amber">7</div><div class="sf-text"><strong>processToolResultBlock()</strong> → 处理和格式化执行结果</div></div>
+      <div class="sf-item"><div class="sf-num amber">8</div><div class="sf-text"><strong>yield MessageUpdate</strong> ← <span class="gc">返回结果给 query 循环</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 2 -->
+<div class="section-label">流式执行器 & Hook 系统 · Streaming Executor & Hook System</div>
+<div class="grid-2">
+
+  <!-- StreamingToolExecutor -->
+  <div class="card teal-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--teal)">⚡</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--teal)">流式工具执行器</div>
+        <div class="card-title-en">StreamingToolExecutor · Pre-execution while streaming</div>
+      </div>
+    </div>
+    <span class="file-ref fr-teal">services/tools/StreamingToolExecutor.ts</span>
+
+    <div style="font-size:11px;color:var(--text-dim);line-height:1.7;margin:10px 0 14px;">
+      在模型<strong style="color:var(--teal)">流式输出</strong> tool_use block 时，不等待完整响应，提前开始工具执行。
+      最大化并行度，减少端到端延迟。
+    </div>
+
+    <ul class="item-list">
+      <li>
+        <span class="dot d-teal"></span>
+        <span class="item-key">addTool()</span>
+        <span class="item-val">流式输出期间检测到 tool_use，立即投入执行</span>
+      </li>
+      <li>
+        <span class="dot d-green"></span>
+        <span class="item-key">executeTool()</span>
+        <span class="item-val">异步并行执行（Promise 不阻塞流）</span>
+      </li>
+      <li>
+        <span class="dot d-amber"></span>
+        <span class="item-key">getCompletedResults()</span>
+        <span class="item-val">获取已完成的工具结果</span>
+      </li>
+      <li>
+        <span class="dot d-pink"></span>
+        <span class="item-key">getRemainingResults()</span>
+        <span class="item-val">等待并获取剩余未完成结果</span>
+      </li>
+    </ul>
+
+    <div style="margin-top:14px; padding:10px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-size:10px; color:var(--text-muted); line-height:1.6; font-family:'JetBrains Mono',monospace;">
+      Model streaming → tool_use detected → addTool() → executeTool() async<br>
+      ↓ (streaming continues in parallel)<br>
+      stream complete → getCompletedResults() + getRemainingResults() → merge
+    </div>
+  </div>
+
+  <!-- toolHooks -->
+  <div class="card blue-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--blue)">⬡</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--blue)">工具 Hook 系统</div>
+        <div class="card-title-en">Tool Lifecycle Hooks</div>
+      </div>
+    </div>
+    <span class="file-ref fr-blue">services/tools/toolHooks.ts</span>
+
+    <div style="font-size:11px;color:var(--text-dim);line-height:1.7;margin:10px 0 14px;">
+      工具执行生命周期的扩展点系统。允许外部 hooks 在工具执行前后注入逻辑，实现监控、拦截、日志等功能。
+    </div>
+
+    <ul class="item-list">
+      <li>
+        <span class="dot d-blue"></span>
+        <span class="item-key" style="min-width:210px;">runPreToolUseHooks()</span>
+        <span class="item-val">工具执行前 hook 链</span>
+      </li>
+      <li>
+        <span class="dot d-green"></span>
+        <span class="item-key" style="min-width:210px;">runPostToolUseHooks()</span>
+        <span class="item-val">工具执行成功后 hook 链</span>
+      </li>
+      <li>
+        <span class="dot d-red"></span>
+        <span class="item-key" style="min-width:210px;">runPostToolUseFailureHooks()</span>
+        <span class="item-val">工具执行失败后 hook 链</span>
+      </li>
+    </ul>
+
+    <div style="margin-top:14px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">Hook 类型 · Hook Types</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--blue);background:rgba(96,165,250,0.07);border:1px solid rgba(96,165,250,0.2);border-radius:2px;padding:3px 8px;">Pre-execution</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);background:rgba(74,222,128,0.07);border:1px solid rgba(74,222,128,0.2);border-radius:2px;padding:3px 8px;">Post-success</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--red);background:rgba(248,113,113,0.07);border:1px solid rgba(248,113,113,0.2);border-radius:2px;padding:3px 8px;">Post-failure</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--amber);background:var(--amber-glow);border:1px solid var(--amber-dim);border-radius:2px;padding:3px 8px;">Permission gate</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 3: Permission Flow -->
+<div class="section-label" style="margin-top:4px;">权限检查流 · Permission Check Flow (canUseTool)</div>
+<div class="card" style="padding:20px 24px;">
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;">
+    <div style="padding:8px 12px; background:var(--amber-glow); border:1px solid var(--amber-dim); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--amber); text-align:center;">
+      Tool Call<br><span style="font-size:9px;color:var(--text-muted);">from model</span>
+    </div>
+    <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+    <div style="padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-align:center;">
+      alwaysAllow<br><span style="font-size:9px;color:var(--green);">→ permit</span>
+    </div>
+    <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+    <div style="padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-align:center;">
+      alwaysDeny<br><span style="font-size:9px;color:var(--red);">→ block</span>
+    </div>
+    <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+    <div style="padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-align:center;">
+      PreToolUse<br>Hooks<br><span style="font-size:9px;color:var(--blue);">→ may block</span>
+    </div>
+    <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+    <div style="padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-align:center;">
+      Permission<br>Classifier<br><span style="font-size:9px;color:var(--purple);">bash/file/mcp</span>
+    </div>
+    <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+    <div style="padding:8px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-align:center;">
+      User Confirm<br>Dialog<br><span style="font-size:9px;color:var(--pink);">if needed</span>
+    </div>
+    <div style="color:var(--green); font-family:'JetBrains Mono',monospace;">→</div>
+    <div style="padding:8px 12px; background:rgba(74,222,128,0.07); border:1px solid rgba(74,222,128,0.3); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--green); text-align:center;">
+      Execute<br><span style="font-size:9px;color:var(--text-muted);">tool.execute()</span>
+    </div>
+  </div>
+</div>
+
+<div class="page-footer">
+  <div>Claude Code Architecture<span class="footer-dot">·</span>Layer 3<span class="footer-dot">·</span>工具执行层 Tool Execution Layer</div>
+  <div>services/tools/toolOrchestration.ts<span class="footer-dot">·</span>toolExecution.ts (1745L)<span class="footer-dot">·</span>StreamingToolExecutor.ts<span class="footer-dot">·</span>toolHooks.ts</div>
+</div>
+
+</body>
+</html>

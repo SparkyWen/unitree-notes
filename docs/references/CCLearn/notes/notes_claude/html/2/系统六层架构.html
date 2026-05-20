@@ -1,0 +1,212 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">Claude Code 六层运行时架构</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">从入口分发到基础设施：一个以 query() 为心跳的分层工具执行系统</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+
+<!-- 列 1 · 入口分发 紫 · Layer 0 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Layer 00 · A</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">CLI 快速路径</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">按参数分叉到 daemon、bridge、mcp 等子入口，--version 零导入直接返回</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints/cli.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Layer 00 · B</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">主启动流程</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">完成认证、迁移脚本、MCP 加载、工具池组装与 AppState 初始化后拉起 REPL</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">main.tsx · 4683 行</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Layer 00 · C</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">专用入口</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">MCP server 模式、配置初始化与 Agent SDK 的类型 Schema 各自独立的轻量入口</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">mcp.ts · init.ts · sdk/</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 人机交互 粉 · Layer 1 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FBEAF0;border:0.5px solid #D4537E;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993556;text-transform:uppercase">Layer 01 · A</div>
+<div style="font-size:12px;font-weight:500;color:#4B1528;margin-top:4px">REPL 主界面</div>
+<div style="font-size:10px;line-height:1.5;color:#72243E;margin-top:6px">输入框、消息虚拟列表、权限弹窗、状态栏与 80+ hooks 构成完整交互层</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F4C0D1;color:#4B1528;padding:2px 6px;border-radius:10px">screens/REPL.tsx · 5005 行</span></div>
+</div>
+
+<div style="background:#FBEAF0;border:0.5px solid #D4537E;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993556;text-transform:uppercase">Layer 01 · B</div>
+<div style="font-size:12px;font-weight:500;color:#4B1528;margin-top:4px">Headless 模式</div>
+<div style="font-size:10px;line-height:1.5;color:#72243E;margin-top:6px">-p flag 跑单次查询，drain 生成器后以 text、json 或 stream-json 输出到 stdout</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F4C0D1;color:#4B1528;padding:2px 6px;border-radius:10px">cli/print.ts</span></div>
+</div>
+
+<div style="background:#FBEAF0;border:0.5px solid #D4537E;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993556;text-transform:uppercase">Layer 01 · C</div>
+<div style="font-size:12px;font-weight:500;color:#4B1528;margin-top:4px">Ink 渲染引擎</div>
+<div style="font-size:10px;line-height:1.5;color:#72243E;margin-top:6px">自研 React Fiber reconciler，把组件树、焦点与键盘事件转成 ANSI 终端输出</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F4C0D1;color:#4B1528;padding:2px 6px;border-radius:10px">ink/ · 96 文件</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 引擎核心 琥珀 · Layer 2 (core) -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Layer 02 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">query 对话循环</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">十三步 queryLoop：预算、压缩、调模型、并行工具、413 与 maxTokens 错误恢复</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts · 1729 行</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Layer 02 · B</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">QueryEngine</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">为 SDK 与 print 模式封装单次查询，装配系统提示、消费生成器、持久化 transcript</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">QueryEngine.ts · 1295 行</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Layer 02 · C</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">Tool 类型系统</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">定义 Tool、ToolUseContext、ToolPermissionContext 等统一类型与工厂函数</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">Tool.ts · 792 行</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Layer 02 · D</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">工具与命令注册</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">按权限与配置过滤出工具池，加载内置、技能与插件命令供 REPL 路由</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">tools.ts · commands.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 工具执行 青绿 · Layer 3 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 03 · A</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具编排</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">按只读与写入分区：只读工具并行跑、写入工具串行跑，避免竞态与脏写</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">toolOrchestration.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 03 · B</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">单工具执行</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">Zod 校验入参、canUseTool 权限检查、执行 tool.execute 并处理结果块</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">toolExecution.ts · 1745 行</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 03 · C</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">流式执行器</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">模型还在流式输出时就提前开跑工具，缩短端到端延迟，配合 pre/post hooks</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">StreamingToolExecutor.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 03 · D</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具钩子</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">在每次工具调用前后注入用户自定义逻辑，支持失败钩子用于审计与告警</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">toolHooks.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 服务支撑 蓝 · Layer 4 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 04 · A</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">Claude API 核心</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">构造流式请求、处理 thinking 与缓存 beta header、解析事件并累积 usage</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/api/claude.ts · 3419 行</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 04 · B</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">消息压缩系统</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">auto、reactive、snip 三路压缩，分别应对接近窗口、413 错误与历史裁剪</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/compact/</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 04 · C</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">MCP 协议栈</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">MCP 客户端、OAuth 认证、官方注册表与多服务器连接生命周期管理</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/mcp/ · 23 文件</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 04 · D</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">周边服务矩阵</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">分析遥测、策略限流、插件、LSP 集成与远程托管设置等横向能力的集散地</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">analytics · oauth · policyLimits · lsp</span></div>
+</div>
+
+</div>
+
+<!-- 列 6 · 基础设施 珊瑚 · Layer 5 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 05 · A</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">全局状态与 Store</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">会话单例、极简 createStore 与 240+ 字段的 AppState，所有模块的数据交换点</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">bootstrap/state.ts · state/</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 05 · B</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">权限与 Bash 安全</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">权限规则匹配、文件系统粒度控制与 Bash AST 解析，挡住危险命令与越权读写</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">utils/permissions · utils/bash</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 05 · C</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">消息与 Hook 核心</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">normalizeMessagesForAPI 把内部消息转 API 格式，hooks.ts 统一调度各类钩子</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">utils/messages.ts · utils/hooks.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 05 · D</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">持久化与配置</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">会话存档、配置与认证读写、CLAUDE.md 附件注入与模型能力选择等基础能力</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">sessionStorage · config · auth · attachments</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:6px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>入口分发</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D4537E"></span>人机交互</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>引擎核心</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>工具执行</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>服务支撑</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>基础设施</div>
+</div>
+
+</div>

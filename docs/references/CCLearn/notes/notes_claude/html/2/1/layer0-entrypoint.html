@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Layer 0 · 入口层 · Entrypoint Layer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111113;
+    --surface2: #18181c;
+    --border: #2a2a30;
+    --border-bright: #3a3a44;
+    --amber: #f59e0b;
+    --amber-dim: #92600a;
+    --amber-glow: rgba(245,158,11,0.08);
+    --teal: #2dd4bf;
+    --blue: #60a5fa;
+    --green: #4ade80;
+    --pink: #f472b6;
+    --purple: #a78bfa;
+    --text: #e2e2e8;
+    --text-dim: #888896;
+    --text-muted: #55555f;
+    --layer-color: #f59e0b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans SC', 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 40px 32px 60px;
+  }
+
+  /* ── Header ── */
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 36px;
+  }
+  .layer-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--bg);
+    background: var(--layer-color);
+    padding: 4px 10px;
+    border-radius: 2px;
+    margin-bottom: 10px;
+    display: inline-block;
+  }
+  .layer-title-zh {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--layer-color);
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+  }
+  .layer-title-en {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    font-weight: 400;
+  }
+  .header-meta {
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.8;
+  }
+
+  /* ── Grid Layout ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .col-span-2 { grid-column: span 2; }
+  .col-span-3 { grid-column: span 3; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+    position: relative;
+  }
+  .card.highlight {
+    border-color: var(--amber-dim);
+    background: var(--amber-glow);
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-icon {
+    font-size: 14px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface2);
+    border: 1px solid var(--border-bright);
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .card-title-zh {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .card-title-en {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-top: 1px;
+  }
+  .card.highlight .card-title-zh { color: var(--amber); }
+
+  /* ── File Ref ── */
+  .file-ref {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber);
+    background: rgba(245,158,11,0.07);
+    border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 2px;
+    padding: 2px 7px;
+    display: inline-block;
+    margin-bottom: 10px;
+  }
+  .file-ref.teal { color: var(--teal); background: rgba(45,212,191,0.07); border-color: rgba(45,212,191,0.2); }
+  .file-ref.blue { color: var(--blue); background: rgba(96,165,250,0.07); border-color: rgba(96,165,250,0.2); }
+  .file-ref.green { color: var(--green); background: rgba(74,222,128,0.07); border-color: rgba(74,222,128,0.2); }
+  .file-ref.pink { color: var(--pink); background: rgba(244,114,182,0.07); border-color: rgba(244,114,182,0.2); }
+  .file-ref.purple { color: var(--purple); background: rgba(167,139,250,0.07); border-color: rgba(167,139,250,0.2); }
+
+  .lines {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  /* ── Tree / List items ── */
+  .tree { list-style: none; }
+  .tree li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .tree li:last-child { border-bottom: none; }
+  .tree-arrow {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    margin-top: 1px;
+    font-size: 11px;
+  }
+  .tree-key {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--teal);
+    flex-shrink: 0;
+    font-size: 11px;
+    min-width: 110px;
+  }
+  .tree-val { color: var(--text-dim); font-size: 11px; }
+  .tree-val .hl { color: var(--amber); }
+  .tree-val .blue { color: var(--blue); }
+  .tree-val .green { color: var(--green); }
+  .tree-val .pink { color: var(--pink); }
+
+  /* ── Step list ── */
+  .step-list { list-style: none; }
+  .step-item {
+    display: flex;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: flex-start;
+  }
+  .step-item:last-child { border-bottom: none; }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--bg);
+    background: var(--amber);
+    min-width: 20px;
+    height: 20px;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .step-content { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .step-content strong { color: var(--text); font-weight: 600; }
+  .step-content .code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--teal);
+    background: var(--surface2);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  /* ── Dispatch Table ── */
+  .dispatch-table { width: 100%; border-collapse: collapse; }
+  .dispatch-table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-bright);
+  }
+  .dispatch-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    vertical-align: middle;
+  }
+  .dispatch-table tr:last-child td { border-bottom: none; }
+  .dispatch-table tr:hover td { background: var(--surface2); }
+  .flag {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--pink);
+    font-size: 11px;
+  }
+  .dest {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--teal);
+    font-size: 11px;
+  }
+  .arrow-right {
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+
+  /* ── Tag pills ── */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 2px;
+    border: 1px solid;
+  }
+  .tag.amber { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-glow); }
+  .tag.teal { color: var(--teal); border-color: rgba(45,212,191,0.3); background: rgba(45,212,191,0.06); }
+  .tag.blue { color: var(--blue); border-color: rgba(96,165,250,0.3); background: rgba(96,165,250,0.06); }
+  .tag.green { color: var(--green); border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.06); }
+  .tag.pink { color: var(--pink); border-color: rgba(244,114,182,0.3); background: rgba(244,114,182,0.06); }
+
+  /* ── Section label ── */
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Footer ── */
+  .page-footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .footer-dot { color: var(--amber); margin: 0 6px; }
+
+  /* ── Inline code ── */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--teal);
+    background: var(--surface2);
+    padding: 1px 5px;
+    border-radius: 2px;
+    border: 1px solid var(--border);
+  }
+
+  .desc {
+    font-size: 11px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-top: 8px;
+  }
+  .desc .hl { color: var(--amber); }
+
+  .sub-section { margin-top: 14px; }
+  .sub-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="layer-badge">Layer 0</div>
+    <div class="layer-title-zh">入口层</div>
+    <div class="layer-title-en">Entrypoint Layer · Claude Code Architecture</div>
+  </div>
+  <div class="header-meta">
+    <div>claude-code / source</div>
+    <div>entrypoints/ · main.tsx</div>
+    <div style="color: var(--amber); margin-top:4px;">Architecture Study</div>
+  </div>
+</div>
+
+<!-- ROW 1 -->
+<div class="section-label">核心文件 · Core Files</div>
+<div class="grid-2" style="margin-bottom:20px;">
+
+  <!-- cli.tsx -->
+  <div class="card highlight">
+    <div class="card-header">
+      <div class="card-icon">⚡</div>
+      <div>
+        <div class="card-title-zh">CLI 快速路径分发器</div>
+        <div class="card-title-en">Fast-path Dispatcher</div>
+      </div>
+    </div>
+    <span class="file-ref">entrypoints/cli.tsx</span>
+    <div class="desc" style="margin-bottom:14px;">
+      程序入口点，<span class="hl">main()</span> 函数根据参数执行零导入快速分发，避免不必要的模块加载。
+    </div>
+    <table class="dispatch-table">
+      <thead>
+        <tr>
+          <th>参数 / Flag</th>
+          <th></th>
+          <th>路由目标 / Destination</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="flag">--version</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest">零导入，直接输出</span></td>
+        </tr>
+        <tr>
+          <td><span class="flag">remote-control</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest">bridge/bridgeMain.ts</span></td>
+        </tr>
+        <tr>
+          <td><span class="flag">daemon</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest">daemon/main.ts</span></td>
+        </tr>
+        <tr>
+          <td><span class="flag">ps / logs / attach</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest">cli/bg.ts</span></td>
+        </tr>
+        <tr>
+          <td><span class="flag">environment-runner</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest">environment-runner/main.ts</span></td>
+        </tr>
+        <tr>
+          <td><span class="flag">--mcp</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest">entrypoints/mcp.ts</span></td>
+        </tr>
+        <tr>
+          <td><span class="flag">(默认 default)</span></td>
+          <td><span class="arrow-right">→</span></td>
+          <td><span class="dest" style="color:var(--amber)">main.tsx → main()</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- main.tsx -->
+  <div class="card highlight">
+    <div class="card-header">
+      <div class="card-icon">🚀</div>
+      <div>
+        <div class="card-title-zh">完整启动流程</div>
+        <div class="card-title-en">Full Bootstrap Sequence</div>
+      </div>
+    </div>
+    <span class="file-ref">main.tsx</span>
+    <span class="lines">4683 行</span>
+    <ul class="step-list" style="margin-top:10px;">
+      <li class="step-item">
+        <div class="step-num">1</div>
+        <div class="step-content"><strong>profileCheckpoint</strong> / <span class="code">startMdmRawRead</span> / <span class="code">startKeychainPrefetch</span></div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">2</div>
+        <div class="step-content"><strong>Commander.js 参数解析</strong> — <span class="code">program.command / option / action</span></div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">3</div>
+        <div class="step-content"><strong>init()</strong> — 认证 Authentication · 配置 Config · GrowthBook · Telemetry</div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">4</div>
+        <div class="step-content"><strong>迁移脚本执行</strong> — <span class="code">migrations/</span> 目录下的数据迁移</div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">5</div>
+        <div class="step-content"><strong>MCP servers 加载</strong> — Model Context Protocol 服务器初始化</div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">6</div>
+        <div class="step-content"><strong>工具池 / 命令池组装</strong> — Tool Pool · Command Pool Assembly</div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">7</div>
+        <div class="step-content"><strong>AppState 初始化</strong> → <span class="code">createStore()</span></div>
+      </li>
+      <li class="step-item">
+        <div class="step-num">8</div>
+        <div class="step-content"><strong>launchRepl()</strong> → <span class="code">App</span> → <span class="code">REPL</span> — 启动交互界面</div>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- ROW 2 -->
+<div class="section-label">辅助入口 · Auxiliary Entrypoints</div>
+<div class="grid-3">
+
+  <!-- mcp.ts -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--teal)">⬡</div>
+      <div>
+        <div class="card-title-zh">MCP 服务器模式入口</div>
+        <div class="card-title-en">MCP Server Mode</div>
+      </div>
+    </div>
+    <span class="file-ref teal">entrypoints/mcp.ts</span>
+    <div class="desc">
+      当 Claude Code 作为 <span style="color:var(--teal)">MCP Server</span> 被外部工具调用时的入口点。启动 MCP 协议栈，暴露工具给宿主模型。
+    </div>
+    <div class="tags">
+      <span class="tag teal">MCP Protocol</span>
+      <span class="tag teal">Server Mode</span>
+      <span class="tag blue">Hosted Tools</span>
+    </div>
+  </div>
+
+  <!-- init.ts -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--blue)">⚙</div>
+      <div>
+        <div class="card-title-zh">配置与认证初始化</div>
+        <div class="card-title-en">Config & Auth Init</div>
+      </div>
+    </div>
+    <span class="file-ref blue">entrypoints/init.ts</span>
+    <div class="desc">
+      提取自 <span style="color:var(--amber)">main.tsx</span> 的 <code>init()</code> 函数实现。负责认证流程、配置文件读取、特性开关（GrowthBook）、遥测初始化。
+    </div>
+    <div class="tags">
+      <span class="tag amber">Authentication</span>
+      <span class="tag blue">Config</span>
+      <span class="tag green">Telemetry</span>
+    </div>
+  </div>
+
+  <!-- sdk/ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--purple)">◈</div>
+      <div>
+        <div class="card-title-zh">Agent SDK 类型与 Schema</div>
+        <div class="card-title-en">Agent SDK Types</div>
+      </div>
+    </div>
+    <span class="file-ref purple">entrypoints/sdk/</span>
+    <div class="desc">
+      Agent SDK 对外暴露的 TypeScript 类型定义和 Zod Schema 验证。供第三方集成时使用，定义输入输出格式契约。
+    </div>
+    <div class="tags">
+      <span class="tag pink">TypeScript Types</span>
+      <span class="tag purple">Zod Schema</span>
+      <span class="tag teal">SDK Contract</span>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 3: Flow Diagram -->
+<div class="section-label" style="margin-top:8px;">启动流向 · Startup Flow</div>
+<div class="card" style="padding:24px 28px;">
+  <div style="display:flex; align-items:center; gap:0; flex-wrap:wrap; justify-content:center;">
+
+    <div style="text-align:center; padding:10px 16px; background:var(--surface2); border:1px solid var(--border-bright); border-radius:3px; min-width:90px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted);">USER</div>
+      <div style="font-size:13px; color:var(--text); font-weight:700; margin-top:3px;">Terminal</div>
+    </div>
+
+    <div style="padding:0 10px; color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:16px;">→</div>
+
+    <div style="text-align:center; padding:10px 16px; background:rgba(245,158,11,0.1); border:1px solid var(--amber-dim); border-radius:3px; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--amber);">ENTRY</div>
+      <div style="font-size:13px; color:var(--amber); font-weight:700; margin-top:3px;">cli.tsx</div>
+      <div style="font-size:10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">main()</div>
+    </div>
+
+    <div style="padding:0 10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:16px;">→</div>
+
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <div style="padding:6px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal);">bridge/bridgeMain.ts</div>
+      <div style="padding:6px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--blue);">daemon/main.ts</div>
+      <div style="padding:6px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--green);">cli/bg.ts</div>
+      <div style="padding:6px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--pink);">environment-runner/main.ts</div>
+      <div style="padding:6px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--purple);">entrypoints/mcp.ts</div>
+    </div>
+
+    <div style="padding:0 10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:16px;">→ (default)</div>
+
+    <div style="text-align:center; padding:10px 16px; background:rgba(245,158,11,0.1); border:1px solid var(--amber-dim); border-radius:3px; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--amber);">MAIN</div>
+      <div style="font-size:13px; color:var(--amber); font-weight:700; margin-top:3px;">main.tsx</div>
+      <div style="font-size:10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">4683 lines</div>
+    </div>
+
+    <div style="padding:0 10px; color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:16px;">→</div>
+
+    <div style="text-align:center; padding:10px 16px; background:rgba(45,212,191,0.07); border:1px solid rgba(45,212,191,0.3); border-radius:3px; min-width:90px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal);">REPL</div>
+      <div style="font-size:13px; color:var(--teal); font-weight:700; margin-top:3px;">launchRepl()</div>
+      <div style="font-size:10px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;">Layer 1 →</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="page-footer">
+  <div>Claude Code Architecture<span class="footer-dot">·</span>Layer 0<span class="footer-dot">·</span>入口层 Entrypoint Layer</div>
+  <div>entrypoints/cli.tsx<span class="footer-dot">·</span>main.tsx (4683L)<span class="footer-dot">·</span>entrypoints/mcp.ts<span class="footer-dot">·</span>entrypoints/init.ts<span class="footer-dot">·</span>entrypoints/sdk/</div>
+</div>
+
+</body>
+</html>

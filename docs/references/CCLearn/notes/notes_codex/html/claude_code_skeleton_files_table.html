@@ -1,0 +1,155 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">系统主骨架文件</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">只看一组最关键的文件：文档第 7 节的十五个骨架文件加一句话总结</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+
+<!-- 列 1 · 紫 · 入口分流 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">真实入口</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">启动分流</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints/cli.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">总调度器</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">初始化与模式路由</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">main.tsx</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 紫 · 运行态配置 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">认证中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">auth source / refresh / state machine</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">utils/auth.ts</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">settings 中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">多源 settings 合并</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">utils/settings/settings.ts</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">config 中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">本地 config 持久层</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">utils/config.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 青绿 · 能力注册 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">命令中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">统一命令聚合</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">commands.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">统一工具聚合</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">tools.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具协议</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">Tool 定义与上下文协议</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">Tool.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Role · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">Agent 内核</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">主循环状态机</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">骨架四件套</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">最核心的一句话总结</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">main · query · tools · commands</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 蓝 · 运行时服务 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">API 运行时</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">模型请求与流解析</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/api/claude.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">provider client</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">底层 client / provider 构造</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/api/client.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">上下文治理</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">full compact 核心</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/compact/compact.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 6 · 珊瑚 · 持久化与扩展 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">transcript 持久化</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">会话恢复基础设施</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">utils/sessionStorage.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">MCP 配置中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">MCP 来源与策略合并</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">services/mcp/config.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Role</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">MCP 运行时中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">MCP 连接与工具导入</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">services/mcp/client.ts</span></div>
+</div>
+
+</div>
+
+</div>
+
+</div>

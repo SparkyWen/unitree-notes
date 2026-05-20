@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Layer 1 · 交互层 · Interaction Layer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111113;
+    --surface2: #18181c;
+    --border: #2a2a30;
+    --border-bright: #3a3a44;
+    --amber: #f59e0b;
+    --amber-dim: #92600a;
+    --amber-glow: rgba(245,158,11,0.08);
+    --teal: #2dd4bf;
+    --blue: #60a5fa;
+    --green: #4ade80;
+    --pink: #f472b6;
+    --purple: #a78bfa;
+    --orange: #fb923c;
+    --text: #e2e2e8;
+    --text-dim: #888896;
+    --text-muted: #55555f;
+    --layer-color: #2dd4bf;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans SC', 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 40px 32px 60px;
+  }
+
+  .page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 36px;
+  }
+  .layer-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--bg); background: var(--layer-color);
+    padding: 4px 10px; border-radius: 2px;
+    margin-bottom: 10px; display: inline-block;
+  }
+  .layer-title-zh { font-size: 28px; font-weight: 700; color: var(--layer-color); line-height: 1.2; }
+  .layer-title-en { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-dim); margin-top: 4px; }
+  .header-meta { text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); line-height: 1.8; }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .col-span-2 { grid-column: span 2; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 20px; }
+  .card.highlight { border-color: rgba(45,212,191,0.3); background: rgba(45,212,191,0.04); }
+  .card.amber-hl { border-color: var(--amber-dim); background: var(--amber-glow); }
+
+  .card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .card-icon { font-size: 14px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: 3px; flex-shrink: 0; }
+  .card-title-zh { font-size: 13px; font-weight: 700; color: var(--text); }
+  .card-title-en { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+  .card.highlight .card-title-zh { color: var(--teal); }
+  .card.amber-hl .card-title-zh { color: var(--amber); }
+
+  .file-ref {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    padding: 2px 7px; border-radius: 2px; display: inline-block; margin-bottom: 10px;
+    color: var(--teal); background: rgba(45,212,191,0.07); border: 1px solid rgba(45,212,191,0.2);
+  }
+  .file-ref.amber { color: var(--amber); background: var(--amber-glow); border-color: var(--amber-dim); }
+  .file-ref.blue { color: var(--blue); background: rgba(96,165,250,0.07); border-color: rgba(96,165,250,0.2); }
+  .file-ref.orange { color: var(--orange); background: rgba(251,146,60,0.07); border-color: rgba(251,146,60,0.2); }
+  .file-ref.pink { color: var(--pink); background: rgba(244,114,182,0.07); border-color: rgba(244,114,182,0.2); }
+  .lines { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-left: 4px; }
+
+  .item-list { list-style: none; }
+  .item-list li {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+    font-size: 12px; line-height: 1.5;
+  }
+  .item-list li:last-child { border-bottom: none; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+  .dot.teal { background: var(--teal); }
+  .dot.amber { background: var(--amber); }
+  .dot.blue { background: var(--blue); }
+  .dot.green { background: var(--green); }
+  .dot.pink { background: var(--pink); }
+  .dot.purple { background: var(--purple); }
+  .dot.orange { background: var(--orange); }
+  .item-key { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--teal); flex-shrink: 0; min-width: 160px; }
+  .item-val { color: var(--text-dim); font-size: 11px; }
+
+  .desc { font-size: 11px; color: var(--text-dim); line-height: 1.7; margin-top: 8px; }
+  .desc .hl { color: var(--amber); }
+  .desc .tc { color: var(--teal); }
+
+  code { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--teal); background: var(--surface2); padding: 1px 5px; border-radius: 2px; border: 1px solid var(--border); }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tag { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 3px 8px; border-radius: 2px; border: 1px solid; }
+  .tag.teal { color: var(--teal); border-color: rgba(45,212,191,0.3); background: rgba(45,212,191,0.06); }
+  .tag.amber { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-glow); }
+  .tag.blue { color: var(--blue); border-color: rgba(96,165,250,0.3); background: rgba(96,165,250,0.06); }
+  .tag.green { color: var(--green); border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.06); }
+  .tag.pink { color: var(--pink); border-color: rgba(244,114,182,0.3); background: rgba(244,114,182,0.06); }
+  .tag.purple { color: var(--purple); border-color: rgba(167,139,250,0.3); background: rgba(167,139,250,0.06); }
+  .tag.orange { color: var(--orange); border-color: rgba(251,146,60,0.3); background: rgba(251,146,60,0.06); }
+
+  /* Component grid inside card */
+  .component-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .comp-box {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 3px;
+    padding: 8px 10px;
+  }
+  .comp-name { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--teal); font-weight: 600; }
+  .comp-desc { font-size: 10px; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+
+  /* Ink module grid */
+  .module-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .module-chip {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    color: var(--text-dim); background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 2px;
+    padding: 4px 9px; display: flex; align-items: center; gap: 5px;
+  }
+  .module-chip .chip-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--layer-color); }
+
+  .page-footer {
+    margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted);
+  }
+  .footer-dot { color: var(--teal); margin: 0 6px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="layer-badge">Layer 1</div>
+    <div class="layer-title-zh">交互层</div>
+    <div class="layer-title-en">Interaction Layer · Claude Code Architecture</div>
+  </div>
+  <div class="header-meta">
+    <div>screens/ · cli/ · ink/</div>
+    <div>REPL.tsx · print.ts · 96 files</div>
+    <div style="color:var(--teal); margin-top:4px;">Architecture Study</div>
+  </div>
+</div>
+
+<!-- ROW 1: Two main files -->
+<div class="section-label">主文件 · Primary Files</div>
+<div class="grid-2">
+
+  <!-- REPL.tsx -->
+  <div class="card highlight">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--teal)">▣</div>
+      <div>
+        <div class="card-title-zh">主交互界面</div>
+        <div class="card-title-en">Main Interactive UI</div>
+      </div>
+    </div>
+    <span class="file-ref">screens/REPL.tsx</span>
+    <span class="lines">5005 行</span>
+    <div class="desc" style="margin-bottom: 12px;">
+      Claude Code 的核心 UI 层，基于 Ink（React for terminal）渲染。管理用户输入、消息展示、权限对话框、状态栏和 <span class="hl">80+</span> 个 React hooks。
+    </div>
+    <div class="component-grid">
+      <div class="comp-box">
+        <div class="comp-name">PromptInput</div>
+        <div class="comp-desc">用户输入框 · 自动补全 · vim模式 · 粘贴处理</div>
+      </div>
+      <div class="comp-box">
+        <div class="comp-name">Messages / VirtualMessageList</div>
+        <div class="comp-desc">消息虚拟列表渲染（虚拟化滚动）</div>
+      </div>
+      <div class="comp-box">
+        <div class="comp-name">PermissionRequest</div>
+        <div class="comp-desc">权限请求对话框（工具执行确认）</div>
+      </div>
+      <div class="comp-box">
+        <div class="comp-name">StatusLine</div>
+        <div class="comp-desc">底部状态栏（模型/cost/模式）</div>
+      </div>
+      <div class="comp-box">
+        <div class="comp-name">SpinnerWithVerb</div>
+        <div class="comp-desc">加载动画（带动词描述）</div>
+      </div>
+      <div class="comp-box">
+        <div class="comp-name">CostThresholdDialog / IdleReturnDialog</div>
+        <div class="comp-desc">费用超限对话框 · 闲置返回对话框</div>
+      </div>
+    </div>
+    <div class="tags" style="margin-top:12px;">
+      <span class="tag teal">React / Ink</span>
+      <span class="tag amber">80+ hooks</span>
+      <span class="tag blue">Virtual List</span>
+      <span class="tag green">vim mode</span>
+      <span class="tag pink">Permission Dialog</span>
+    </div>
+  </div>
+
+  <!-- print.ts -->
+  <div class="card amber-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--amber)">⊟</div>
+      <div>
+        <div class="card-title-zh">无交互 Headless 模式</div>
+        <div class="card-title-en">Headless / Print Mode</div>
+      </div>
+    </div>
+    <span class="file-ref amber">cli/print.ts</span>
+    <span class="lines">5594 行</span>
+    <div class="desc" style="margin-bottom: 12px;">
+      通过 <code>-p flag</code> 启动的非交互式执行模式。无 UI 渲染，直接将结果输出到 stdout。适用于 CI/CD、脚本集成和 SDK 调用场景。
+    </div>
+    <ul class="item-list">
+      <li>
+        <span class="dot amber"></span>
+        <span class="item-key">runHeadless()</span>
+        <span class="item-val">单次查询执行 · 无 REPL 循环</span>
+      </li>
+      <li>
+        <span class="dot teal"></span>
+        <span class="item-key">drain query generator</span>
+        <span class="item-val">消费 AsyncGenerator 直到完成</span>
+      </li>
+      <li>
+        <span class="dot blue"></span>
+        <span class="item-key">输出格式 / Output</span>
+        <span class="item-val">text · json · stream-json 三种格式</span>
+      </li>
+    </ul>
+    <div class="tags" style="margin-top:12px;">
+      <span class="tag amber">-p flag</span>
+      <span class="tag teal">stdout</span>
+      <span class="tag blue">text / json / stream-json</span>
+      <span class="tag orange">CI/CD</span>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 2: Ink engine detail -->
+<div class="section-label">Ink 渲染引擎 · Custom Terminal Rendering Engine</div>
+<div class="grid-3">
+
+  <!-- Core files -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--blue)">◐</div>
+      <div>
+        <div class="card-title-zh">渲染核心</div>
+        <div class="card-title-en">Render Core</div>
+      </div>
+    </div>
+    <span class="file-ref blue">ink/ · 96 files</span>
+    <ul class="item-list">
+      <li>
+        <span class="dot blue"></span>
+        <span class="item-key">dom.ts</span>
+        <span class="item-val">DOM 节点模拟（终端虚拟DOM）</span>
+      </li>
+      <li>
+        <span class="dot teal"></span>
+        <span class="item-key">reconciler.ts</span>
+        <span class="item-val">React Fiber reconciler 实现</span>
+      </li>
+      <li>
+        <span class="dot green"></span>
+        <span class="item-key">renderer.ts</span>
+        <span class="item-val">渲染管线入口</span>
+      </li>
+      <li>
+        <span class="dot pink"></span>
+        <span class="item-key">output.ts</span>
+        <span class="item-val">输出管理器</span>
+      </li>
+      <li>
+        <span class="dot orange"></span>
+        <span class="item-key">render-node-to-output.ts</span>
+        <span class="item-val">节点 → ANSI escape code 输出</span>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Input & Focus -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--green)">⌨</div>
+      <div>
+        <div class="card-title-zh">输入与焦点</div>
+        <div class="card-title-en">Input & Focus</div>
+      </div>
+    </div>
+    <span class="file-ref" style="color:var(--green);background:rgba(74,222,128,0.07);border-color:rgba(74,222,128,0.2);">ink/input & focus</span>
+    <ul class="item-list">
+      <li>
+        <span class="dot green"></span>
+        <span class="item-key">parse-keypress.ts</span>
+        <span class="item-val">键盘事件解析（raw terminal input）</span>
+      </li>
+      <li>
+        <span class="dot teal"></span>
+        <span class="item-key">focus.ts</span>
+        <span class="item-val">焦点管理（组件焦点状态树）</span>
+      </li>
+    </ul>
+    <div class="desc" style="margin-top:10px;">
+      解析原始 terminal keypress 事件，将字节序列转换为结构化键盘事件对象，传递给 <span class="tc">focus</span> 系统分发给焦点组件。
+    </div>
+  </div>
+
+  <!-- Sub modules -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--purple)">⬡</div>
+      <div>
+        <div class="card-title-zh">子模块</div>
+        <div class="card-title-en">Sub-modules</div>
+      </div>
+    </div>
+    <span class="file-ref" style="color:var(--purple);background:rgba(167,139,250,0.07);border-color:rgba(167,139,250,0.2);">ink/sub-modules</span>
+    <div class="module-row">
+      <div class="module-chip"><span class="chip-dot"></span>hooks/</div>
+      <div class="module-chip"><span class="chip-dot"></span>components/</div>
+      <div class="module-chip"><span class="chip-dot"></span>events/</div>
+      <div class="module-chip"><span class="chip-dot"></span>termio/</div>
+    </div>
+    <div class="desc" style="margin-top:10px;">
+      <strong style="color:var(--text)">hooks/</strong> — useInput, useStdin, useFocus 等终端专用 React hooks<br>
+      <strong style="color:var(--text)">components/</strong> — Box, Text, Newline, Static 等 Ink 原语<br>
+      <strong style="color:var(--text)">events/</strong> — 事件系统（EventEmitter 封装）<br>
+      <strong style="color:var(--text)">termio/</strong> — 终端 I/O 底层操作
+    </div>
+  </div>
+</div>
+
+<!-- ROW 3: Architecture Flow -->
+<div class="section-label" style="margin-top:8px;">交互层架构流 · Interaction Data Flow</div>
+<div class="card" style="padding:22px 24px;">
+  <div style="display:flex; gap:16px; align-items:stretch; justify-content:center; flex-wrap:wrap;">
+
+    <!-- User -->
+    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:80px; padding:12px; background:var(--surface2); border:1px solid var(--border-bright); border-radius:3px; text-align:center;">
+      <div style="font-size:20px;">👤</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:6px;">Keyboard</div>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:9px; color:var(--text-muted);">raw bytes</div>
+    </div>
+
+    <div style="display:flex; align-items:center; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:14px;">→</div>
+
+    <!-- parse-keypress -->
+    <div style="padding:12px 14px; background:rgba(74,222,128,0.07); border:1px solid rgba(74,222,128,0.25); border-radius:3px; min-width:120px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--green); font-weight:700;">parse-keypress.ts</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">字节 → KeyPress 事件</div>
+    </div>
+
+    <div style="display:flex; align-items:center; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:14px;">→</div>
+
+    <!-- focus.ts -->
+    <div style="padding:12px 14px; background:rgba(167,139,250,0.07); border:1px solid rgba(167,139,250,0.25); border-radius:3px; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--purple); font-weight:700;">focus.ts</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">焦点分发</div>
+    </div>
+
+    <div style="display:flex; align-items:center; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:14px;">→</div>
+
+    <!-- REPL.tsx -->
+    <div style="padding:12px 14px; background:rgba(45,212,191,0.07); border:1px solid rgba(45,212,191,0.3); border-radius:3px; min-width:120px; text-align:center;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal); font-weight:700;">screens/REPL.tsx</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">PromptInput → query</div>
+    </div>
+
+    <div style="display:flex; align-items:center; color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:14px;">→</div>
+
+    <!-- Engine -->
+    <div style="padding:12px 14px; background:var(--amber-glow); border:1px solid var(--amber-dim); border-radius:3px; min-width:100px; text-align:center;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--amber); font-weight:700;">Layer 2 →</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">query.ts Engine</div>
+    </div>
+
+    <div style="display:flex; align-items:center; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:12px; writing-mode:vertical-lr; transform: rotate(180deg);">↩ response</div>
+
+    <!-- Reconciler -->
+    <div style="padding:12px 14px; background:rgba(96,165,250,0.07); border:1px solid rgba(96,165,250,0.25); border-radius:3px; min-width:130px;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--blue); font-weight:700;">reconciler.ts + dom.ts</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">Virtual DOM → ANSI output</div>
+    </div>
+
+  </div>
+
+  <!-- Second row: headless path -->
+  <div style="margin-top:16px; padding-top:14px; border-top:1px dashed var(--border);">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); margin-bottom:10px; letter-spacing:0.1em;">HEADLESS PATH (-p flag)</div>
+    <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap;">
+      <div style="padding:8px 14px; background:var(--amber-glow); border:1px solid var(--amber-dim); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--amber);">stdin / args</div>
+      <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+      <div style="padding:8px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim);">cli/print.ts → runHeadless()</div>
+      <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+      <div style="padding:8px 14px; background:var(--amber-glow); border:1px solid var(--amber-dim); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--amber);">Layer 2 query.ts</div>
+      <div style="color:var(--text-muted); font-family:'JetBrains Mono',monospace;">→</div>
+      <div style="padding:8px 14px; background:var(--surface2); border:1px solid var(--border); border-radius:3px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--green);">stdout (text|json|stream-json)</div>
+    </div>
+  </div>
+</div>
+
+<div class="page-footer">
+  <div>Claude Code Architecture<span class="footer-dot">·</span>Layer 1<span class="footer-dot">·</span>交互层 Interaction Layer</div>
+  <div>screens/REPL.tsx (5005L)<span class="footer-dot">·</span>cli/print.ts (5594L)<span class="footer-dot">·</span>ink/ (96 files)</div>
+</div>
+
+</body>
+</html>

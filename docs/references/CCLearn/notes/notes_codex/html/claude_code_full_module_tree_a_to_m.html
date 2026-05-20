@@ -1,0 +1,204 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+<style>
+.mtree ul{list-style:none;margin:6px 0 0;padding:0}
+.mtree li{font-size:9px;line-height:1.55;padding:0}
+.mtree li::before{content:"· ";opacity:0.55}
+</style>
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">功能模块树 A–M</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">按一级功能分成十三棵子树，每棵列出所有原子子项：文档第 6 节</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div class="mtree" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+
+<!-- Row 1: A B C D -->
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px;color:#3C3489">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Module A</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">启动与入口分流</div>
+<ul>
+<li>CLI entrypoint</li>
+<li>main runtime bootstrap</li>
+<li>trust / onboarding / interactive boot</li>
+<li>worktree / tmux / session startup</li>
+<li>REPL / headless mode dispatch</li>
+</ul>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px;color:#3C3489">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Module B</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">运行态状态/配置/设置/认证</div>
+<ul>
+<li>bootstrap state</li>
+<li>global config / project config</li>
+<li>settings merge</li>
+<li>auth sources / OAuth / API key helpers</li>
+<li>provider client creation</li>
+<li>model / provider capability injection</li>
+</ul>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px;color:#085041">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Module C</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">命令系统</div>
+<ul>
+<li>builtin slash commands</li>
+<li>prompt commands</li>
+<li>local commands</li>
+<li>local-jsx commands</li>
+<li>bundled skills</li>
+<li>project/user skills</li>
+<li>plugin commands / plugin skills</li>
+<li>workflow commands</li>
+<li>MCP prompts / MCP skills</li>
+</ul>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px;color:#085041">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Module D</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具系统</div>
+<ul>
+<li>Tool protocol</li>
+<li>built-in tools registry</li>
+<li>permission-aware tool filtering</li>
+<li>streaming tool executor</li>
+<li>tool hooks / progress / result mapping</li>
+<li>file tools</li>
+<li>shell tools</li>
+<li>web/search tools</li>
+<li>task/agent/team tools</li>
+<li>worktree/plan/memory tools</li>
+<li>MCP tools</li>
+</ul>
+</div>
+
+<!-- Row 2: E F G H -->
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px;color:#633806">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Module E · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">Agent 主循环</div>
+<ul>
+<li>query loop</li>
+<li>messages/systemPrompt/context assembly</li>
+<li>model streaming receive</li>
+<li>tool_use orchestration</li>
+<li>continuation / turn transition</li>
+<li>terminal completion</li>
+</ul>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px;color:#0C447C">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Module F</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">模型/API/重试</div>
+<ul>
+<li>API request compilation</li>
+<li>streaming / non-streaming fallback</li>
+<li>retry / timeout / watchdog</li>
+<li>error mapping</li>
+<li>usage / cost / telemetry</li>
+<li>fallback model logic</li>
+</ul>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px;color:#0C447C">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Module G</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">上下文治理与恢复</div>
+<ul>
+<li>token warning / blocking threshold</li>
+<li>auto compact</li>
+<li>microcompact</li>
+<li>reactive compact</li>
+<li>context collapse</li>
+<li>history snip</li>
+<li>stop hooks</li>
+<li>token budget continuation</li>
+</ul>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px;color:#0C447C">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Module H</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">记忆、附件、会话恢复</div>
+<ul>
+<li>transcript persistence</li>
+<li>session metadata persistence</li>
+<li>resume / continue / subagent transcript load</li>
+<li>attachment messages</li>
+<li>session memory</li>
+<li>relevant memory prefetch</li>
+<li>auto-memory path &amp; storage</li>
+</ul>
+</div>
+
+<!-- Row 3: I J K L -->
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px;color:#712B13">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Module I</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">MCP 平台</div>
+<ul>
+<li>MCP config merge / policy / approval</li>
+<li>transport connection runtime</li>
+<li>tools import</li>
+<li>prompts import</li>
+<li>resources import</li>
+<li>skill import</li>
+<li>needs-auth / reconnect / session expiry</li>
+<li>MCP tool call pipeline</li>
+</ul>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px;color:#712B13">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Module J</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">插件 / Skills / Workflows 生态</div>
+<ul>
+<li>plugin loading</li>
+<li>builtin plugins</li>
+<li>plugin commands</li>
+<li>plugin skills</li>
+<li>bundled skills</li>
+<li>project skills / dynamic skills</li>
+<li>workflow-driven commands</li>
+</ul>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px;color:#712B13">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Module K</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">多 Agent / Task / Remote</div>
+<ul>
+<li>AgentTool / teammate / coordinator</li>
+<li>tasks / task summaries / task state</li>
+<li>background sessions</li>
+<li>assistant mode</li>
+<li>bridge / remote-control</li>
+<li>remote sessions / cowork / CCR</li>
+<li>server / direct-connect / ssh integration</li>
+</ul>
+</div>
+
+<div style="background:#FBEAF0;border:0.5px solid #D4537E;border-radius:8px;padding:11px;color:#72243E">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993556;text-transform:uppercase">Module L</div>
+<div style="font-size:12px;font-weight:500;color:#4B1528;margin-top:4px">TUI / 交互层</div>
+<ul>
+<li>Ink app shell</li>
+<li>REPL</li>
+<li>Settings / Config / Status UI</li>
+<li>Plugin / MCP manager UI</li>
+<li>dialogs / onboarding / trust</li>
+<li>state / app store</li>
+</ul>
+</div>
+
+<!-- Row 4: M full-width -->
+<div style="grid-column:1/-1;background:#F1EFE8;border:0.5px solid #888780;border-radius:8px;padding:11px;color:#444441">
+<div style="font-size:9px;letter-spacing:1.2px;color:#5F5E5A;text-transform:uppercase">Module M · Foundation</div>
+<div style="font-size:12px;font-weight:500;color:#2C2C2A;margin-top:4px">基础设施与诊断</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px">
+<div style="font-size:9px;line-height:1.55;color:#444441">· utils / messages / path / fs / git</div>
+<div style="font-size:9px;line-height:1.55;color:#444441">· constants / schemas / types</div>
+<div style="font-size:9px;line-height:1.55;color:#444441">· diagnostics / logging / analytics</div>
+<div style="font-size:9px;line-height:1.55;color:#444441">· telemetry / tracing / gateway detection</div>
+<div style="font-size:9px;line-height:1.55;color:#444441">· native-ts / vendor / platform glue</div>
+</div>
+</div>
+
+</div>
+
+</div>

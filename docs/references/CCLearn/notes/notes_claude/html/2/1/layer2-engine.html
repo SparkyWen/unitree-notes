@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Layer 2 · 引擎层 · Engine Layer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+  :root {
+    --bg: #0a0a0b; --surface: #111113; --surface2: #18181c;
+    --border: #2a2a30; --border-bright: #3a3a44;
+    --amber: #f59e0b; --amber-dim: #92600a; --amber-glow: rgba(245,158,11,0.08);
+    --teal: #2dd4bf; --blue: #60a5fa; --green: #4ade80;
+    --pink: #f472b6; --purple: #a78bfa; --orange: #fb923c; --red: #f87171;
+    --text: #e2e2e8; --text-dim: #888896; --text-muted: #55555f;
+    --layer-color: #f59e0b;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Noto Sans SC','JetBrains Mono',monospace; min-height:100vh; padding:40px 32px 60px; }
+
+  .page-header { display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border); padding-bottom:24px; margin-bottom:36px; }
+  .layer-badge { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--bg); background:var(--layer-color); padding:4px 10px; border-radius:2px; margin-bottom:10px; display:inline-block; }
+  .layer-title-zh { font-size:28px; font-weight:700; color:var(--layer-color); line-height:1.2; }
+  .layer-title-en { font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-dim); margin-top:4px; }
+  .header-meta { text-align:right; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-muted); line-height:1.8; }
+
+  .section-label { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; color:var(--text-muted); margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+  .section-label::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+  .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px; }
+  .grid-4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; margin-bottom:20px; }
+  .col-span-2 { grid-column:span 2; }
+  .col-span-3 { grid-column:span 3; }
+
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:20px; }
+  .card.amber-hl { border-color:var(--amber-dim); background:var(--amber-glow); }
+  .card.teal-hl { border-color:rgba(45,212,191,0.3); background:rgba(45,212,191,0.04); }
+  .card.blue-hl { border-color:rgba(96,165,250,0.3); background:rgba(96,165,250,0.04); }
+  .card.green-hl { border-color:rgba(74,222,128,0.3); background:rgba(74,222,128,0.04); }
+
+  .card-header { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+  .card-icon { font-size:14px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; background:var(--surface2); border:1px solid var(--border-bright); border-radius:3px; flex-shrink:0; }
+  .card-title-zh { font-size:13px; font-weight:700; color:var(--text); }
+  .card-title-en { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); margin-top:1px; }
+
+  .file-ref { font-family:'JetBrains Mono',monospace; font-size:11px; padding:2px 7px; border-radius:2px; display:inline-block; margin-bottom:8px; }
+  .fr-amber { color:var(--amber); background:var(--amber-glow); border:1px solid var(--amber-dim); }
+  .fr-teal { color:var(--teal); background:rgba(45,212,191,0.07); border:1px solid rgba(45,212,191,0.2); }
+  .fr-blue { color:var(--blue); background:rgba(96,165,250,0.07); border:1px solid rgba(96,165,250,0.2); }
+  .fr-green { color:var(--green); background:rgba(74,222,128,0.07); border:1px solid rgba(74,222,128,0.2); }
+  .fr-pink { color:var(--pink); background:rgba(244,114,182,0.07); border:1px solid rgba(244,114,182,0.2); }
+  .fr-purple { color:var(--purple); background:rgba(167,139,250,0.07); border:1px solid rgba(167,139,250,0.2); }
+  .lines { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); margin-left:4px; }
+
+  /* Query Loop Steps */
+  .loop-container { display:flex; flex-direction:column; gap:4px; margin-top:8px; }
+  .loop-step { display:flex; align-items:flex-start; gap:8px; padding:6px 9px; border-radius:2px; }
+  .loop-step:nth-child(odd) { background:var(--surface2); }
+  .step-num { font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:700; color:var(--bg); background:var(--amber); min-width:22px; height:18px; border-radius:2px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+  .step-text { font-size:11px; color:var(--text-dim); line-height:1.5; }
+  .step-text strong { color:var(--text); }
+  .step-text .tc { color:var(--teal); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .step-text .ac { color:var(--amber); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .step-text .bc { color:var(--blue); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .step-text .rc { color:var(--red); font-family:'JetBrains Mono',monospace; font-size:10px; }
+  .step-text .gc { color:var(--green); font-family:'JetBrains Mono',monospace; font-size:10px; }
+
+  .item-list { list-style:none; }
+  .item-list li { display:flex; align-items:flex-start; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:11px; line-height:1.5; }
+  .item-list li:last-child { border-bottom:none; }
+  .dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; margin-top:4px; }
+  .d-amber { background:var(--amber); }
+  .d-teal { background:var(--teal); }
+  .d-blue { background:var(--blue); }
+  .d-green { background:var(--green); }
+  .d-pink { background:var(--pink); }
+  .d-purple { background:var(--purple); }
+  .d-red { background:var(--red); }
+
+  .item-key { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal); flex-shrink:0; min-width:130px; }
+  .item-val { color:var(--text-dim); font-size:11px; }
+
+  code { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--teal); background:var(--surface2); padding:1px 5px; border-radius:2px; border:1px solid var(--border); }
+
+  .tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .tag { font-family:'JetBrains Mono',monospace; font-size:10px; padding:3px 8px; border-radius:2px; border:1px solid; }
+  .tag.amber { color:var(--amber); border-color:var(--amber-dim); background:var(--amber-glow); }
+  .tag.teal { color:var(--teal); border-color:rgba(45,212,191,0.3); background:rgba(45,212,191,0.06); }
+  .tag.blue { color:var(--blue); border-color:rgba(96,165,250,0.3); background:rgba(96,165,250,0.06); }
+  .tag.green { color:var(--green); border-color:rgba(74,222,128,0.3); background:rgba(74,222,128,0.06); }
+  .tag.pink { color:var(--pink); border-color:rgba(244,114,182,0.3); background:rgba(244,114,182,0.06); }
+  .tag.red { color:var(--red); border-color:rgba(248,113,113,0.3); background:rgba(248,113,113,0.06); }
+
+  .desc { font-size:11px; color:var(--text-dim); line-height:1.7; margin-top:6px; }
+
+  .page-footer { margin-top:40px; padding-top:20px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-muted); }
+  .footer-dot { color:var(--amber); margin:0 6px; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div>
+    <div class="layer-badge">Layer 2</div>
+    <div class="layer-title-zh">引擎层</div>
+    <div class="layer-title-en">Engine Layer · Claude Code Architecture</div>
+  </div>
+  <div class="header-meta">
+    <div>query.ts · QueryEngine.ts</div>
+    <div>Tool.ts · tools.ts · commands.ts</div>
+    <div style="color:var(--amber);margin-top:4px;">Architecture Study</div>
+  </div>
+</div>
+
+<!-- ROW 1: query.ts - the big one -->
+<div class="section-label">核心对话循环 · Core Conversation Loop</div>
+<div class="grid-2">
+  <div class="card amber-hl col-span-2" style="padding:22px 24px;">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--amber)">∞</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--amber)">核心对话循环 · queryLoop() while(true)</div>
+        <div class="card-title-en">export async function* query(params) → AsyncGenerator</div>
+      </div>
+    </div>
+    <span class="file-ref fr-amber">query.ts</span>
+    <span class="lines">1729 行</span>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">上下文管理 · Context Management</div>
+        <div class="loop-container">
+          <div class="loop-step"><div class="step-num">1</div><div class="step-text"><strong>applyToolResultBudget</strong> — 工具结果预算截断，限制历史工具结果总量</div></div>
+          <div class="loop-step"><div class="step-num">2</div><div class="step-text"><strong>snipCompact / microcompact</strong> — 消息精简，剪裁冗余历史片段</div></div>
+          <div class="loop-step"><div class="step-num">3</div><div class="step-text"><strong>contextCollapse</strong> — 上下文折叠，压缩并摘要历史对话</div></div>
+          <div class="loop-step"><div class="step-num">4</div><div class="step-text"><strong>autocompact</strong> — 自动压缩，接近上下文窗口上限时触发摘要</div></div>
+          <div class="loop-step"><div class="step-num">5</div><div class="step-text"><strong>token warning / blocking limit 检查</strong> — <span class="rc">超限则阻塞或警告用户</span></div></div>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">模型调用与工具 · Model & Tools</div>
+        <div class="loop-container">
+          <div class="loop-step"><div class="step-num">6</div><div class="step-text"><strong>deps.callModel()</strong> → 流式 API 调用 · for await (message of stream) · yield assistant message · 收集 tool_use blocks · <span class="ac">streamingToolExecutor</span> 并行执行 · <span class="rc">FallbackTriggeredError → 切模型重试</span></div></div>
+          <div class="loop-step"><div class="step-num">7</div><div class="step-text"><strong>executePostSamplingHooks</strong> — 后采样 hooks（外部扩展点）</div></div>
+          <div class="loop-step"><div class="step-num">8</div><div class="step-text"><strong>abort 处理</strong> — 用户中断（Ctrl+C），优雅退出当前 turn</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:14px;">
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">错误恢复 · Error Recovery</div>
+        <div class="loop-container">
+          <div class="loop-step"><div class="step-num">9</div><div class="step-text"><strong>413 / max_output_tokens 恢复</strong>: context collapse drain → reactive compact → 升级 token 限制 · max_output_tokens: 升级→注入恢复消息→最多重试 <span class="rc">3次</span></div></div>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px;">循环控制 · Loop Control</div>
+        <div class="loop-container">
+          <div class="loop-step"><div class="step-num">10</div><div class="step-text"><strong>handleStopHooks</strong> — stop hooks 检查（外部可注入停止条件）</div></div>
+          <div class="loop-step"><div class="step-num">11</div><div class="step-text"><strong>工具执行 (非streaming路径)</strong>: runTools() → partitionToolCalls → 并行/串行 · 收集 tool_results</div></div>
+          <div class="loop-step"><div class="step-num">12</div><div class="step-text"><strong>maxTurns 检查</strong> — 超出最大轮数则终止循环</div></div>
+          <div class="loop-step"><div class="step-num">13</div><div class="step-text"><strong>toolUseSummary 生成</strong> → <span class="gc">continue 循环</span> 进入下一轮</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ROW 2 -->
+<div class="section-label">引擎辅助模块 · Engine Support Modules</div>
+<div class="grid-3">
+
+  <!-- QueryEngine.ts -->
+  <div class="card teal-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--teal)">◈</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--teal)">SDK/print 查询引擎</div>
+        <div class="card-title-en">QueryEngine · SDK Mode</div>
+      </div>
+    </div>
+    <span class="file-ref fr-teal">QueryEngine.ts</span>
+    <span class="lines">1295 行</span>
+    <ul class="item-list" style="margin-top:8px;">
+      <li><span class="dot d-teal"></span><span class="item-key">processUserInput()</span><span class="item-val">→ processUserInput.ts 处理</span></li>
+      <li><span class="dot d-amber"></span><span class="item-key">fetchSystemPromptParts()</span><span class="item-val">系统提示词组装</span></li>
+      <li><span class="dot d-blue"></span><span class="item-key">query() 调用</span><span class="item-val">消费 AsyncGenerator 输出</span></li>
+      <li><span class="dot d-green"></span><span class="item-key">recordTranscript()</span><span class="item-val">持久化会话记录</span></li>
+      <li><span class="dot d-pink"></span><span class="item-key">SDK event 输出</span><span class="item-val">结构化事件流给外部SDK</span></li>
+    </ul>
+  </div>
+
+  <!-- Tool.ts -->
+  <div class="card blue-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--blue)">⬡</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--blue)">工具类型系统</div>
+        <div class="card-title-en">Tool Type System</div>
+      </div>
+    </div>
+    <span class="file-ref fr-blue">Tool.ts</span>
+    <span class="lines">792 行</span>
+    <ul class="item-list" style="margin-top:8px;">
+      <li><span class="dot d-blue"></span><span class="item-key">type Tool / Tools / ToolDef</span><span class="item-val">核心工具类型定义</span></li>
+      <li><span class="dot d-amber"></span><span class="item-key">type ToolUseContext</span><span class="item-val">工具执行上下文（<strong>50+ 字段</strong>）</span></li>
+      <li><span class="dot d-teal"></span><span class="item-key">type ToolPermissionContext</span><span class="item-val">权限上下文类型</span></li>
+      <li><span class="dot d-green"></span><span class="item-key">buildTool()</span><span class="item-val">工具工厂函数（创建工具实例）</span></li>
+      <li><span class="dot d-pink"></span><span class="item-key">findToolByName()</span><span class="item-val">工具名称查找函数</span></li>
+    </ul>
+  </div>
+
+  <!-- tools.ts + commands.ts -->
+  <div class="card green-hl">
+    <div class="card-header">
+      <div class="card-icon" style="color:var(--green)">▤</div>
+      <div>
+        <div class="card-title-zh" style="color:var(--green)">工具 & 命令注册表</div>
+        <div class="card-title-en">Tool & Command Registry</div>
+      </div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <span class="file-ref fr-green">tools.ts</span>
+      <span class="lines">389 行</span>
+    </div>
+    <ul class="item-list">
+      <li><span class="dot d-green"></span><span class="item-key">getTools()</span><span class="item-val">返回所有工具实例列表</span></li>
+      <li><span class="dot d-amber"></span><span class="item-key">assembleToolPool()</span><span class="item-val">根据权限/配置过滤工具</span></li>
+      <li><span class="dot d-teal"></span><span class="item-key">getAllBaseTools()</span><span class="item-val">无过滤全量工具</span></li>
+      <li><span class="dot d-pink"></span><span class="item-key">feature() 条件加载</span><span class="item-val">REPLTool · SleepTool · RemoteTriggerTool</span></li>
+    </ul>
+    <div style="margin-top:12px; margin-bottom:6px;">
+      <span class="file-ref fr-pink">commands.ts</span>
+      <span class="lines">754 行</span>
+    </div>
+    <ul class="item-list">
+      <li><span class="dot d-pink"></span><span class="item-key">getCommands()</span><span class="item-val">内置 + 技能 + 插件 命令</span></li>
+      <li><span class="dot d-blue"></span><span class="item-key">getSlashCommandToolSkills()</span><span class="item-val">斜杠命令技能</span></li>
+      <li><span class="dot d-purple"></span><span class="item-key">filterCommandsForRemoteMode()</span><span class="item-val">远程模式命令过滤</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- ROW 3: Data flow summary -->
+<div class="section-label" style="margin-top:8px;">引擎层数据流 · Engine Data Flow</div>
+<div class="card" style="padding:20px 24px;">
+  <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:center;">
+    <div style="padding:10px 14px; background:rgba(45,212,191,0.07); border:1px solid rgba(45,212,191,0.3); border-radius:3px; text-align:center; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--teal);">Layer 1 ↑</div>
+      <div style="font-size:12px;color:var(--teal);font-weight:700;margin-top:3px;">REPL / print</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">user message in</div>
+    </div>
+    <div style="color:var(--amber);font-family:'JetBrains Mono',monospace;font-size:16px;">→</div>
+    <div style="padding:10px 14px; background:var(--amber-glow); border:2px solid var(--amber-dim); border-radius:3px; text-align:center; min-width:120px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--amber);">CORE ENGINE</div>
+      <div style="font-size:12px;color:var(--amber);font-weight:700;margin-top:3px;">query.ts</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">while(true) loop</div>
+    </div>
+    <div style="color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:16px;">⇄</div>
+    <div style="padding:10px 14px; background:rgba(96,165,250,0.07); border:1px solid rgba(96,165,250,0.3); border-radius:3px; text-align:center; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--blue);">Layer 4 ↓</div>
+      <div style="font-size:12px;color:var(--blue);font-weight:700;margin-top:3px;">claude.ts API</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">streaming response</div>
+    </div>
+    <div style="color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:16px;">⇄</div>
+    <div style="padding:10px 14px; background:rgba(74,222,128,0.07); border:1px solid rgba(74,222,128,0.3); border-radius:3px; text-align:center; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);">Layer 3 ↓</div>
+      <div style="font-size:12px;color:var(--green);font-weight:700;margin-top:3px;">toolOrchestration</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">parallel / serial exec</div>
+    </div>
+    <div style="color:var(--amber);font-family:'JetBrains Mono',monospace;font-size:16px;">→</div>
+    <div style="padding:10px 14px; background:rgba(45,212,191,0.07); border:1px solid rgba(45,212,191,0.3); border-radius:3px; text-align:center; min-width:100px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--teal);">Layer 1 ↑</div>
+      <div style="font-size:12px;color:var(--teal);font-weight:700;margin-top:3px;">yield messages</div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">AsyncGenerator out</div>
+    </div>
+  </div>
+</div>
+
+<div class="page-footer">
+  <div>Claude Code Architecture<span class="footer-dot">·</span>Layer 2<span class="footer-dot">·</span>引擎层 Engine Layer</div>
+  <div>query.ts (1729L)<span class="footer-dot">·</span>QueryEngine.ts (1295L)<span class="footer-dot">·</span>Tool.ts (792L)<span class="footer-dot">·</span>tools.ts (389L)<span class="footer-dot">·</span>commands.ts (754L)</div>
+</div>
+
+</body>
+</html>

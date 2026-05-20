@@ -1,0 +1,199 @@
+<style>
+.cc-root { padding: 1rem 0 0; font-family: var(--font-sans); color: var(--color-text-primary); }
+.cc-header { margin-bottom: 18px; }
+.cc-title { font-size: 22px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+.cc-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 14px; font-weight: 400; }
+.cc-rule { height: 0.5px; background: var(--color-border-tertiary); margin: 0 0 20px; }
+.cc-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; margin-bottom: 18px; }
+.cc-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cc-col-head { font-size: 9px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; padding: 0 2px; }
+.cc-card { border-radius: 8px; border: 0.5px solid; padding: 10px 10px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cc-card-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.78; font-weight: 500; }
+.cc-card-title { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.cc-card-desc { font-size: 10px; line-height: 1.55; opacity: 0.88; font-weight: 400; }
+.cc-card-path { font-size: 9px; font-family: var(--font-mono); padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-top: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-purple { --bg: #EEEDFE; --bd: #CECBF6; --tt: #26215C; --tx: #3C3489; --pill-bg: #CECBF6; --pill-tx: #26215C; }
+.ph-blue   { --bg: #E6F1FB; --bd: #B5D4F4; --tt: #042C53; --tx: #0C447C; --pill-bg: #B5D4F4; --pill-tx: #042C53; }
+.ph-amber  { --bg: #FAEEDA; --bd: #FAC775; --tt: #412402; --tx: #633806; --pill-bg: #FAC775; --pill-tx: #412402; }
+.ph-teal   { --bg: #E1F5EE; --bd: #9FE1CB; --tt: #04342C; --tx: #085041; --pill-bg: #9FE1CB; --pill-tx: #04342C; }
+.ph-coral  { --bg: #FAECE7; --bd: #F5C4B3; --tt: #4A1B0C; --tx: #712B13; --pill-bg: #F5C4B3; --pill-tx: #4A1B0C; }
+.ph-green  { --bg: #EAF3DE; --bd: #C0DD97; --tt: #173404; --tx: #27500A; --pill-bg: #C0DD97; --pill-tx: #173404; }
+@media (prefers-color-scheme: dark) {
+  .ph-purple { --bg: #3C3489; --bd: #7F77DD; --tt: #EEEDFE; --tx: #CECBF6; --pill-bg: #26215C; --pill-tx: #CECBF6; }
+  .ph-blue   { --bg: #0C447C; --bd: #378ADD; --tt: #E6F1FB; --tx: #B5D4F4; --pill-bg: #042C53; --pill-tx: #B5D4F4; }
+  .ph-amber  { --bg: #633806; --bd: #EF9F27; --tt: #FAEEDA; --tx: #FAC775; --pill-bg: #412402; --pill-tx: #FAC775; }
+  .ph-teal   { --bg: #085041; --bd: #1D9E75; --tt: #E1F5EE; --tx: #9FE1CB; --pill-bg: #04342C; --pill-tx: #9FE1CB; }
+  .ph-coral  { --bg: #712B13; --bd: #D85A30; --tt: #FAECE7; --tx: #F5C4B3; --pill-bg: #4A1B0C; --pill-tx: #F5C4B3; }
+  .ph-green  { --bg: #27500A; --bd: #639922; --tt: #EAF3DE; --tx: #C0DD97; --pill-bg: #173404; --pill-tx: #C0DD97; }
+}
+.cc-card { background: var(--bg); border-color: var(--bd); }
+.cc-card-label { color: var(--tx); }
+.cc-card-title { color: var(--tt); }
+.cc-card-desc { color: var(--tx); }
+.cc-card-path { background: var(--pill-bg); color: var(--pill-tx); }
+.cc-col-head { color: var(--tx); }
+.cc-strip { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 10px; color: var(--color-text-secondary); padding: 12px 0 4px; border-top: 0.5px solid var(--color-border-tertiary); }
+.cc-strip-item { display: flex; align-items: center; gap: 5px; }
+.cc-strip-dot { width: 8px; height: 8px; border-radius: 50%; border: 0.5px solid; flex-shrink: 0; }
+.cc-strip-arrow { color: var(--color-text-tertiary); font-size: 10px; }
+.dot-purple { background: #7F77DD; border-color: #534AB7; }
+.dot-blue   { background: #378ADD; border-color: #185FA5; }
+.dot-amber  { background: #EF9F27; border-color: #BA7517; }
+.dot-teal   { background: #1D9E75; border-color: #0F6E56; }
+.dot-coral  { background: #D85A30; border-color: #993C1D; }
+.dot-green  { background: #639922; border-color: #3B6D11; }
+</style>
+<div class="cc-root">
+  <div class="cc-header">
+    <h1 class="cc-title">Claude Code REPL 请求生命周期</h1>
+    <p class="cc-sub">从用户输入、上下文组装、查询主循环、工具执行到结果回注的完整数据流编排</p>
+    <div class="cc-rule"></div>
+  </div>
+  <div class="cc-grid">
+    <div class="cc-col">
+      <div class="cc-col-head ph-purple">01 · 入口</div>
+      <div class="cc-card ph-purple">
+        <div class="cc-card-label">LAYER 01</div>
+        <div class="cc-card-title">REPL 提交入口</div>
+        <div class="cc-card-desc">用户在交互终端输入消息后由 onSubmit 捕获并启动整条请求</div>
+        <div class="cc-card-path">screens/REPL.tsx</div>
+      </div>
+      <div class="cc-card ph-purple">
+        <div class="cc-card-label">LAYER 02</div>
+        <div class="cc-card-title">用户输入处理</div>
+        <div class="cc-card-desc">识别斜杠命令、解析图片附件、封装成标准 UserMessage</div>
+        <div class="cc-card-path">processUserInput.ts</div>
+      </div>
+    </div>
+    <div class="cc-col">
+      <div class="cc-col-head ph-blue">02 · 上下文组装</div>
+      <div class="cc-card ph-blue">
+        <div class="cc-card-label">PROMPT · 01</div>
+        <div class="cc-card-title">系统提示词核心</div>
+        <div class="cc-card-desc">拼装身份指令、环境信息、工具规则与 MCP 工具说明段</div>
+        <div class="cc-card-path">constants/prompts.ts</div>
+      </div>
+      <div class="cc-card ph-blue">
+        <div class="cc-card-label">PROMPT · 02</div>
+        <div class="cc-card-title">有效提示词构建</div>
+        <div class="cc-card-desc">在核心 prompt 基础上叠加自定义与追加段形成最终指令</div>
+        <div class="cc-card-path">utils/systemPrompt.ts</div>
+      </div>
+      <div class="cc-card ph-blue">
+        <div class="cc-card-label">CONTEXT · 01</div>
+        <div class="cc-card-title">系统上下文注入</div>
+        <div class="cc-card-desc">收集 Git 分支、状态、提交历史与用户身份作为环境信号</div>
+        <div class="cc-card-path">context.ts</div>
+      </div>
+      <div class="cc-card ph-blue">
+        <div class="cc-card-label">CONTEXT · 02</div>
+        <div class="cc-card-title">用户上下文注入</div>
+        <div class="cc-card-desc">读取 CLAUDE.md 指令文件与记忆文件并并入请求正文</div>
+        <div class="cc-card-path">context.ts</div>
+      </div>
+    </div>
+    <div class="cc-col">
+      <div class="cc-col-head ph-amber">03 · 核心循环</div>
+      <div class="cc-card ph-amber">
+        <div class="cc-card-label">CORE · ENTRY</div>
+        <div class="cc-card-title">查询异步生成器</div>
+        <div class="cc-card-desc">query 入口返回 AsyncGenerator 并驱动整个请求生命周期</div>
+        <div class="cc-card-path">query.ts</div>
+      </div>
+      <div class="cc-card ph-amber">
+        <div class="cc-card-label">CORE · LOOP</div>
+        <div class="cc-card-title">查询主循环调度</div>
+        <div class="cc-card-desc">queryLoop 不断编排预处理、模型调用与工具回注直至完成</div>
+        <div class="cc-card-path">query.ts · while(true)</div>
+      </div>
+      <div class="cc-card ph-amber">
+        <div class="cc-card-label">DESIGN</div>
+        <div class="cc-card-title">中枢设计特征</div>
+        <div class="cc-card-desc">生成器流式产出、子阶段可重入、错误可恢复的调度心脏</div>
+        <div class="cc-card-path">AsyncGenerator</div>
+      </div>
+    </div>
+    <div class="cc-col">
+      <div class="cc-col-head ph-teal">04 · 循环内部</div>
+      <div class="cc-card ph-teal">
+        <div class="cc-card-label">STEP 3A</div>
+        <div class="cc-card-title">消息预处理</div>
+        <div class="cc-card-desc">依次执行预算限制、历史裁剪、微压缩与自动压缩策略</div>
+        <div class="cc-card-path">snipCompact · autocompact</div>
+      </div>
+      <div class="cc-card ph-teal">
+        <div class="cc-card-label">STEP 3B</div>
+        <div class="cc-card-title">模型流式调用</div>
+        <div class="cc-card-desc">经 beta messages stream 逐事件累积文本、思考与工具请求</div>
+        <div class="cc-card-path">services/api/claude.ts</div>
+      </div>
+      <div class="cc-card ph-teal">
+        <div class="cc-card-label">STEP 3E</div>
+        <div class="cc-card-title">退出与恢复判断</div>
+        <div class="cc-card-desc">处理 413 过长、输出上限重试、stop hooks 与正常收尾</div>
+        <div class="cc-card-path">queryLoop exit</div>
+      </div>
+    </div>
+    <div class="cc-col">
+      <div class="cc-col-head ph-coral">05 · 工具执行</div>
+      <div class="cc-card ph-coral">
+        <div class="cc-card-label">STEP 3C · 1</div>
+        <div class="cc-card-title">工具分流编排</div>
+        <div class="cc-card-desc">只读工具批量并行执行,写入工具严格串行以避免状态冲突</div>
+        <div class="cc-card-path">toolOrchestration.ts</div>
+      </div>
+      <div class="cc-card ph-coral">
+        <div class="cc-card-label">STEP 3C · 2</div>
+        <div class="cc-card-title">单次工具调用</div>
+        <div class="cc-card-desc">查找工具定义、Zod 校验参数后进入权限与执行流水线</div>
+        <div class="cc-card-path">toolExecution.ts</div>
+      </div>
+      <div class="cc-card ph-coral">
+        <div class="cc-card-label">PERMISSION</div>
+        <div class="cc-card-title">权限判定</div>
+        <div class="cc-card-desc">按 allow 与 deny 规则、pre hooks、分类器、用户交互逐层决策</div>
+        <div class="cc-card-path">canUseTool</div>
+      </div>
+      <div class="cc-card ph-coral">
+        <div class="cc-card-label">EXECUTE</div>
+        <div class="cc-card-title">工具具体执行</div>
+        <div class="cc-card-desc">调用 tool.execute 产出 ToolResultBlockParam 并跑 post hooks</div>
+        <div class="cc-card-path">tool.execute()</div>
+      </div>
+    </div>
+    <div class="cc-col">
+      <div class="cc-col-head ph-green">06 · 输出持久化</div>
+      <div class="cc-card ph-green">
+        <div class="cc-card-label">STEP 3D</div>
+        <div class="cc-card-title">结果回注下一轮</div>
+        <div class="cc-card-desc">工具结果追加到 messages,needsFollowUp 为真则回到预处理</div>
+        <div class="cc-card-path">needsFollowUp</div>
+      </div>
+      <div class="cc-card ph-green">
+        <div class="cc-card-label">CONSUME</div>
+        <div class="cc-card-title">REPL 消费渲染</div>
+        <div class="cc-card-desc">for await 消费生成器事件,更新消息列表、Spinner 与应用状态</div>
+        <div class="cc-card-path">screens/REPL.tsx</div>
+      </div>
+      <div class="cc-card ph-green">
+        <div class="cc-card-label">PERSIST</div>
+        <div class="cc-card-title">会话持久化</div>
+        <div class="cc-card-desc">写入 transcript 至本地 sessions 目录并追加命令历史记录</div>
+        <div class="cc-card-path">sessionStorage.ts</div>
+      </div>
+    </div>
+  </div>
+  <div class="cc-strip">
+    <div class="cc-strip-item"><span class="cc-strip-dot dot-purple"></span>入口</div>
+    <span class="cc-strip-arrow">→</span>
+    <div class="cc-strip-item"><span class="cc-strip-dot dot-blue"></span>上下文组装</div>
+    <span class="cc-strip-arrow">→</span>
+    <div class="cc-strip-item"><span class="cc-strip-dot dot-amber"></span>核心循环</div>
+    <span class="cc-strip-arrow">→</span>
+    <div class="cc-strip-item"><span class="cc-strip-dot dot-teal"></span>循环内部</div>
+    <span class="cc-strip-arrow">→</span>
+    <div class="cc-strip-item"><span class="cc-strip-dot dot-coral"></span>工具执行</div>
+    <span class="cc-strip-arrow">→</span>
+    <div class="cc-strip-item"><span class="cc-strip-dot dot-green"></span>输出持久化</div>
+  </div>
+</div>

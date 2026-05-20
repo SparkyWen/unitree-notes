@@ -1,0 +1,211 @@
+<style>
+.mc-root { padding: 1rem 0 0; font-family: var(--font-sans); color: var(--color-text-primary); }
+.mc-header { margin-bottom: 18px; }
+.mc-title { font-size: 22px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+.mc-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 14px; font-weight: 400; }
+.mc-rule { height: 0.5px; background: var(--color-border-tertiary); margin: 0 0 20px; }
+.mc-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; margin-bottom: 18px; }
+.mc-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mc-col-head { font-size: 9px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; padding: 0 2px; }
+.mc-card { border-radius: 8px; border: 0.5px solid; padding: 10px 10px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mc-card-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.78; font-weight: 500; }
+.mc-card-title { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.mc-card-desc { font-size: 10px; line-height: 1.55; opacity: 0.88; font-weight: 400; }
+.mc-card-path { font-size: 9px; font-family: var(--font-mono); padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-top: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-purple { --bg: #EEEDFE; --bd: #CECBF6; --tt: #26215C; --tx: #3C3489; --pill-bg: #CECBF6; --pill-tx: #26215C; }
+.ph-blue   { --bg: #E6F1FB; --bd: #B5D4F4; --tt: #042C53; --tx: #0C447C; --pill-bg: #B5D4F4; --pill-tx: #042C53; }
+.ph-amber  { --bg: #FAEEDA; --bd: #FAC775; --tt: #412402; --tx: #633806; --pill-bg: #FAC775; --pill-tx: #412402; }
+.ph-teal   { --bg: #E1F5EE; --bd: #9FE1CB; --tt: #04342C; --tx: #085041; --pill-bg: #9FE1CB; --pill-tx: #04342C; }
+.ph-coral  { --bg: #FAECE7; --bd: #F5C4B3; --tt: #4A1B0C; --tx: #712B13; --pill-bg: #F5C4B3; --pill-tx: #4A1B0C; }
+.ph-green  { --bg: #EAF3DE; --bd: #C0DD97; --tt: #173404; --tx: #27500A; --pill-bg: #C0DD97; --pill-tx: #173404; }
+@media (prefers-color-scheme: dark) {
+  .ph-purple { --bg: #3C3489; --bd: #7F77DD; --tt: #EEEDFE; --tx: #CECBF6; --pill-bg: #26215C; --pill-tx: #CECBF6; }
+  .ph-blue   { --bg: #0C447C; --bd: #378ADD; --tt: #E6F1FB; --tx: #B5D4F4; --pill-bg: #042C53; --pill-tx: #B5D4F4; }
+  .ph-amber  { --bg: #633806; --bd: #EF9F27; --tt: #FAEEDA; --tx: #FAC775; --pill-bg: #412402; --pill-tx: #FAC775; }
+  .ph-teal   { --bg: #085041; --bd: #1D9E75; --tt: #E1F5EE; --tx: #9FE1CB; --pill-bg: #04342C; --pill-tx: #9FE1CB; }
+  .ph-coral  { --bg: #712B13; --bd: #D85A30; --tt: #FAECE7; --tx: #F5C4B3; --pill-bg: #4A1B0C; --pill-tx: #F5C4B3; }
+  .ph-green  { --bg: #27500A; --bd: #639922; --tt: #EAF3DE; --tx: #C0DD97; --pill-bg: #173404; --pill-tx: #C0DD97; }
+}
+.mc-card { background: var(--bg); border-color: var(--bd); }
+.mc-card-label { color: var(--tx); }
+.mc-card-title { color: var(--tt); }
+.mc-card-desc { color: var(--tx); }
+.mc-card-path { background: var(--pill-bg); color: var(--pill-tx); }
+.mc-col-head { color: var(--tx); }
+.mc-strip { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 10px; color: var(--color-text-secondary); padding: 12px 0 4px; border-top: 0.5px solid var(--color-border-tertiary); }
+.mc-strip-item { display: flex; align-items: center; gap: 5px; }
+.mc-strip-dot { width: 8px; height: 8px; border-radius: 50%; border: 0.5px solid; flex-shrink: 0; }
+.mc-strip-arrow { color: var(--color-text-tertiary); font-size: 10px; }
+.dot-purple { background: #7F77DD; border-color: #534AB7; }
+.dot-blue   { background: #378ADD; border-color: #185FA5; }
+.dot-amber  { background: #EF9F27; border-color: #BA7517; }
+.dot-teal   { background: #1D9E75; border-color: #0F6E56; }
+.dot-coral  { background: #D85A30; border-color: #993C1D; }
+.dot-green  { background: #639922; border-color: #3B6D11; }
+</style>
+<div class="mc-root">
+  <div class="mc-header">
+    <h1 class="mc-title">Claude Code MCP 集成架构</h1>
+    <p class="mc-sub">从多源配置与传输类型、OAuth 认证、连接核心、工具结果包装到运行时交互的完整拓扑</p>
+    <div class="mc-rule"></div>
+  </div>
+  <div class="mc-grid">
+    <div class="mc-col">
+      <div class="mc-col-head ph-purple">01 · 类型配置</div>
+      <div class="mc-card ph-purple">
+        <div class="mc-card-label">TRANSPORT</div>
+        <div class="mc-card-title">八种传输类型</div>
+        <div class="mc-card-desc">stdio、sse、http、ws、sdk、ide 与 claudeai-proxy 的统一抽象</div>
+        <div class="mc-card-path">types.ts · 258 lines</div>
+      </div>
+      <div class="mc-card ph-purple">
+        <div class="mc-card-label">STATE</div>
+        <div class="mc-card-title">五种连接状态机</div>
+        <div class="mc-card-desc">connected、failed、needs-auth、pending、disabled 穷举覆盖</div>
+        <div class="mc-card-path">MCPServerConnection</div>
+      </div>
+      <div class="mc-card ph-purple">
+        <div class="mc-card-label">CONFIG</div>
+        <div class="mc-card-title">多源配置发现</div>
+        <div class="mc-card-desc">settings、.mcp.json、企业托管、claude.ai、插件五源合并去重</div>
+        <div class="mc-card-path">config.ts · 1578 lines</div>
+      </div>
+    </div>
+    <div class="mc-col">
+      <div class="mc-col-head ph-blue">02 · 认证体系</div>
+      <div class="mc-card ph-blue">
+        <div class="mc-card-label">OAUTH</div>
+        <div class="mc-card-title">OAuth 2.0 PKCE 流程</div>
+        <div class="mc-card-desc">元数据发现、动态注册、浏览器授权、令牌交换与刷新全链路</div>
+        <div class="mc-card-path">ClaudeAuthProvider</div>
+      </div>
+      <div class="mc-card ph-blue">
+        <div class="mc-card-label">XAA</div>
+        <div class="mc-card-title">跨应用 SSO 访问</div>
+        <div class="mc-card-desc">企业 IdP ID Token 经 OIDC 与 token exchange 换取服务器令牌</div>
+        <div class="mc-card-path">xaa.ts · xaaIdpLogin.ts</div>
+      </div>
+      <div class="mc-card ph-blue">
+        <div class="mc-card-label">STORAGE</div>
+        <div class="mc-card-title">令牌安全存储</div>
+        <div class="mc-card-desc">macOS Keychain 优先,其他平台落盘到 mcp-oauth 目录分文件保存</div>
+        <div class="mc-card-path">~/.claude/mcp-oauth</div>
+      </div>
+      <div class="mc-card ph-blue">
+        <div class="mc-card-label">STEP-UP</div>
+        <div class="mc-card-title">升级认证包装</div>
+        <div class="mc-card-desc">fetch 包装检测 401 与 step-up header 自动触发升级流程</div>
+        <div class="mc-card-path">wrapFetchWithStepUp</div>
+      </div>
+    </div>
+    <div class="mc-col">
+      <div class="mc-col-head ph-amber">03 · 连接核心</div>
+      <div class="mc-card ph-amber">
+        <div class="mc-card-label">CORE · 01</div>
+        <div class="mc-card-title">单服务器连接建立</div>
+        <div class="mc-card-desc">按类型创建 Transport、初始化 Client、握手取 capabilities</div>
+        <div class="mc-card-path">connectToServer()</div>
+      </div>
+      <div class="mc-card ph-amber">
+        <div class="mc-card-label">CORE · 02</div>
+        <div class="mc-card-title">批量连接编排</div>
+        <div class="mc-card-desc">按 local 与 remote 分区,分别用不同并发批大小处理与回调</div>
+        <div class="mc-card-path">getMcpToolsCommands...</div>
+      </div>
+      <div class="mc-card ph-amber">
+        <div class="mc-card-label">CORE · 03</div>
+        <div class="mc-card-title">工具调用与重试</div>
+        <div class="mc-card-desc">处理 elicitation、会话过期、认证错误的多层自动重试与清缓存</div>
+        <div class="mc-card-path">callMCPTool...Retry()</div>
+      </div>
+    </div>
+    <div class="mc-col">
+      <div class="mc-col-head ph-teal">04 · 工具包装</div>
+      <div class="mc-card ph-teal">
+        <div class="mc-card-label">TEMPLATE</div>
+        <div class="mc-card-title">MCPTool 克隆模板</div>
+        <div class="mc-card-desc">模板式工具,按服务器响应动态覆盖 call、name、prompt 方法</div>
+        <div class="mc-card-path">tools/MCPTool/</div>
+      </div>
+      <div class="mc-card ph-teal">
+        <div class="mc-card-label">FETCH</div>
+        <div class="mc-card-title">工具资源与命令获取</div>
+        <div class="mc-card-desc">拉取工具列表、prompts 作为命令、resources 并附资源读写工具</div>
+        <div class="mc-card-path">fetchToolsForClient</div>
+      </div>
+      <div class="mc-card ph-teal">
+        <div class="mc-card-label">RESULT</div>
+        <div class="mc-card-title">结果转换与持久化</div>
+        <div class="mc-card-desc">文本、图片、blob 资源分别处理,大结果截断后持久化到磁盘</div>
+        <div class="mc-card-path">processMCPResult()</div>
+      </div>
+    </div>
+    <div class="mc-col">
+      <div class="mc-col-head ph-coral">05 · 运行时交互</div>
+      <div class="mc-card ph-coral">
+        <div class="mc-card-label">UI MANAGER</div>
+        <div class="mc-card-title">连接管理器组件</div>
+        <div class="mc-card-desc">监控各服务器状态、处理配置变更、触发动态重连与健康检查</div>
+        <div class="mc-card-path">MCPConnectionManager</div>
+      </div>
+      <div class="mc-card ph-coral">
+        <div class="mc-card-label">ELICITATION</div>
+        <div class="mc-card-title">服务器回调用户交互</div>
+        <div class="mc-card-desc">服务器返回 -32042 时弹 URL 重定向对话框,等待用户完成后重试</div>
+        <div class="mc-card-path">elicitationHandler.ts</div>
+      </div>
+      <div class="mc-card ph-coral">
+        <div class="mc-card-label">AUTH TOOL</div>
+        <div class="mc-card-title">动态认证工具</div>
+        <div class="mc-card-desc">为每个 needs-auth 服务器生成专属工具,模型可主动触发重连认证</div>
+        <div class="mc-card-path">McpAuthTool</div>
+      </div>
+      <div class="mc-card ph-coral">
+        <div class="mc-card-label">CHANNEL</div>
+        <div class="mc-card-title">通道通知与权限中继</div>
+        <div class="mc-card-desc">移动端与远程场景通过通道完成权限请求、通知与允许列表校验</div>
+        <div class="mc-card-path">channelNotification</div>
+      </div>
+    </div>
+    <div class="mc-col">
+      <div class="mc-col-head ph-green">06 · 规范与辅助</div>
+      <div class="mc-card ph-green">
+        <div class="mc-card-label">NAMING</div>
+        <div class="mc-card-title">名称规范化</div>
+        <div class="mc-card-desc">服务器与工具名合成 mcp__server__tool 格式,并支持通配符权限匹配</div>
+        <div class="mc-card-path">normalization.ts</div>
+      </div>
+      <div class="mc-card ph-green">
+        <div class="mc-card-label">ENV</div>
+        <div class="mc-card-title">环境变量与 headers</div>
+        <div class="mc-card-desc">展开配置中的 HOME 等变量,支持 headersHelper 外部命令生成头</div>
+        <div class="mc-card-path">envExpansion · headers</div>
+      </div>
+      <div class="mc-card ph-green">
+        <div class="mc-card-label">INPROC</div>
+        <div class="mc-card-title">进程内 SDK 传输</div>
+        <div class="mc-card-desc">为 Agent SDK 自定义工具提供 controlRequest 与 response 的进程内桥</div>
+        <div class="mc-card-path">SdkControlTransport</div>
+      </div>
+      <div class="mc-card ph-green">
+        <div class="mc-card-label">REGISTRY</div>
+        <div class="mc-card-title">官方注册表与 Claude.ai</div>
+        <div class="mc-card-desc">预取 Anthropic 官方 MCP 注册表,拉取订阅者云端配置</div>
+        <div class="mc-card-path">officialRegistry · claudeai</div>
+      </div>
+    </div>
+  </div>
+  <div class="mc-strip">
+    <div class="mc-strip-item"><span class="mc-strip-dot dot-purple"></span>类型配置</div>
+    <span class="mc-strip-arrow">→</span>
+    <div class="mc-strip-item"><span class="mc-strip-dot dot-blue"></span>认证体系</div>
+    <span class="mc-strip-arrow">→</span>
+    <div class="mc-strip-item"><span class="mc-strip-dot dot-amber"></span>连接核心</div>
+    <span class="mc-strip-arrow">→</span>
+    <div class="mc-strip-item"><span class="mc-strip-dot dot-teal"></span>工具包装</div>
+    <span class="mc-strip-arrow">↘</span>
+    <div class="mc-strip-item"><span class="mc-strip-dot dot-coral"></span>运行时交互</div>
+    <span class="mc-strip-arrow">·</span>
+    <div class="mc-strip-item"><span class="mc-strip-dot dot-green"></span>规范辅助</div>
+  </div>
+</div>

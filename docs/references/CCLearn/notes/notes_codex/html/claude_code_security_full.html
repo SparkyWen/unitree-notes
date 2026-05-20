@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code 安全架构完整参考</title>
+<style>
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Source Code Pro", monospace;
+  --bg-page: #FAFAF8;
+  --text-primary: #1A1A18;
+  --text-secondary: #5F5E5A;
+  --text-tertiary: #888780;
+  --border-subtle: rgba(0,0,0,0.08);
+  --border-default: rgba(0,0,0,0.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-page: #1A1A18;
+    --text-primary: #F1EFE8;
+    --text-secondary: #B4B2A9;
+    --text-tertiary: #888780;
+    --border-subtle: rgba(255,255,255,0.08);
+    --border-default: rgba(255,255,255,0.14);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  line-height: 1.5;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 1320px; margin: 0 auto; padding: 48px 32px 80px; }
+
+/* Header */
+.doc-header { margin-bottom: 40px; }
+.doc-title { font-size: 32px; font-weight: 500; margin: 0 0 10px; letter-spacing: -0.02em; }
+.doc-subtitle { font-size: 14px; color: var(--text-secondary); margin: 0 0 20px; max-width: 820px; line-height: 1.6; }
+.doc-meta { display: flex; gap: 20px; font-size: 11px; color: var(--text-tertiary); padding: 12px 0; border-top: 0.5px solid var(--border-subtle); border-bottom: 0.5px solid var(--border-subtle); }
+.doc-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.doc-meta strong { color: var(--text-secondary); font-weight: 500; }
+
+/* Overview tree */
+.overview { margin: 36px 0 48px; padding: 20px 24px; background: rgba(0,0,0,0.02); border: 0.5px solid var(--border-subtle); border-radius: 10px; }
+@media (prefers-color-scheme: dark) { .overview { background: rgba(255,255,255,0.03); } }
+.overview-title { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-secondary); margin: 0 0 14px; }
+.overview pre { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.7; color: var(--text-secondary); margin: 0; white-space: pre-wrap; overflow-x: auto; }
+
+/* Main flow */
+.flow-strip { display: flex; flex-wrap: wrap; gap: 8px 4px; align-items: center; margin: 24px 0 48px; font-size: 11px; }
+.flow-step { padding: 6px 11px; border-radius: 6px; border: 0.5px solid; font-weight: 500; }
+.flow-arrow { color: var(--text-tertiary); font-size: 11px; }
+
+/* Domain sections */
+.domain { margin: 0 0 36px; border-radius: 12px; border: 0.5px solid; overflow: hidden; }
+.domain-head { padding: 18px 22px 16px; border-bottom: 0.5px solid; display: flex; align-items: flex-start; gap: 14px; }
+.domain-letter { font-size: 22px; font-weight: 500; font-family: var(--font-mono); flex-shrink: 0; padding: 2px 12px; border-radius: 6px; letter-spacing: 0; }
+.domain-title-wrap { flex: 1; min-width: 0; }
+.domain-title { font-size: 17px; font-weight: 500; margin: 0 0 4px; line-height: 1.3; }
+.domain-sub { font-size: 11px; margin: 0; opacity: 0.8; font-family: var(--font-mono); letter-spacing: 0.02em; }
+
+.domain-questions { padding: 14px 22px 14px; border-bottom: 0.5px solid; font-size: 12px; }
+.domain-questions-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 500; opacity: 0.75; margin-bottom: 6px; }
+.domain-questions p { margin: 3px 0; line-height: 1.6; opacity: 0.92; }
+
+.domain-core-callout { padding: 12px 22px 14px; border-bottom: 0.5px solid; font-size: 11px; font-style: italic; line-height: 1.6; opacity: 0.9; }
+.domain-core-callout strong { font-style: normal; font-weight: 500; }
+
+.file-grid { padding: 16px 18px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.file-card { padding: 9px 11px 10px; border-radius: 6px; border: 0.5px solid; display: flex; flex-direction: column; gap: 4px; }
+.file-path { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; word-break: break-all; line-height: 1.35; }
+.file-role { font-size: 10.5px; line-height: 1.5; opacity: 0.88; }
+
+/* Color systems — 10 domains */
+.d-purple { --bg: #EEEDFE; --bg-soft: #F7F6FF; --bd: #CECBF6; --bd-strong: #7F77DD; --tt: #26215C; --tx: #3C3489; --chip-bg: #CECBF6; --chip-tx: #26215C; }
+.d-amber  { --bg: #FAEEDA; --bg-soft: #FDF7EA; --bd: #FAC775; --bd-strong: #EF9F27; --tt: #412402; --tx: #633806; --chip-bg: #FAC775; --chip-tx: #412402; }
+.d-coral  { --bg: #FAECE7; --bg-soft: #FDF5F1; --bd: #F5C4B3; --bd-strong: #D85A30; --tt: #4A1B0C; --tx: #712B13; --chip-bg: #F5C4B3; --chip-tx: #4A1B0C; }
+.d-blue   { --bg: #E6F1FB; --bg-soft: #F2F8FD; --bd: #B5D4F4; --bd-strong: #378ADD; --tt: #042C53; --tx: #0C447C; --chip-bg: #B5D4F4; --chip-tx: #042C53; }
+.d-teal   { --bg: #E1F5EE; --bg-soft: #F0FAF6; --bd: #9FE1CB; --bd-strong: #1D9E75; --tt: #04342C; --tx: #085041; --chip-bg: #9FE1CB; --chip-tx: #04342C; }
+.d-pink   { --bg: #FBEAF0; --bg-soft: #FDF4F8; --bd: #F4C0D1; --bd-strong: #D4537E; --tt: #4B1528; --tx: #72243E; --chip-bg: #F4C0D1; --chip-tx: #4B1528; }
+.d-green  { --bg: #EAF3DE; --bg-soft: #F4F8EB; --bd: #C0DD97; --bd-strong: #639922; --tt: #173404; --tx: #27500A; --chip-bg: #C0DD97; --chip-tx: #173404; }
+.d-red    { --bg: #FCEBEB; --bg-soft: #FDF5F5; --bd: #F7C1C1; --bd-strong: #E24B4A; --tt: #501313; --tx: #791F1F; --chip-bg: #F7C1C1; --chip-tx: #501313; }
+.d-gray   { --bg: #F1EFE8; --bg-soft: #F7F6F1; --bd: #D3D1C7; --bd-strong: #888780; --tt: #2C2C2A; --tx: #444441; --chip-bg: #D3D1C7; --chip-tx: #2C2C2A; }
+.d-slate  { --bg: #EAEEF0; --bg-soft: #F3F5F6; --bd: #C1CAD0; --bd-strong: #708089; --tt: #1F2A30; --tx: #35424A; --chip-bg: #C1CAD0; --chip-tx: #1F2A30; }
+
+@media (prefers-color-scheme: dark) {
+  .d-purple { --bg: #26215C; --bg-soft: #1B1744; --bd: #534AB7; --bd-strong: #AFA9EC; --tt: #EEEDFE; --tx: #CECBF6; --chip-bg: #3C3489; --chip-tx: #CECBF6; }
+  .d-amber  { --bg: #412402; --bg-soft: #2C1801; --bd: #854F0B; --bd-strong: #EF9F27; --tt: #FAEEDA; --tx: #FAC775; --chip-bg: #633806; --chip-tx: #FAC775; }
+  .d-coral  { --bg: #4A1B0C; --bg-soft: #321107; --bd: #993C1D; --bd-strong: #D85A30; --tt: #FAECE7; --tx: #F5C4B3; --chip-bg: #712B13; --chip-tx: #F5C4B3; }
+  .d-blue   { --bg: #042C53; --bg-soft: #021A33; --bd: #185FA5; --bd-strong: #378ADD; --tt: #E6F1FB; --tx: #B5D4F4; --chip-bg: #0C447C; --chip-tx: #B5D4F4; }
+  .d-teal   { --bg: #04342C; --bg-soft: #021E1A; --bd: #0F6E56; --bd-strong: #1D9E75; --tt: #E1F5EE; --tx: #9FE1CB; --chip-bg: #085041; --chip-tx: #9FE1CB; }
+  .d-pink   { --bg: #4B1528; --bg-soft: #330C19; --bd: #993556; --bd-strong: #D4537E; --tt: #FBEAF0; --tx: #F4C0D1; --chip-bg: #72243E; --chip-tx: #F4C0D1; }
+  .d-green  { --bg: #173404; --bg-soft: #0B1E02; --bd: #3B6D11; --bd-strong: #639922; --tt: #EAF3DE; --tx: #C0DD97; --chip-bg: #27500A; --chip-tx: #C0DD97; }
+  .d-red    { --bg: #501313; --bg-soft: #330808; --bd: #A32D2D; --bd-strong: #E24B4A; --tt: #FCEBEB; --tx: #F7C1C1; --chip-bg: #791F1F; --chip-tx: #F7C1C1; }
+  .d-gray   { --bg: #2C2C2A; --bg-soft: #1C1C1A; --bd: #5F5E5A; --bd-strong: #888780; --tt: #F1EFE8; --tx: #D3D1C7; --chip-bg: #444441; --chip-tx: #D3D1C7; }
+  .d-slate  { --bg: #1F2A30; --bg-soft: #121A1F; --bd: #3F4C54; --bd-strong: #708089; --tt: #EAEEF0; --tx: #C1CAD0; --chip-bg: #35424A; --chip-tx: #C1CAD0; }
+}
+
+.domain { background: var(--bg-soft); border-color: var(--bd); }
+.domain-head { background: var(--bg); border-bottom-color: var(--bd); }
+.domain-letter { background: var(--chip-bg); color: var(--chip-tx); }
+.domain-title { color: var(--tt); }
+.domain-sub { color: var(--tx); }
+.domain-questions { border-bottom-color: var(--bd); color: var(--tx); }
+.domain-questions-label { color: var(--tx); }
+.domain-core-callout { border-bottom-color: var(--bd); color: var(--tx); background: var(--bg); }
+.file-card { background: var(--bg); border-color: var(--bd); }
+.file-path { color: var(--tt); }
+.file-role { color: var(--tx); }
+.flow-step { background: var(--bg); border-color: var(--bd); color: var(--tt); }
+
+/* Table of contents */
+.toc { margin: 32px 0 48px; padding: 20px 24px; background: rgba(0,0,0,0.02); border: 0.5px solid var(--border-subtle); border-radius: 10px; }
+@media (prefers-color-scheme: dark) { .toc { background: rgba(255,255,255,0.03); } }
+.toc-title { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-secondary); margin: 0 0 12px; }
+.toc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.toc-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; border: 0.5px solid; text-decoration: none; font-size: 12px; transition: transform 0.1s; }
+.toc-item:hover { transform: translateX(2px); }
+.toc-item .toc-letter { font-family: var(--font-mono); font-weight: 500; font-size: 11px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
+.toc-item .toc-text { flex: 1; }
+.toc-item .toc-count { font-size: 10px; opacity: 0.7; font-family: var(--font-mono); }
+
+/* Footer */
+.doc-footer { margin-top: 60px; padding-top: 24px; border-top: 0.5px solid var(--border-subtle); font-size: 11px; color: var(--text-tertiary); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="doc-header">
+    <h1 class="doc-title">Claude Code 安全架构完整参考</h1>
+    <p class="doc-subtitle">十个安全子域、全部核心文件与支撑文件、每个文件的安全职责,按照从信任门控到执行闸门再到外延边界的主流程组织。</p>
+    <div class="doc-meta">
+      <span><strong>子域:</strong> 10 个 (A–J)</span>
+      <span><strong>核心骨架:</strong> 10 份</span>
+      <span><strong>文件条目:</strong> 约 190+</span>
+      <span><strong>主流程:</strong> 信任 → 策略 → 权限 → 沙箱 → 扩展 → 执行 → 恢复</span>
+    </div>
+  </header>
+
+  <section class="overview">
+    <div class="overview-title">安全总架构树</div>
+<pre>Claude Code 安全总架构
+├── A. Trust / Workspace 信任边界 ── interactiveHelpers · config · settings gating
+├── B. Tool Permission 权限边界 ── Tool.ts · toolExecution · utils/permissions · hooks/toolPermission
+├── C. Sandbox / Dangerous Mode 沙箱边界 ── BashTool · PowerShellTool · utils/sandbox · sandbox-toggle
+├── D. Auth / OAuth / Credential 凭据边界 ── utils/auth · authPortable · services/oauth · api client
+├── E. Settings / Policy / Managed 控制边界 ── utils/settings · policyLimits · remoteManagedSettings
+├── F. MCP 安全边界 ── services/mcp · mcpServerApproval · commands/mcp · components/mcp
+├── G. Plugin / Hook / Extension 边界 ── utils/plugins · utils/hooks · schemas/hooks · services/plugins
+├── H. 文件系统 / 路径 / 写入边界 ── BashTool pathValidation · filesystem · memdir · SSRF guard
+├── I. Remote / Bridge / Session 边界 ── bridge · remote · sessionIngress · trustedDevice · workSecret
+└── J. Observability / Logging / Redaction 边界 ── api/logging · permissionLogging · pluginTelemetry</pre>
+  </section>
+
+  <div class="flow-strip">
+    <span class="flow-step d-purple">A 信任</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-teal">E 策略</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-blue">D 凭据</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-amber">B 权限核心</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-coral">C 沙箱</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-red">H 路径</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-pink">F MCP</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-green">G 插件 Hook</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-gray">I 远端</span><span class="flow-arrow">→</span>
+    <span class="flow-step d-slate">J 审计</span>
+  </div>
+
+  <nav class="toc">
+    <div class="toc-title">章节索引</div>
+    <div class="toc-grid">
+      <a href="#A" class="toc-item d-purple"><span class="toc-letter">A</span><span class="toc-text">Workspace 信任边界</span><span class="toc-count">5</span></a>
+      <a href="#B" class="toc-item d-amber"><span class="toc-letter">B</span><span class="toc-text">Tool Permission 权限核心</span><span class="toc-count">15</span></a>
+      <a href="#C" class="toc-item d-coral"><span class="toc-letter">C</span><span class="toc-text">Sandbox · Shell 沙箱边界</span><span class="toc-count">8</span></a>
+      <a href="#D" class="toc-item d-blue"><span class="toc-letter">D</span><span class="toc-text">Auth · OAuth 凭据边界</span><span class="toc-count">13</span></a>
+      <a href="#E" class="toc-item d-teal"><span class="toc-letter">E</span><span class="toc-text">Settings · Policy 控制边界</span><span class="toc-count">29</span></a>
+      <a href="#F" class="toc-item d-pink"><span class="toc-letter">F</span><span class="toc-text">MCP 安全边界</span><span class="toc-count">42</span></a>
+      <a href="#G" class="toc-item d-green"><span class="toc-letter">G</span><span class="toc-text">Plugin · Hook 扩展边界</span><span class="toc-count">12</span></a>
+      <a href="#H" class="toc-item d-red"><span class="toc-letter">H</span><span class="toc-text">文件系统 · 路径边界</span><span class="toc-count">22</span></a>
+      <a href="#I" class="toc-item d-gray"><span class="toc-letter">I</span><span class="toc-text">Remote · Bridge · Session</span><span class="toc-count">41</span></a>
+      <a href="#J" class="toc-item d-slate"><span class="toc-letter">J</span><span class="toc-text">Logging · Redaction 审计</span><span class="toc-count">8</span></a>
+    </div>
+  </nav>
+
+  <!-- DOMAIN A -->
+  <section id="A" class="domain d-purple">
+    <div class="domain-head">
+      <div class="domain-letter">A</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Workspace Trust 信任边界</h2>
+        <p class="domain-sub">trust dialog / onboarding / helper gating</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>仓库里的配置和辅助命令,什么时候可以被执行?</p>
+      <p>trust 前,哪些来源是不可信的?trust dialog 与 tool permission 是两套不同边界,project/local settings 中的 helper 型配置不能在 trust 前运行。</p>
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">interactiveHelpers.tsx</div><div class="file-role">trust dialog、onboarding 与 danger prompts 的核心交互落点</div></div>
+      <div class="file-card"><div class="file-path">setup.ts</div><div class="file-role">dangerous skip permissions 环境校验与 startup trust 相关 setup</div></div>
+      <div class="file-card"><div class="file-path">utils/config.ts</div><div class="file-role">trust dialog 持久状态、project trust 继承、config 安全读写</div></div>
+      <div class="file-card"><div class="file-path">utils/auth.ts</div><div class="file-role">trust 前禁止执行 project/local helper 等关键 gating(与 D 共享)</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/settings.ts</div><div class="file-role">trusted settings source 与 helper 执行安全边界(与 E 共享)</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN B -->
+  <section id="B" class="domain d-amber">
+    <div class="domain-head">
+      <div class="domain-letter">B</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Tool Permission 权限核心 · 系统心脏</h2>
+        <p class="domain-sub">canUseTool · rules · classifier · handlers · UI</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>哪个工具能直接跑,哪个要 ask,哪个应该 deny?权限 UI、规则解析、自动模式与 dangerous bypass 怎么协作?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> toolExecution.ts 是所有工具落地前的最后总闸门,整合 schema validation、pre/post hooks、permission decision 与 deny/allow/ask。utils/permissions 是权限系统的规则引擎与风险识别层——PermissionRule parser、shell 匹配、filesystem 限制、dangerousPatterns、classifierDecision 与 autoModeState 全部集中于此。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">Tool.ts</div><div class="file-role">ToolPermissionContext 协议定义,工具接口契约</div></div>
+      <div class="file-card"><div class="file-path">services/tools/toolExecution.ts</div><div class="file-role">统一权限判断接入点,所有工具执行前的总阀门</div></div>
+      <div class="file-card"><div class="file-path">services/tools/toolHooks.ts</div><div class="file-role">tool hooks 和 permission 决策桥接</div></div>
+      <div class="file-card"><div class="file-path">hooks/toolPermission/PermissionContext.ts</div><div class="file-role">permission context hook 运行时层</div></div>
+      <div class="file-card"><div class="file-path">hooks/toolPermission/handlers/coordinatorHandler.ts</div><div class="file-role">coordinator 模式下的权限处理</div></div>
+      <div class="file-card"><div class="file-path">hooks/toolPermission/handlers/interactiveHandler.ts</div><div class="file-role">interactive 交互式权限处理</div></div>
+      <div class="file-card"><div class="file-path">hooks/toolPermission/handlers/swarmWorkerHandler.ts</div><div class="file-role">swarm worker 模式权限处理</div></div>
+      <div class="file-card"><div class="file-path">hooks/toolPermission/permissionLogging.ts</div><div class="file-role">权限事件日志记录(与 J 共享)</div></div>
+      <div class="file-card"><div class="file-path">hooks/useCanUseTool.tsx</div><div class="file-role">UI 与 runtime 获取 canUseTool 决策</div></div>
+      <div class="file-card"><div class="file-path">hooks/useSwarmPermissionPoller.ts</div><div class="file-role">swarm 权限轮询协同</div></div>
+      <div class="file-card"><div class="file-path">commands/permissions/index.ts</div><div class="file-role">permissions 命令注册</div></div>
+      <div class="file-card"><div class="file-path">commands/permissions/permissions.tsx</div><div class="file-role">权限配置与查看 UI</div></div>
+      <div class="file-card"><div class="file-path">components/permissions/**</div><div class="file-role">各类权限请求 UI、规则编辑 UI、shell/file/web 权限弹窗</div></div>
+      <div class="file-card"><div class="file-path">utils/permissions/**</div><div class="file-role">规则解析、路径与命令匹配、分类器、dangerousPatterns、filesystem 限制等核心逻辑</div></div>
+      <div class="file-card"><div class="file-path">types/permissions.ts</div><div class="file-role">权限领域类型定义</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN C -->
+  <section id="C" class="domain d-coral">
+    <div class="domain-head">
+      <div class="domain-letter">C</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Sandbox · Dangerous Mode · Shell Security</h2>
+        <p class="domain-sub">shell 语义分析 · 沙箱决策 · dangerous bypass</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>shell 命令是否危险?是否只读?是否该进 sandbox?是否允许 dangerous skip permissions?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> BashTool 与 PowerShellTool 是系统中最强的执行能力也是最大风险点——命令语义分类、destructive 与 read-only 判断、path validation、权限与 shell 安全、sandbox usage 决策全部集中于此。它们是 Claude Code 最强能力面的安全护栏。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">entrypoints/sandboxTypes.ts</div><div class="file-role">sandbox 相关入口类型定义</div></div>
+      <div class="file-card"><div class="file-path">commands/sandbox-toggle/index.ts</div><div class="file-role">sandbox-toggle 命令注册</div></div>
+      <div class="file-card"><div class="file-path">commands/sandbox-toggle/sandbox-toggle.tsx</div><div class="file-role">sandbox 切换 UI 与逻辑</div></div>
+      <div class="file-card"><div class="file-path">components/sandbox/**</div><div class="file-role">sandbox 设置、doctor、依赖与覆盖项 UI</div></div>
+      <div class="file-card"><div class="file-path">utils/sandbox/sandbox-adapter.ts</div><div class="file-role">sandbox 适配层</div></div>
+      <div class="file-card"><div class="file-path">utils/sandbox/sandbox-ui-utils.ts</div><div class="file-role">sandbox UI 辅助</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/**</div><div class="file-role">Bash 工具的安全、权限、危险命令、路径与 sandbox 决策</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/**</div><div class="file-role">PowerShell 工具对应的安全与 sandbox 逻辑</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN D -->
+  <section id="D" class="domain d-blue">
+    <div class="domain-head">
+      <div class="domain-letter">D</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Auth · OAuth · Credential Security</h2>
+        <p class="domain-sub">凭据状态机 · token 刷新 · keychain · helper gating</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>API key、OAuth token、keychain 与 helper command 什么时候可信?401、token stale 与 cross-process refresh 怎么处理?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> utils/auth.ts 是认证与凭据安全中枢——API key 与 OAuth token 来源优先级、trust-gated helper execution、OAuth refresh、AWS/GCP/Bedrock/Vertex/Foundry credential 刷新、account 与 org 校验、secure storage 与 keychain 读取。这是 Claude Code 里最关键的秘密材料边界之一。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">constants/oauth.ts</div><div class="file-role">OAuth 常量</div></div>
+      <div class="file-card"><div class="file-path">cli/handlers/auth.ts</div><div class="file-role">CLI auth handler</div></div>
+      <div class="file-card"><div class="file-path">utils/auth.ts</div><div class="file-role">认证状态机与 auth source priority 中枢</div></div>
+      <div class="file-card"><div class="file-path">utils/authPortable.ts</div><div class="file-role">auth 的跨环境与 portable 适配</div></div>
+      <div class="file-card"><div class="file-path">utils/authFileDescriptor.ts</div><div class="file-role">file descriptor 注入 API key 与 OAuth token 的安全通道</div></div>
+      <div class="file-card"><div class="file-path">services/oauth/auth-code-listener.ts</div><div class="file-role">OAuth auth-code 回调监听</div></div>
+      <div class="file-card"><div class="file-path">services/oauth/client.ts</div><div class="file-role">OAuth client 逻辑</div></div>
+      <div class="file-card"><div class="file-path">services/oauth/crypto.ts</div><div class="file-role">OAuth 与认证相关加密辅助</div></div>
+      <div class="file-card"><div class="file-path">services/oauth/getOauthProfile.ts</div><div class="file-role">获取 OAuth profile</div></div>
+      <div class="file-card"><div class="file-path">services/oauth/index.ts</div><div class="file-role">OAuth 服务汇总入口</div></div>
+      <div class="file-card"><div class="file-path">services/api/client.ts</div><div class="file-role">provider-specific client 构造与 auth refresh 前置接入</div></div>
+      <div class="file-card"><div class="file-path">services/api/withRetry.ts</div><div class="file-role">401 与 403、auth stale、refresh 与 retry 恢复</div></div>
+      <div class="file-card"><div class="file-path">services/api/errors.ts</div><div class="file-role">auth 错误映射</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN E -->
+  <section id="E" class="domain d-teal">
+    <div class="domain-head">
+      <div class="domain-letter">E</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Settings · Policy · Managed Control</h2>
+        <p class="domain-sub">多源合并 · trusted source · MDM · 企业策略</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>哪些设置源有资格控制权限、模型、插件、memory path、sandbox 等关键安全行为?企业、远程与 MDM 策略怎样覆盖本地设置?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> utils/settings/settings.ts 是安全配置来源的总裁判——user、project、local、flag、policy settings 合并,trusted-only helper 查询,permission 与 plugin 与 model 与 memory path 与 sandbox 相关设置合并,policy first-source-wins 语义。utils/config.ts 是本地安全状态持久化守门员,负责 global/project config 读写、trust dialog 持久状态、auth-loss guard 与 config corruption 备份恢复。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">utils/settings/allErrors.ts</div><div class="file-role">settings 错误汇总</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/applySettingsChange.ts</div><div class="file-role">settings 变更应用</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/changeDetector.ts</div><div class="file-role">settings 变化检测</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/constants.ts</div><div class="file-role">settings sources 常量与优先级</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/internalWrites.ts</div><div class="file-role">内部写入辅助</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/managedPath.ts</div><div class="file-role">managed settings 路径</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/mdm/constants.ts</div><div class="file-role">MDM settings 常量</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/mdm/rawRead.ts</div><div class="file-role">读取 MDM settings</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/mdm/settings.ts</div><div class="file-role">MDM settings 适配</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/permissionValidation.ts</div><div class="file-role">权限规则类 settings 的校验</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/pluginOnlyPolicy.ts</div><div class="file-role">plugin-only policy 逻辑</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/schemaOutput.ts</div><div class="file-role">settings schema 输出辅助</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/settings.ts</div><div class="file-role">多源 settings 合并与 trusted source 边界</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/settingsCache.ts</div><div class="file-role">settings 缓存</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/toolValidationConfig.ts</div><div class="file-role">tool validation 配置</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/types.ts</div><div class="file-role">settings 类型</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/validateEditTool.ts</div><div class="file-role">EditTool 相关设置校验(与 H 共享)</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/validation.ts</div><div class="file-role">settings 通用验证</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/validationTips.ts</div><div class="file-role">settings 校验提示</div></div>
+      <div class="file-card"><div class="file-path">services/policyLimits/index.ts</div><div class="file-role">policy limits 主服务</div></div>
+      <div class="file-card"><div class="file-path">services/policyLimits/types.ts</div><div class="file-role">policy limits 类型</div></div>
+      <div class="file-card"><div class="file-path">services/remoteManagedSettings/index.ts</div><div class="file-role">远程托管设置服务</div></div>
+      <div class="file-card"><div class="file-path">services/remoteManagedSettings/securityCheck.tsx</div><div class="file-role">远程托管设置安全检查 UI 与逻辑</div></div>
+      <div class="file-card"><div class="file-path">services/remoteManagedSettings/syncCache.ts</div><div class="file-role">remote managed settings 同步缓存</div></div>
+      <div class="file-card"><div class="file-path">services/remoteManagedSettings/syncCacheState.ts</div><div class="file-role">sync cache 状态</div></div>
+      <div class="file-card"><div class="file-path">services/remoteManagedSettings/types.ts</div><div class="file-role">remote managed settings 类型</div></div>
+      <div class="file-card"><div class="file-path">services/settingsSync/index.ts</div><div class="file-role">设置同步服务</div></div>
+      <div class="file-card"><div class="file-path">services/settingsSync/types.ts</div><div class="file-role">设置同步类型</div></div>
+      <div class="file-card"><div class="file-path">utils/config.ts</div><div class="file-role">global 与 project config 持久化、auth-loss guard、trust persistence</div></div>
+      <div class="file-card"><div class="file-path">utils/configConstants.ts</div><div class="file-role">config 常量</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN F -->
+  <section id="F" class="domain d-pink">
+    <div class="domain-head">
+      <div class="domain-letter">F</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">MCP 安全边界</h2>
+        <p class="domain-sub">准入控制 · needs-auth · step-up · elicitation · 运行时恢复</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>哪些 MCP server 能连?哪些 server 要 approval?URL 与 command 与 name 的 allow/deny 怎么做?step-up auth、needs-auth、session expired 怎么恢复?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> services/mcp/config.ts 是 MCP 扩展面的准入控制中心——config merge、enterprise 与 managed 与 project 与 plugin 与 claude.ai source precedence、allowlist 与 denylist 与 policy filtering、project MCP approval、duplicate suppression。services/mcp/client.ts 是 MCP 运行时的安全接入器——transport connection、auth 与 needs-auth 与 step-up 与 session expired 恢复、tool 与 prompt 与 resource import、MCP tool call timeout 与 retry 与 elicitation。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">entrypoints/mcp.ts</div><div class="file-role">MCP 入口</div></div>
+      <div class="file-card"><div class="file-path">cli/handlers/mcp.tsx</div><div class="file-role">CLI MCP handler</div></div>
+      <div class="file-card"><div class="file-path">commands/mcp/addCommand.ts</div><div class="file-role">安全添加 MCP server 的命令逻辑</div></div>
+      <div class="file-card"><div class="file-path">commands/mcp/index.ts</div><div class="file-role">MCP 命令注册</div></div>
+      <div class="file-card"><div class="file-path">commands/mcp/mcp.tsx</div><div class="file-role">MCP 管理 UI 与逻辑</div></div>
+      <div class="file-card"><div class="file-path">commands/mcp/xaaIdpCommand.ts</div><div class="file-role">XAA 与 IDP 相关 MCP 命令</div></div>
+      <div class="file-card"><div class="file-path">components/mcp/**</div><div class="file-role">MCP server 与 tool 详情、设置、重连、elicitation 等 UI</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/InProcessTransport.ts</div><div class="file-role">in-process MCP transport</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/MCPConnectionManager.tsx</div><div class="file-role">MCP 连接管理 UI 与状态层</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/SdkControlTransport.ts</div><div class="file-role">SDK control transport</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/auth.ts</div><div class="file-role">MCP auth 辅助</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/channelAllowlist.ts</div><div class="file-role">MCP channel allowlist 规则</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/channelNotification.ts</div><div class="file-role">MCP 通知通道相关逻辑</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/channelPermissions.ts</div><div class="file-role">MCP channel 权限控制</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/claudeai.ts</div><div class="file-role">Claude.ai connector 与 MCP 相关逻辑</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/client.ts</div><div class="file-role">MCP 连接运行时、needs-auth、session expired 恢复</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/config.ts</div><div class="file-role">MCP config merge、approval、allow/deny、policy 过滤</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/elicitationHandler.ts</div><div class="file-role">MCP URL elicitation 与 consent 流程</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/envExpansion.ts</div><div class="file-role">MCP env 展开</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/headersHelper.ts</div><div class="file-role">MCP 头部辅助、动态 header 注入</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/mcpStringUtils.ts</div><div class="file-role">MCP 字符串辅助</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/normalization.ts</div><div class="file-role">MCP 配置、名称与结果正规化</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/oauthPort.ts</div><div class="file-role">MCP OAuth 端口辅助</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/officialRegistry.ts</div><div class="file-role">MCP 官方 registry 相关</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/types.ts</div><div class="file-role">MCP 类型与 schema</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/useManageMCPConnections.ts</div><div class="file-role">管理 MCP 连接 hook</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/utils.ts</div><div class="file-role">MCP stale cleanup、approval、server-scope 过滤等辅助</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/vscodeSdkMcp.ts</div><div class="file-role">VSCode SDK MCP 集成</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/xaa.ts</div><div class="file-role">XAA 认证相关 MCP 支持</div></div>
+      <div class="file-card"><div class="file-path">services/mcp/xaaIdpLogin.ts</div><div class="file-role">XAA 与 IDP 登录支持</div></div>
+      <div class="file-card"><div class="file-path">services/mcpServerApproval.tsx</div><div class="file-role">项目 MCP server approval UI 与流程</div></div>
+      <div class="file-card"><div class="file-path">skills/mcpSkillBuilders.ts</div><div class="file-role">MCP skills 与 prompt builder</div></div>
+      <div class="file-card"><div class="file-path">utils/mcp/dateTimeParser.ts</div><div class="file-role">MCP 数据解析辅助</div></div>
+      <div class="file-card"><div class="file-path">utils/mcp/elicitationValidation.ts</div><div class="file-role">MCP elicitation 输入校验</div></div>
+      <div class="file-card"><div class="file-path">utils/mcpInstructionsDelta.ts</div><div class="file-role">MCP 指令变化 delta</div></div>
+      <div class="file-card"><div class="file-path">utils/mcpOutputStorage.ts</div><div class="file-role">MCP 输出存储</div></div>
+      <div class="file-card"><div class="file-path">utils/mcpValidation.ts</div><div class="file-role">MCP 配置与输入验证</div></div>
+      <div class="file-card"><div class="file-path">utils/mcpWebSocketTransport.ts</div><div class="file-role">MCP WebSocket transport 辅助</div></div>
+      <div class="file-card"><div class="file-path">tools/MCPTool/**</div><div class="file-role">MCP tool wrapper 与 collapse 分类</div></div>
+      <div class="file-card"><div class="file-path">tools/McpAuthTool/McpAuthTool.ts</div><div class="file-role">MCP 认证修复工具</div></div>
+      <div class="file-card"><div class="file-path">tools/ListMcpResourcesTool/**</div><div class="file-role">MCP resource 列举工具</div></div>
+      <div class="file-card"><div class="file-path">tools/ReadMcpResourceTool/**</div><div class="file-role">MCP resource 读取工具</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN G -->
+  <section id="G" class="domain d-green">
+    <div class="domain-head">
+      <div class="domain-letter">G</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Plugin · Hook · Extension 安全边界</h2>
+        <p class="domain-sub">插件市场 · 加载验证 · hook 外部执行 · SSRF guard</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>插件是否可信?hooks 是否安全?marketplace、plugin loading、HTTP hook 与 exec hook 如何受限?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> utils/hooks/** 是用户自定义自动化的安全边界层——hook config 与 matcher 与 event registration、exec/http/prompt hooks、SSRF guard、session hooks 与 post-sampling hooks、skill hooks registration。hooks 是用户自定义的强扩展能力,天然带外部执行与网络风险。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">commands/plugin/**</div><div class="file-role">插件管理 UI,含 trust warning、validate、settings 与 marketplace</div></div>
+      <div class="file-card"><div class="file-path">plugins/builtinPlugins.ts</div><div class="file-role">内建插件注册表</div></div>
+      <div class="file-card"><div class="file-path">plugins/bundled/index.ts</div><div class="file-role">bundled plugin 汇总</div></div>
+      <div class="file-card"><div class="file-path">services/plugins/PluginInstallationManager.ts</div><div class="file-role">插件安装管理</div></div>
+      <div class="file-card"><div class="file-path">services/plugins/pluginCliCommands.ts</div><div class="file-role">插件 CLI 操作</div></div>
+      <div class="file-card"><div class="file-path">services/plugins/pluginOperations.ts</div><div class="file-role">插件安装、卸载与更新操作</div></div>
+      <div class="file-card"><div class="file-path">utils/plugins/**</div><div class="file-role">插件 loader、policy、validation、marketplace、autoupdate、blocklist、flagging、MCP integration</div></div>
+      <div class="file-card"><div class="file-path">commands/reload-plugins/**</div><div class="file-role">插件重新加载命令</div></div>
+      <div class="file-card"><div class="file-path">utils/hooks/**</div><div class="file-role">hook 配置、exec/http/prompt hook、session hook、SSRF guard、watcher</div></div>
+      <div class="file-card"><div class="file-path">schemas/hooks.ts</div><div class="file-role">hooks schema</div></div>
+      <div class="file-card"><div class="file-path">commands/hooks/**</div><div class="file-role">hooks 管理 UI 与命令</div></div>
+      <div class="file-card"><div class="file-path">components/hooks/**</div><div class="file-role">hooks 配置 UI</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN H -->
+  <section id="H" class="domain d-red">
+    <div class="domain-head">
+      <div class="domain-letter">H</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">文件系统 · 路径 · Memory Path 安全</h2>
+        <p class="domain-sub">path validation · UNC · device path · SSRF · edit safety</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>工具能读写哪些路径?UNC、device path、root path、memory path override 是否安全?</p>
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">tools/BashTool/pathValidation.ts</div><div class="file-role">Bash 工具的路径安全校验</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/bashSecurity.ts</div><div class="file-role">Bash 命令安全分析</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/bashPermissions.ts</div><div class="file-role">Bash 权限判定</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/destructiveCommandWarning.ts</div><div class="file-role">Bash 危险命令警告</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/readOnlyValidation.ts</div><div class="file-role">Bash 只读命令识别</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/sedValidation.ts</div><div class="file-role">sed 编辑校验</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/sedEditParser.ts</div><div class="file-role">sed 编辑解析</div></div>
+      <div class="file-card"><div class="file-path">tools/BashTool/shouldUseSandbox.ts</div><div class="file-role">Bash 是否进 sandbox 决策</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/pathValidation.ts</div><div class="file-role">PowerShell 路径安全校验</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/powershellSecurity.ts</div><div class="file-role">PowerShell 安全分析</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/powershellPermissions.ts</div><div class="file-role">PowerShell 权限判定</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/destructiveCommandWarning.ts</div><div class="file-role">PowerShell 危险命令警告</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/readOnlyValidation.ts</div><div class="file-role">PowerShell 只读命令识别</div></div>
+      <div class="file-card"><div class="file-path">tools/PowerShellTool/gitSafety.ts</div><div class="file-role">PowerShell 场景下 git 安全辅助</div></div>
+      <div class="file-card"><div class="file-path">utils/permissions/filesystem.ts</div><div class="file-role">文件系统权限与路径边界核心逻辑</div></div>
+      <div class="file-card"><div class="file-path">utils/permissions/pathValidation.ts</div><div class="file-role">权限层路径校验</div></div>
+      <div class="file-card"><div class="file-path">utils/settings/validateEditTool.ts</div><div class="file-role">EditTool 相关配置与编辑安全校验</div></div>
+      <div class="file-card"><div class="file-path">memdir/paths.ts</div><div class="file-role">auto-memory path override 的安全边界</div></div>
+      <div class="file-card"><div class="file-path">utils/hooks/ssrfGuard.ts</div><div class="file-role">HTTP hooks 与 remote fetch 场景的 SSRF 防护</div></div>
+      <div class="file-card"><div class="file-path">utils/mcpValidation.ts</div><div class="file-role">MCP config 与 path 与 input 验证</div></div>
+      <div class="file-card"><div class="file-path">components/agents/validateAgent.ts</div><div class="file-role">agent 定义与配置校验</div></div>
+      <div class="file-card"><div class="file-path">keybindings/validate.ts</div><div class="file-role">keybindings 配置校验</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN I -->
+  <section id="I" class="domain d-gray">
+    <div class="domain-head">
+      <div class="domain-letter">I</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Remote · Bridge · Trusted Device · Session Boundary</h2>
+        <p class="domain-sub">跨设备信任 · bridge transport · JWT · permission callback</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>远端 session、trusted device、work secret、JWT 与 bridge permission callback 如何构成边界?</p>
+    </div>
+    <div class="domain-core-callout">
+      <strong>核心骨架:</strong> bridge/** 与 remote/** 是跨设备与远端会话的信任边界层——bridge transports、permission callbacks、trustedDevice 与 workSecret 与 JWT 与 inbound gating、remote permission bridge、remote session manager。Claude Code 的远端与桥接能力本质上是跨设备与跨环境的信任传递,必须有单独安全边界。
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">bridge/bridgeApi.ts</div><div class="file-role">bridge API 层</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeConfig.ts</div><div class="file-role">bridge 配置</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeDebug.ts</div><div class="file-role">bridge 调试</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeEnabled.ts</div><div class="file-role">bridge 启用判断</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeMain.ts</div><div class="file-role">bridge 主入口</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeMessaging.ts</div><div class="file-role">bridge 消息通道</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgePermissionCallbacks.ts</div><div class="file-role">bridge 权限回调</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgePointer.ts</div><div class="file-role">bridge pointer 与 state 辅助</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeStatusUtil.ts</div><div class="file-role">bridge 状态工具</div></div>
+      <div class="file-card"><div class="file-path">bridge/bridgeUI.ts</div><div class="file-role">bridge UI 相关</div></div>
+      <div class="file-card"><div class="file-path">bridge/capacityWake.ts</div><div class="file-role">容量唤醒与恢复辅助</div></div>
+      <div class="file-card"><div class="file-path">bridge/codeSessionApi.ts</div><div class="file-role">code session API</div></div>
+      <div class="file-card"><div class="file-path">bridge/createSession.ts</div><div class="file-role">bridge 会话创建</div></div>
+      <div class="file-card"><div class="file-path">bridge/debugUtils.ts</div><div class="file-role">bridge 调试辅助</div></div>
+      <div class="file-card"><div class="file-path">bridge/envLessBridgeConfig.ts</div><div class="file-role">env-less bridge 配置</div></div>
+      <div class="file-card"><div class="file-path">bridge/flushGate.ts</div><div class="file-role">bridge flush 与 gating</div></div>
+      <div class="file-card"><div class="file-path">bridge/inboundAttachments.ts</div><div class="file-role">bridge 入站 attachment 处理</div></div>
+      <div class="file-card"><div class="file-path">bridge/inboundMessages.ts</div><div class="file-role">bridge 入站消息处理</div></div>
+      <div class="file-card"><div class="file-path">bridge/initReplBridge.ts</div><div class="file-role">REPL bridge 初始化</div></div>
+      <div class="file-card"><div class="file-path">bridge/jwtUtils.ts</div><div class="file-role">bridge JWT 辅助</div></div>
+      <div class="file-card"><div class="file-path">bridge/pollConfig.ts</div><div class="file-role">bridge polling config</div></div>
+      <div class="file-card"><div class="file-path">bridge/pollConfigDefaults.ts</div><div class="file-role">bridge polling 默认值</div></div>
+      <div class="file-card"><div class="file-path">bridge/remoteBridgeCore.ts</div><div class="file-role">remote bridge 核心</div></div>
+      <div class="file-card"><div class="file-path">bridge/replBridge.ts</div><div class="file-role">REPL bridge 主逻辑</div></div>
+      <div class="file-card"><div class="file-path">bridge/replBridgeHandle.ts</div><div class="file-role">REPL bridge handle</div></div>
+      <div class="file-card"><div class="file-path">bridge/replBridgeTransport.ts</div><div class="file-role">REPL bridge transport</div></div>
+      <div class="file-card"><div class="file-path">bridge/sessionIdCompat.ts</div><div class="file-role">sessionId 兼容层</div></div>
+      <div class="file-card"><div class="file-path">bridge/sessionRunner.ts</div><div class="file-role">bridge session runner</div></div>
+      <div class="file-card"><div class="file-path">bridge/trustedDevice.ts</div><div class="file-role">trusted device 逻辑</div></div>
+      <div class="file-card"><div class="file-path">bridge/types.ts</div><div class="file-role">bridge 类型</div></div>
+      <div class="file-card"><div class="file-path">bridge/workSecret.ts</div><div class="file-role">work secret 管理</div></div>
+      <div class="file-card"><div class="file-path">remote/RemoteSessionManager.ts</div><div class="file-role">remote session 管理</div></div>
+      <div class="file-card"><div class="file-path">remote/SessionsWebSocket.ts</div><div class="file-role">remote session WebSocket</div></div>
+      <div class="file-card"><div class="file-path">remote/remotePermissionBridge.ts</div><div class="file-role">remote 权限桥接</div></div>
+      <div class="file-card"><div class="file-path">remote/sdkMessageAdapter.ts</div><div class="file-role">remote SDK 消息适配</div></div>
+      <div class="file-card"><div class="file-path">services/api/sessionIngress.ts</div><div class="file-role">session ingress 与 remote session 持久化接口</div></div>
+      <div class="file-card"><div class="file-path">utils/background/remote/preconditions.ts</div><div class="file-role">remote 背景会话前置条件校验</div></div>
+      <div class="file-card"><div class="file-path">utils/background/remote/remoteSession.ts</div><div class="file-role">remote session 辅助</div></div>
+      <div class="file-card"><div class="file-path">commands/bridge/**</div><div class="file-role">bridge 命令与 UI</div></div>
+      <div class="file-card"><div class="file-path">commands/bridge-kick.ts</div><div class="file-role">bridge kick 命令</div></div>
+      <div class="file-card"><div class="file-path">commands/remote-env/**</div><div class="file-role">remote env 检视</div></div>
+      <div class="file-card"><div class="file-path">commands/remote-setup/**</div><div class="file-role">remote setup UI 与命令</div></div>
+      <div class="file-card"><div class="file-path">cli/remoteIO.ts</div><div class="file-role">remote IO 适配</div></div>
+    </div>
+  </section>
+
+  <!-- DOMAIN J -->
+  <section id="J" class="domain d-slate">
+    <div class="domain-head">
+      <div class="domain-letter">J</div>
+      <div class="domain-title-wrap">
+        <h2 class="domain-title">Logging · Telemetry · Redaction · Error Safety</h2>
+        <p class="domain-sub">auth-safe logging · error mapping · telemetry opt-out</p>
+      </div>
+    </div>
+    <div class="domain-questions">
+      <div class="domain-questions-label">核心问题</div>
+      <p>错误消息和遥测里如何避免泄露敏感数据?requestId、clientRequestId、gateway 与 auth-safe logging 怎么处理?</p>
+    </div>
+    <div class="file-grid">
+      <div class="file-card"><div class="file-path">services/api/logging.ts</div><div class="file-role">API 请求、响应、错误、usage 与 tracing 日志</div></div>
+      <div class="file-card"><div class="file-path">services/api/errors.ts</div><div class="file-role">错误信息安全映射</div></div>
+      <div class="file-card"><div class="file-path">hooks/toolPermission/permissionLogging.ts</div><div class="file-role">权限事件日志</div></div>
+      <div class="file-card"><div class="file-path">utils/errors.ts</div><div class="file-role">通用错误处理辅助</div></div>
+      <div class="file-card"><div class="file-path">utils/telemetry/pluginTelemetry.ts</div><div class="file-role">插件相关遥测</div></div>
+      <div class="file-card"><div class="file-path">services/analytics/config.ts</div><div class="file-role">analytics 与 config 相关 telemetry 设置</div></div>
+      <div class="file-card"><div class="file-path">services/api/bootstrap.ts</div><div class="file-role">API telemetry 与 bootstrap 相关协助</div></div>
+      <div class="file-card"><div class="file-path">services/api/metricsOptOut.ts</div><div class="file-role">metrics 关闭与隐私选择相关逻辑</div></div>
+    </div>
+  </section>
+
+  <footer class="doc-footer">
+    <p><strong>说明。</strong>本文档覆盖 Claude Code 安全架构扫描出的 10 个子域与约 190+ 核心及支撑文件。每个子域独立一节、自带配色,所有文件均按安全职责配以一句话说明,方便按子域逐项定位与审计。带 <code>**</code> 的条目表示目录级聚合,指代该目录下全部相关文件。</p>
+    <p><strong>阅读建议。</strong>按顶部流程条的顺序阅读可以还原"一次工具调用从输入到执行的完整安全链路"——信任 A → 策略 E → 凭据 D → 权限核心 B → 沙箱 C → 路径 H → 扩展面 F/G → 远端 I → 审计 J。其中 B 为系统心脏 (琥珀色),所有工具落地前的总阀门都经过它。</p>
+  </footer>
+
+</div>
+</body>
+</html>

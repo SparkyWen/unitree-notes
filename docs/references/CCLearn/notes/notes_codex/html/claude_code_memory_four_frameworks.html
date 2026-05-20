@@ -1,0 +1,487 @@
+<style>
+.mem-root { padding: 1rem 0 0; font-family: var(--font-sans); color: var(--color-text-primary); }
+.mem-root * { box-sizing: border-box; }
+.mem-h1 { font-size: 22px; font-weight: 500; margin: 0 0 4px; letter-spacing: -0.01em; }
+.mem-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 10px; line-height: 1.5; }
+.mem-hr { border: none; border-top: 0.5px solid var(--color-border-tertiary); margin: 0 0 18px; }
+.mem-section { margin-bottom: 36px; }
+.mem-sec-head { margin-bottom: 12px; }
+.mem-sec-num { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-tertiary); letter-spacing: 0.08em; }
+.mem-sec-title { font-size: 16px; font-weight: 500; margin: 2px 0 2px; }
+.mem-sec-desc { font-size: 11px; color: var(--color-text-secondary); line-height: 1.5; margin: 0; }
+.mem-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: start; }
+.mem-col { display: flex; flex-direction: column; gap: 8px; }
+.mem-phase-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-tertiary); padding-bottom: 4px; border-bottom: 0.5px dashed var(--color-border-tertiary); margin-bottom: 2px; }
+.mem-card { border-radius: 8px; border: 0.5px solid; padding: 10px 11px; display: flex; flex-direction: column; gap: 5px; }
+.mem-card .layer { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.7; }
+.mem-card .title { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.mem-card .desc { font-size: 11px; line-height: 1.55; opacity: 0.85; }
+.mem-card .paths { font-family: var(--font-mono); font-size: 11px; line-height: 1.5; padding: 4px 6px; border-radius: 4px; word-break: break-all; }
+.mem-flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 10px; border-top: 0.5px solid var(--color-border-tertiary); font-size: 11px; color: var(--color-text-secondary); }
+.mem-flow .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.mem-flow .arr { opacity: 0.4; font-family: var(--font-mono); }
+.mem-flow span.lbl { font-weight: 500; }
+
+/* ========== LIGHT MODE COLOR RAMPS ========== */
+/* blue 入口 */
+.c-blue-card { background: #E6F1FB; border-color: rgba(24,95,165,0.25); color: #0C447C; }
+.c-blue-card .paths { background: rgba(24,95,165,0.09); color: #042C53; }
+.c-blue-dot { background: #378ADD; }
+/* teal 会话/抽取层 */
+.c-teal-card { background: #E1F5EE; border-color: rgba(15,110,86,0.25); color: #085041; }
+.c-teal-card .paths { background: rgba(15,110,86,0.09); color: #04342C; }
+.c-teal-dot { background: #1D9E75; }
+/* amber 核心中枢 */
+.c-amber-card { background: #FAEEDA; border-color: rgba(186,117,23,0.3); color: #633806; }
+.c-amber-card .paths { background: rgba(186,117,23,0.1); color: #412402; }
+.c-amber-dot { background: #BA7517; }
+/* purple 底层/存储 */
+.c-purple-card { background: #EEEDFE; border-color: rgba(83,74,183,0.25); color: #3C3489; }
+.c-purple-card .paths { background: rgba(83,74,183,0.09); color: #26215C; }
+.c-purple-dot { background: #7F77DD; }
+/* coral 安全/边界 */
+.c-coral-card { background: #FAECE7; border-color: rgba(153,60,29,0.28); color: #712B13; }
+.c-coral-card .paths { background: rgba(153,60,29,0.09); color: #4A1B0C; }
+.c-coral-dot { background: #D85A30; }
+/* gray 扩展/输出 */
+.c-gray-card { background: #F1EFE8; border-color: rgba(95,94,90,0.25); color: #444441; }
+.c-gray-card .paths { background: rgba(95,94,90,0.1); color: #2C2C2A; }
+.c-gray-dot { background: #888780; }
+/* green 类型/版本 */
+.c-green-card { background: #EAF3DE; border-color: rgba(59,109,17,0.25); color: #27500A; }
+.c-green-card .paths { background: rgba(59,109,17,0.1); color: #173404; }
+.c-green-dot { background: #639922; }
+/* pink 收尾/建议 */
+.c-pink-card { background: #FBEAF0; border-color: rgba(153,53,86,0.25); color: #72243E; }
+.c-pink-card .paths { background: rgba(153,53,86,0.1); color: #4B1528; }
+.c-pink-dot { background: #D4537E; }
+
+@media (prefers-color-scheme: dark) {
+  .c-blue-card { background: rgba(24,95,165,0.18); border-color: rgba(133,183,235,0.35); color: #B5D4F4; }
+  .c-blue-card .paths { background: rgba(133,183,235,0.1); color: #E6F1FB; }
+  .c-teal-card { background: rgba(15,110,86,0.2); border-color: rgba(93,202,165,0.35); color: #9FE1CB; }
+  .c-teal-card .paths { background: rgba(93,202,165,0.1); color: #E1F5EE; }
+  .c-amber-card { background: rgba(186,117,23,0.2); border-color: rgba(239,159,39,0.4); color: #FAC775; }
+  .c-amber-card .paths { background: rgba(239,159,39,0.12); color: #FAEEDA; }
+  .c-purple-card { background: rgba(83,74,183,0.22); border-color: rgba(175,169,236,0.35); color: #CECBF6; }
+  .c-purple-card .paths { background: rgba(175,169,236,0.1); color: #EEEDFE; }
+  .c-coral-card { background: rgba(153,60,29,0.22); border-color: rgba(240,153,123,0.35); color: #F5C4B3; }
+  .c-coral-card .paths { background: rgba(240,153,123,0.1); color: #FAECE7; }
+  .c-gray-card { background: rgba(95,94,90,0.22); border-color: rgba(180,178,169,0.3); color: #D3D1C7; }
+  .c-gray-card .paths { background: rgba(180,178,169,0.1); color: #F1EFE8; }
+  .c-green-card { background: rgba(59,109,17,0.22); border-color: rgba(151,196,89,0.35); color: #C0DD97; }
+  .c-green-card .paths { background: rgba(151,196,89,0.1); color: #EAF3DE; }
+  .c-pink-card { background: rgba(153,53,86,0.22); border-color: rgba(237,147,177,0.35); color: #F4C0D1; }
+  .c-pink-card .paths { background: rgba(237,147,177,0.1); color: #FBEAF0; }
+}
+
+@media (max-width: 720px) {
+  .mem-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+
+<div class="mem-root">
+
+<h1 class="mem-h1">Claude Code Memory 架构 · 四大子系统全景</h1>
+<p class="mem-sub">SessionMemory · Durable memdir · Extract / AutoDream · TeamMemorySync —— 从 session 检索到 durable 持久化再到团队协作共享的完整记忆闭环</p>
+<hr class="mem-hr"/>
+
+<!-- ============ 01 SessionMemory / Relevant Retrieval ============ -->
+<section class="mem-section">
+  <div class="mem-sec-head">
+    <div class="mem-sec-num">FRAMEWORK 01</div>
+    <div class="mem-sec-title">SessionMemory / Relevant Retrieval</div>
+    <p class="mem-sec-desc">当前会话如何组织短期记忆,并从 durable memory 中按相关度拉回候选注入下一轮 prompt</p>
+  </div>
+
+  <div class="mem-grid">
+
+    <div class="mem-col">
+      <div class="mem-phase-label">① Session 输入</div>
+      <div class="mem-card c-blue-card">
+        <div class="layer">Layer 01 · 会话流</div>
+        <div class="title">运行中的 messages / tools / attachments</div>
+        <div class="desc">当前 session 持续产生消息、工具调用与附件,构成短期记忆的原料流</div>
+        <div class="paths">session runtime stream</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">② Session 服务</div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 02 · 主服务</div>
+        <div class="title">SessionMemory 主服务</div>
+        <div class="desc">组织当前 session 记忆,为 query/compact/restore 提供 session 级别视图</div>
+        <div class="paths">services/SessionMemory/sessionMemory.ts</div>
+      </div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 03 · 辅助与 prompt</div>
+        <div class="title">Utils 与 prompt 模板</div>
+        <div class="desc">做筛选、格式化、协同计算,并为子流程提供 prompt 模板</div>
+        <div class="paths">sessionMemoryUtils.ts · prompts.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">③ 检索中枢</div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">Layer 04 · 核心</div>
+        <div class="title">findRelevantMemories 检索入口</div>
+        <div class="desc">从 durable memory 里按相关度检索最匹配的候选,是注入 query 的关键入口</div>
+        <div class="paths">memdir/findRelevantMemories.ts</div>
+      </div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">关键特征</div>
+        <div class="title">不是全文搜索壳</div>
+        <div class="desc">带 freshness 打分与候选筛选的 retrieval 流程,session 语义与 durable 候选在此汇合</div>
+        <div class="paths">relevance · freshness · ranking</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">④ memdir 支撑</div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 05 · 扫描</div>
+        <div class="title">memoryScan 候选产出</div>
+        <div class="desc">扫描 memory 文件并产出候选集,为上层 retrieval 提供原料</div>
+        <div class="paths">memdir/memoryScan.ts</div>
+      </div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 06 · 时效/类型</div>
+        <div class="title">memoryAge 与 memoryTypes</div>
+        <div class="desc">提供 time-based relevance 支持,并定义 retrieval 层的数据类型契约</div>
+        <div class="paths">memoryAge.ts · memoryTypes.ts</div>
+      </div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 07 · 底层</div>
+        <div class="title">memdir 目录服务</div>
+        <div class="desc">durable memory 的底层读写与内容访问,为扫描与检索提供基础能力</div>
+        <div class="paths">memdir/memdir.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">⑤ 回注 query</div>
+      <div class="mem-card c-gray-card">
+        <div class="layer">Layer 08 · 输出</div>
+        <div class="title">相关 memories 回注</div>
+        <div class="desc">筛选结果以 attachments / prompts 形式回到下一轮 query,形成检索闭环</div>
+        <div class="paths">query · attachments · prompts</div>
+      </div>
+      <div class="mem-card c-gray-card">
+        <div class="layer">关键结论</div>
+        <div class="title">SessionMemory ≠ Durable</div>
+        <div class="desc">两者是不同层,retrieval 是它们之间的汇合点而非等价关系</div>
+        <div class="paths">two-layer memory model</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mem-flow">
+    <span class="dot c-blue-dot"></span><span class="lbl">会话流</span><span class="arr">→</span>
+    <span class="dot c-teal-dot"></span><span class="lbl">Session 服务</span><span class="arr">→</span>
+    <span class="dot c-amber-dot"></span><span class="lbl">检索中枢</span><span class="arr">→</span>
+    <span class="dot c-purple-dot"></span><span class="lbl">memdir 底层</span><span class="arr">→</span>
+    <span class="dot c-gray-dot"></span><span class="lbl">回注 query</span>
+  </div>
+</section>
+
+<!-- ============ 02 Durable memdir / paths / versions ============ -->
+<section class="mem-section">
+  <div class="mem-sec-head">
+    <div class="mem-sec-num">FRAMEWORK 02</div>
+    <div class="mem-sec-title">Durable memdir / Paths / Versions</div>
+    <p class="mem-sec-desc">长期记忆存在哪、安全如何保证、文件格式如何受控演进,以及 worktree 间的共享策略</p>
+  </div>
+
+  <div class="mem-grid">
+
+    <div class="mem-col">
+      <div class="mem-phase-label">① 配置源</div>
+      <div class="mem-card c-gray-card">
+        <div class="layer">Layer 01 · 入口</div>
+        <div class="title">settings / env / project root</div>
+        <div class="desc">从配置、环境变量与项目根共同决定 memory 根目录的来源</div>
+        <div class="paths">settings · env · project root</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">② 路径安全边界</div>
+      <div class="mem-card c-coral-card">
+        <div class="layer">Layer 02 · 边界</div>
+        <div class="title">paths 路径解析与校验</div>
+        <div class="desc">决定 memory 根、校验路径安全、仅 trusted settings 可 override,是安全边界而非普通配置</div>
+        <div class="paths">memdir/paths.ts</div>
+      </div>
+      <div class="mem-card c-coral-card">
+        <div class="layer">关键特征</div>
+        <div class="title">worktree-shared root</div>
+        <div class="desc">让同仓多工作树共用同一份长期记忆,避免分裂与重复抽取</div>
+        <div class="paths">shared across worktrees</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">③ memdir 核心</div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">Layer 03 · 核心</div>
+        <div class="title">memdir 主服务</div>
+        <div class="desc">durable memory 的目录主服务,负责 memory 文件访问与基础读写</div>
+        <div class="paths">memdir/memdir.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">④ 类型与版本</div>
+      <div class="mem-card c-green-card">
+        <div class="layer">Layer 04 · 类型</div>
+        <div class="title">memory types 定义</div>
+        <div class="desc">durable memory 的领域类型与 memdir 层自身的类型定义,两套契约共同支撑</div>
+        <div class="paths">utils/memory/types.ts · memdir/memoryTypes.ts</div>
+      </div>
+      <div class="mem-card c-green-card">
+        <div class="layer">Layer 05 · 版本</div>
+        <div class="title">versions 兼容性</div>
+        <div class="desc">让 memory 文件格式可以受控演进,而非随便追加落文本</div>
+        <div class="paths">utils/memory/versions.ts</div>
+      </div>
+      <div class="mem-card c-green-card">
+        <div class="layer">Layer 06 · 识别</div>
+        <div class="title">memoryFileDetection</div>
+        <div class="desc">识别哪些文件属于 memory 文件,支撑扫描、读写与注入流程</div>
+        <div class="paths">utils/memoryFileDetection.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">⑤ 被复用</div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 07 · 输出</div>
+        <div class="title">被上层复用</div>
+        <div class="desc">SessionMemory / extract / autoDream / teamMemory 都基于同一套 memdir 构建</div>
+        <div class="paths">session · extract · dream · team</div>
+      </div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">关键结论</div>
+        <div class="title">两套持久化层</div>
+        <div class="desc">durable memory 与 session transcript 是完全不同的持久化层,不可混同</div>
+        <div class="paths">durable ≠ transcript</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mem-flow">
+    <span class="dot c-gray-dot"></span><span class="lbl">配置源</span><span class="arr">→</span>
+    <span class="dot c-coral-dot"></span><span class="lbl">路径边界</span><span class="arr">→</span>
+    <span class="dot c-amber-dot"></span><span class="lbl">memdir 核心</span><span class="arr">→</span>
+    <span class="dot c-green-dot"></span><span class="lbl">类型/版本</span><span class="arr">→</span>
+    <span class="dot c-purple-dot"></span><span class="lbl">被复用</span>
+  </div>
+</section>
+
+<!-- ============ 03 extractMemories / autoDream / consolidation ============ -->
+<section class="mem-section">
+  <div class="mem-sec-head">
+    <div class="mem-sec-num">FRAMEWORK 03</div>
+    <div class="mem-sec-title">extractMemories / AutoDream / Consolidation</div>
+    <p class="mem-sec-desc">从会话中生成 durable 记忆,再通过 autoDream 周期性整理浓缩,让记忆成为持续演化的资产</p>
+  </div>
+
+  <div class="mem-grid">
+
+    <div class="mem-col">
+      <div class="mem-phase-label">① 会话收尾</div>
+      <div class="mem-card c-blue-card">
+        <div class="layer">Layer 01 · 触发</div>
+        <div class="title">session 结束阶段</div>
+        <div class="desc">当前对话走到收尾,触发从短期信息到长期记忆的转化流程</div>
+        <div class="paths">session end lifecycle</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">② 记忆抽取</div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 02 · 抽取主逻辑</div>
+        <div class="title">extractMemories 主服务</div>
+        <div class="desc">从会话中抽取 durable memory 条目,把短期信息转成长期记忆</div>
+        <div class="paths">services/extractMemories/extractMemories.ts</div>
+      </div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 03 · prompt</div>
+        <div class="title">extract prompt 模板</div>
+        <div class="desc">抽取阶段使用的 prompt 模板,决定哪些信息被识别为值得留存</div>
+        <div class="paths">extractMemories/prompts.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">③ 整理中枢</div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">Layer 04 · 核心</div>
+        <div class="title">autoDream 整理主逻辑</div>
+        <div class="desc">对已有 memories 做 consolidation/dream,进一步整理、压缩与重组</div>
+        <div class="paths">services/autoDream/autoDream.ts</div>
+      </div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">Layer 05 · 并发/配置/提示</div>
+        <div class="title">lock · config · prompt</div>
+        <div class="desc">consolidation 锁避免并发整理冲突,配置与 prompt 模板支撑浓缩逻辑</div>
+        <div class="paths">consolidationLock.ts · config.ts · consolidationPrompt.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">④ 持久化</div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 06 · 存储</div>
+        <div class="title">memdir durable storage</div>
+        <div class="desc">整理后的结果写入 durable memory,等待下一次 relevant retrieval 再回到 query</div>
+        <div class="paths">memdir/**</div>
+      </div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 07 · 治理路径</div>
+        <div class="title">sessionMemoryCompact</div>
+        <div class="desc">说明 memory 不只用于 retrieval,也被用于 compact 治理路径</div>
+        <div class="paths">services/compact/sessionMemoryCompact.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">⑤ 相邻建议系统</div>
+      <div class="mem-card c-pink-card">
+        <div class="layer">Layer 08 · 建议</div>
+        <div class="title">PromptSuggestion 主逻辑</div>
+        <div class="desc">与会话收尾和后续建议相关的系统,与 memory 收尾治理相邻而非合并</div>
+        <div class="paths">services/PromptSuggestion/promptSuggestion.ts</div>
+      </div>
+      <div class="mem-card c-pink-card">
+        <div class="layer">Layer 09 · 推测</div>
+        <div class="title">speculation 辅助</div>
+        <div class="desc">prompt suggestion 的 speculation 辅助逻辑,与 memory 治理协同工作</div>
+        <div class="paths">PromptSuggestion/speculation.ts</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mem-flow">
+    <span class="dot c-blue-dot"></span><span class="lbl">会话收尾</span><span class="arr">→</span>
+    <span class="dot c-teal-dot"></span><span class="lbl">抽取</span><span class="arr">→</span>
+    <span class="dot c-amber-dot"></span><span class="lbl">整理浓缩</span><span class="arr">→</span>
+    <span class="dot c-purple-dot"></span><span class="lbl">持久化</span><span class="arr">→</span>
+    <span class="dot c-pink-dot"></span><span class="lbl">相邻建议</span>
+  </div>
+</section>
+
+<!-- ============ 04 teamMemorySync / secret guard / shared memory ============ -->
+<section class="mem-section">
+  <div class="mem-sec-head">
+    <div class="mem-sec-num">FRAMEWORK 04</div>
+    <div class="mem-sec-title">TeamMemorySync / Secret Guard / Shared Memory</div>
+    <p class="mem-sec-desc">跨 teammate 的共享记忆同步链路,以及为什么协作层必须独立加装敏感信息防护</p>
+  </div>
+
+  <div class="mem-grid">
+
+    <div class="mem-col">
+      <div class="mem-phase-label">① 团队事件</div>
+      <div class="mem-card c-blue-card">
+        <div class="layer">Layer 01 · 触发源</div>
+        <div class="title">team / teammate memory 事件</div>
+        <div class="desc">来自 teammate 的记忆变更事件,触发共享层的同步流程</div>
+        <div class="paths">team memory events</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">② 同步中枢</div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">Layer 02 · 核心</div>
+        <div class="title">teamMemorySync 主入口</div>
+        <div class="desc">组织 watcher、scanner、guard、写入/同步流程,是团队记忆的调度中心</div>
+        <div class="paths">services/teamMemorySync/index.ts</div>
+      </div>
+      <div class="mem-card c-amber-card">
+        <div class="layer">Layer 03 · 监听</div>
+        <div class="title">watcher 变更监听</div>
+        <div class="desc">监听 team memory 变化与同步触发,是事件驱动同步的源头</div>
+        <div class="paths">teamMemorySync/watcher.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">③ 安全防护链</div>
+      <div class="mem-card c-coral-card">
+        <div class="layer">Layer 04 · 扫描</div>
+        <div class="title">secretScanner</div>
+        <div class="desc">在共享 memory 写入前扫描 secrets,是写入前的第一道闸门</div>
+        <div class="paths">teamMemorySync/secretScanner.ts</div>
+      </div>
+      <div class="mem-card c-coral-card">
+        <div class="layer">Layer 05 · 拦截</div>
+        <div class="title">teamMemSecretGuard</div>
+        <div class="desc">防止敏感信息进入 shared memory,与 scanner 共同形成写入控制链</div>
+        <div class="paths">teamMemorySync/teamMemSecretGuard.ts</div>
+      </div>
+      <div class="mem-card c-coral-card">
+        <div class="layer">Layer 06 · 契约</div>
+        <div class="title">sync types</div>
+        <div class="desc">team memory sync 相关类型定义,为整个同步链提供类型契约</div>
+        <div class="paths">teamMemorySync/types.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">④ 团队 memdir</div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 07 · 路径</div>
+        <div class="title">teamMemPaths 专属路径</div>
+        <div class="desc">team/shared memory 的路径规划,独立于普通 memory 而非直接复用</div>
+        <div class="paths">memdir/teamMemPaths.ts</div>
+      </div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 08 · prompt</div>
+        <div class="title">teamMemPrompts</div>
+        <div class="desc">team memory 提取与使用时的专属 prompt 模板,与普通 memory 并行建模</div>
+        <div class="paths">memdir/teamMemPrompts.ts</div>
+      </div>
+      <div class="mem-card c-teal-card">
+        <div class="layer">Layer 09 · 操作</div>
+        <div class="title">teamMemoryOps 工具</div>
+        <div class="desc">team memory 操作辅助工具集,支撑上层同步与读写逻辑</div>
+        <div class="paths">utils/teamMemoryOps.ts</div>
+      </div>
+    </div>
+
+    <div class="mem-col">
+      <div class="mem-phase-label">⑤ UI 展示</div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 10 · 折叠</div>
+        <div class="title">teamMemCollapsed 展示</div>
+        <div class="desc">team memory collapsed 消息的前端展示组件,面向协作上下文</div>
+        <div class="paths">components/messages/teamMemCollapsed.tsx</div>
+      </div>
+      <div class="mem-card c-purple-card">
+        <div class="layer">Layer 11 · 保存</div>
+        <div class="title">teamMemSaved 辅助</div>
+        <div class="desc">team memory saved 消息辅助,与折叠展示共同构成用户可见的协作反馈</div>
+        <div class="paths">components/messages/teamMemSaved.ts</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mem-flow">
+    <span class="dot c-blue-dot"></span><span class="lbl">团队事件</span><span class="arr">→</span>
+    <span class="dot c-amber-dot"></span><span class="lbl">同步中枢</span><span class="arr">→</span>
+    <span class="dot c-coral-dot"></span><span class="lbl">安全防护</span><span class="arr">→</span>
+    <span class="dot c-teal-dot"></span><span class="lbl">团队 memdir</span><span class="arr">→</span>
+    <span class="dot c-purple-dot"></span><span class="lbl">UI 展示</span>
+  </div>
+</section>
+
+</div>

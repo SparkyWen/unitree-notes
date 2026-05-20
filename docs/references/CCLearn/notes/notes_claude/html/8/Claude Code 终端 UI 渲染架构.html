@@ -1,0 +1,205 @@
+<style>
+.ui-root { padding: 1rem 0 0; font-family: var(--font-sans); color: var(--color-text-primary); }
+.ui-header { margin-bottom: 18px; }
+.ui-title { font-size: 22px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+.ui-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 14px; font-weight: 400; }
+.ui-rule { height: 0.5px; background: var(--color-border-tertiary); margin: 0 0 20px; }
+.ui-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; margin-bottom: 18px; }
+.ui-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ui-col-head { font-size: 9px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; padding: 0 2px; }
+.ui-card { border-radius: 8px; border: 0.5px solid; padding: 10px 10px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ui-card-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.78; font-weight: 500; }
+.ui-card-title { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.ui-card-desc { font-size: 10px; line-height: 1.55; opacity: 0.88; font-weight: 400; }
+.ui-card-path { font-size: 9px; font-family: var(--font-mono); padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-top: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-purple { --bg: #EEEDFE; --bd: #CECBF6; --tt: #26215C; --tx: #3C3489; --pill-bg: #CECBF6; --pill-tx: #26215C; }
+.ph-blue   { --bg: #E6F1FB; --bd: #B5D4F4; --tt: #042C53; --tx: #0C447C; --pill-bg: #B5D4F4; --pill-tx: #042C53; }
+.ph-amber  { --bg: #FAEEDA; --bd: #FAC775; --tt: #412402; --tx: #633806; --pill-bg: #FAC775; --pill-tx: #412402; }
+.ph-teal   { --bg: #E1F5EE; --bd: #9FE1CB; --tt: #04342C; --tx: #085041; --pill-bg: #9FE1CB; --pill-tx: #04342C; }
+.ph-coral  { --bg: #FAECE7; --bd: #F5C4B3; --tt: #4A1B0C; --tx: #712B13; --pill-bg: #F5C4B3; --pill-tx: #4A1B0C; }
+.ph-green  { --bg: #EAF3DE; --bd: #C0DD97; --tt: #173404; --tx: #27500A; --pill-bg: #C0DD97; --pill-tx: #173404; }
+@media (prefers-color-scheme: dark) {
+  .ph-purple { --bg: #3C3489; --bd: #7F77DD; --tt: #EEEDFE; --tx: #CECBF6; --pill-bg: #26215C; --pill-tx: #CECBF6; }
+  .ph-blue   { --bg: #0C447C; --bd: #378ADD; --tt: #E6F1FB; --tx: #B5D4F4; --pill-bg: #042C53; --pill-tx: #B5D4F4; }
+  .ph-amber  { --bg: #633806; --bd: #EF9F27; --tt: #FAEEDA; --tx: #FAC775; --pill-bg: #412402; --pill-tx: #FAC775; }
+  .ph-teal   { --bg: #085041; --bd: #1D9E75; --tt: #E1F5EE; --tx: #9FE1CB; --pill-bg: #04342C; --pill-tx: #9FE1CB; }
+  .ph-coral  { --bg: #712B13; --bd: #D85A30; --tt: #FAECE7; --tx: #F5C4B3; --pill-bg: #4A1B0C; --pill-tx: #F5C4B3; }
+  .ph-green  { --bg: #27500A; --bd: #639922; --tt: #EAF3DE; --tx: #C0DD97; --pill-bg: #173404; --pill-tx: #C0DD97; }
+}
+.ui-card { background: var(--bg); border-color: var(--bd); }
+.ui-card-label { color: var(--tx); }
+.ui-card-title { color: var(--tt); }
+.ui-card-desc { color: var(--tx); }
+.ui-card-path { background: var(--pill-bg); color: var(--pill-tx); }
+.ui-col-head { color: var(--tx); }
+.ui-strip { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 10px; color: var(--color-text-secondary); padding: 12px 0 4px; border-top: 0.5px solid var(--color-border-tertiary); }
+.ui-strip-item { display: flex; align-items: center; gap: 5px; }
+.ui-strip-dot { width: 8px; height: 8px; border-radius: 50%; border: 0.5px solid; flex-shrink: 0; }
+.ui-strip-arrow { color: var(--color-text-tertiary); font-size: 10px; }
+.dot-purple { background: #7F77DD; border-color: #534AB7; }
+.dot-blue   { background: #378ADD; border-color: #185FA5; }
+.dot-amber  { background: #EF9F27; border-color: #BA7517; }
+.dot-teal   { background: #1D9E75; border-color: #0F6E56; }
+.dot-coral  { background: #D85A30; border-color: #993C1D; }
+.dot-green  { background: #639922; border-color: #3B6D11; }
+</style>
+<div class="ui-root">
+  <div class="ui-header">
+    <h1 class="ui-title">Claude Code 终端 UI 渲染架构</h1>
+    <p class="ui-sub">从 REPL 屏幕与应用外壳,到自研 Ink 引擎的渲染管线,再到业务组件与性能优化的完整拓扑</p>
+    <div class="ui-rule"></div>
+  </div>
+  <div class="ui-grid">
+    <div class="ui-col">
+      <div class="ui-col-head ph-purple">01 · 屏幕入口</div>
+      <div class="ui-card ph-purple">
+        <div class="ui-card-label">MAIN SCREEN</div>
+        <div class="ui-card-title">REPL 主交互屏</div>
+        <div class="ui-card-desc">全系统最大的 React 组件,五千余行与四百余 hook 调用</div>
+        <div class="ui-card-path">screens/REPL.tsx</div>
+      </div>
+      <div class="ui-card ph-purple">
+        <div class="ui-card-label">CALLBACK</div>
+        <div class="ui-card-title">onSubmit 核心回调</div>
+        <div class="ui-card-desc">串联输入预处理、query 循环消费、流式事件分派与会话持久化</div>
+        <div class="ui-card-path">onSubmit()</div>
+      </div>
+      <div class="ui-card ph-purple">
+        <div class="ui-card-label">AUX SCREENS</div>
+        <div class="ui-card-title">辅助屏幕</div>
+        <div class="ui-card-desc">Doctor 健康检查与 ResumeConversation 恢复会话等次要入口</div>
+        <div class="ui-card-path">Doctor · Resume</div>
+      </div>
+    </div>
+    <div class="ui-col">
+      <div class="ui-col-head ph-blue">02 · 应用外壳</div>
+      <div class="ui-card ph-blue">
+        <div class="ui-card-label">CONTAINER</div>
+        <div class="ui-card-title">App 顶层包装</div>
+        <div class="ui-card-desc">纯容器组件,叠加 FPS、统计、应用状态三层 Provider</div>
+        <div class="ui-card-path">components/App.tsx</div>
+      </div>
+      <div class="ui-card ph-blue">
+        <div class="ui-card-label">CONTEXT</div>
+        <div class="ui-card-title">全局上下文集</div>
+        <div class="ui-card-desc">通知、模态、邮箱、统计等九个 Context 承载跨组件状态</div>
+        <div class="ui-card-path">context/ · 9 files</div>
+      </div>
+      <div class="ui-card ph-blue">
+        <div class="ui-card-label">HOOKS</div>
+        <div class="ui-card-title">共享 Hook 集合</div>
+        <div class="ui-card-desc">权限、终端尺寸、虚拟滚动等一百余个自定义 hook 复用逻辑</div>
+        <div class="ui-card-path">hooks/ · 104 files</div>
+      </div>
+    </div>
+    <div class="ui-col">
+      <div class="ui-col-head ph-amber">03 · Ink 引擎核心</div>
+      <div class="ui-card ph-amber">
+        <div class="ui-card-label">CORE · RECONCILE</div>
+        <div class="ui-card-title">React 协调器桥接</div>
+        <div class="ui-card-desc">自定义 Fiber hostConfig,把 React 组件映射到虚拟 ink 节点</div>
+        <div class="ui-card-path">ink/reconciler.ts</div>
+      </div>
+      <div class="ui-card ph-amber">
+        <div class="ui-card-label">CORE · DOM</div>
+        <div class="ui-card-title">DOM 节点模拟</div>
+        <div class="ui-card-desc">ink-box、ink-text 等节点类型,支持 dirty 标记与增量布局</div>
+        <div class="ui-card-path">ink/dom.ts</div>
+      </div>
+      <div class="ui-card ph-amber">
+        <div class="ui-card-label">CORE · LOOP</div>
+        <div class="ui-card-title">Ink 主循环与帧调度</div>
+        <div class="ui-card-desc">管理 ConcurrentRoot、帧节奏、输入分发、搜索与 alt-screen</div>
+        <div class="ui-card-path">ink/ink.tsx</div>
+      </div>
+    </div>
+    <div class="ui-col">
+      <div class="ui-col-head ph-teal">04 · 渲染管线</div>
+      <div class="ui-card ph-teal">
+        <div class="ui-card-label">LAYOUT</div>
+        <div class="ui-card-title">布局引擎</div>
+        <div class="ui-card-desc">自研 Yoga-like flexbox 算法,计算节点位置与文本换行</div>
+        <div class="ui-card-path">ink/layout/</div>
+      </div>
+      <div class="ui-card ph-teal">
+        <div class="ui-card-label">BUFFER</div>
+        <div class="ui-card-title">屏幕双缓冲</div>
+        <div class="ui-card-desc">前后帧交换与 screen diff,只 blit 发生变化的字符单元</div>
+        <div class="ui-card-path">renderer.ts · screen.ts</div>
+      </div>
+      <div class="ui-card ph-teal">
+        <div class="ui-card-label">TERMIO</div>
+        <div class="ui-card-title">终端序列输出</div>
+        <div class="ui-card-desc">CSI、DEC、OSC、SGR 等 ANSI 序列编码与按键解析</div>
+        <div class="ui-card-path">ink/termio/</div>
+      </div>
+    </div>
+    <div class="ui-col">
+      <div class="ui-col-head ph-coral">05 · 业务组件</div>
+      <div class="ui-card ph-coral">
+        <div class="ui-card-label">MESSAGES</div>
+        <div class="ui-card-title">消息渲染族</div>
+        <div class="ui-card-desc">消息列表、分组折叠、Markdown 流式渲染与思维过程显示</div>
+        <div class="ui-card-path">messages/ · 41 files</div>
+      </div>
+      <div class="ui-card ph-coral">
+        <div class="ui-card-label">PERMISSIONS</div>
+        <div class="ui-card-title">权限对话框族</div>
+        <div class="ui-card-desc">按工具类型分化出 Bash、文件、Web、Skill 等专属权限 UI</div>
+        <div class="ui-card-path">permissions/ · 51 files</div>
+      </div>
+      <div class="ui-card ph-coral">
+        <div class="ui-card-label">INPUT</div>
+        <div class="ui-card-title">输入系统</div>
+        <div class="ui-card-desc">PromptInput 承载 normal/bash/plan 三种模式与命令队列展示</div>
+        <div class="ui-card-path">PromptInput · 2338 lines</div>
+      </div>
+      <div class="ui-card ph-coral">
+        <div class="ui-card-label">AGENT UI</div>
+        <div class="ui-card-title">代理与任务 UI</div>
+        <div class="ui-card-desc">Agent 创建向导、进度条、协调器状态与任务列表 v2</div>
+        <div class="ui-card-path">agents/ · tasks/</div>
+      </div>
+    </div>
+    <div class="ui-col">
+      <div class="ui-col-head ph-green">06 · 优化与辅助</div>
+      <div class="ui-card ph-green">
+        <div class="ui-card-label">PERF</div>
+        <div class="ui-card-title">渲染性能优化</div>
+        <div class="ui-card-desc">双缓冲、行级字符缓存、脏节点追踪与滚动节流降低帧开销</div>
+        <div class="ui-card-path">renderer · dom · output</div>
+      </div>
+      <div class="ui-card ph-green">
+        <div class="ui-card-label">VIRTUAL</div>
+        <div class="ui-card-title">虚拟消息滚动</div>
+        <div class="ui-card-desc">只渲染可视区消息加上下缓冲,支撑两千八百余条长会话</div>
+        <div class="ui-card-path">VirtualMessageList.tsx</div>
+      </div>
+      <div class="ui-card ph-green">
+        <div class="ui-card-label">POOL</div>
+        <div class="ui-card-title">内存池复用</div>
+        <div class="ui-card-desc">字符、样式、超链接三类对象池避免频繁 GC 与分配压力</div>
+        <div class="ui-card-path">CharPool · StylePool</div>
+      </div>
+      <div class="ui-card ph-green">
+        <div class="ui-card-label">DESIGN</div>
+        <div class="ui-card-title">设计系统与辅助</div>
+        <div class="ui-card-desc">Dialog、Badge、Spinner、MCP 菜单、Logo 等共享视觉原语</div>
+        <div class="ui-card-path">design-system/ · Spinner/</div>
+      </div>
+    </div>
+  </div>
+  <div class="ui-strip">
+    <div class="ui-strip-item"><span class="ui-strip-dot dot-purple"></span>屏幕入口</div>
+    <span class="ui-strip-arrow">→</span>
+    <div class="ui-strip-item"><span class="ui-strip-dot dot-blue"></span>应用外壳</div>
+    <span class="ui-strip-arrow">→</span>
+    <div class="ui-strip-item"><span class="ui-strip-dot dot-amber"></span>Ink 引擎核心</div>
+    <span class="ui-strip-arrow">→</span>
+    <div class="ui-strip-item"><span class="ui-strip-dot dot-teal"></span>渲染管线</div>
+    <span class="ui-strip-arrow">↘</span>
+    <div class="ui-strip-item"><span class="ui-strip-dot dot-coral"></span>业务组件</div>
+    <span class="ui-strip-arrow">·</span>
+    <div class="ui-strip-item"><span class="ui-strip-dot dot-green"></span>优化辅助</div>
+  </div>
+</div>

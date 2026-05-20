@@ -1,0 +1,156 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">多 Agent 通信双底座</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">文件 Mailbox 与内存直连并行，SendMessageTool 统一发送，useInboxPoller 统一接收</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+
+<!-- 列 1 · 通信参与者 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Actor 01</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">Leader 主线程</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">REPL.tsx 驻留的团队领导，聚合全部 teammate 消息并呈现给用户，是所有权限对话框的宿主</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">screens/REPL.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Actor 02</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">进程外 Worker</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">tmux 或 iTerm 面板里独立运行的 agent 进程，跨进程边界只能通过磁盘文件交换消息</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">tmux · iTerm panes</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Actor 03</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">进程内 Teammate</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">LocalAgentTask 在主进程内直接跑的子 agent，共享内存但有独立 AbortController 与队列</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">LocalAgentTask · InProcessTeammate</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 发送侧 API 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Send · A</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">SendMessageTool 统一入口</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">agent 唯一能看到的发送 API，内部按收件人类型分六条路：广播、结构化、进程内、Mailbox、UDS、Bridge</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">SendMessageTool.ts · 917 行</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Send · B</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">十种结构化消息</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">text 字段承载 JSON 编码的 permission_request、shutdown、idle_notification、plan_approval 等十类</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">isPermissionRequest · isShutdown · etc</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Send · C</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">地址前缀路由</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">收件人可以是名称、* 广播、uds:socket 或 bridge:session，前缀决定走哪条传输底座</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">parseAddress · to: "*"</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 双传输底座 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Core · File</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">文件 Mailbox 底座</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">~/.claude/teams/{team}/inboxes/{agent}.json 配合 lockfile 追加写，跨进程的持久可靠通道</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">teammateMailbox.ts · 1183 行</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Core · Memory</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">内存直连底座</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">leaderPermissionBridge 通过模块级变量让 in-process teammate 直接写入 Leader 的 React state</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">leaderPermissionBridge.ts · 54 行</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">为什么要两个底座</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">进程外用文件换持久可靠，进程内用内存换零延迟，两种代价分别匹配两种部署拓扑</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">file vs memory tradeoff</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 权限协调专线 蓝 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Perm · A</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">permissionSync 请求响应</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">Worker 通过 Mailbox 发请求，Leader 用户决策后通过 Mailbox 回响应，另有文件系统作为备用通道</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">permissionSync.ts · 928 行</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Perm · B</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">Leader Bridge 直连快速路径</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">检测到 Leader queue 已注册则跳过 Mailbox，直接写入 React state 渲染对话框，零磁盘 IO</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">getLeaderToolUseConfirmQueue</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Perm · C</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">沙箱网络审批</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">sandbox_permission_request 专门用于域名级网络访问审批，独立于常规工具权限通道</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">sendSandboxPermissionRequest</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 接收引擎 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Receive · A</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">useInboxPoller 轮询</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">Leader 每秒扫一次自己的 Mailbox，按十一种 isXxx 类型守卫分发到各自的处理器</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">useInboxPoller.ts · 969 行</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Receive · B</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">messageQueueManager</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">now/next/later 三级优先级队列，agent 完成通知在主循环边界注入为 task-notification attachment</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">messageQueueManager.ts · 547 行</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Receive · C</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">忙碌态与终端通知</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">teammate 消息按忙碌态决定立即提交或入 AppState.inbox，失焦时额外触发系统级终端通知</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">AppState.inbox · sendNotification</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>通信参与者</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>发送 API</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>双传输底座</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>权限专线</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>接收引擎</div>
+</div>
+
+</div>

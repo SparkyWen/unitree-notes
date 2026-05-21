@@ -240,6 +240,16 @@ class BrainConversationStateMachine:
 
     def _on_wake_in_loop(self, evt) -> None:
         log.info("[wake] %r (state=%s)", evt.text, self._state.value)
+        # Operator-facing print on stdout (the log line above goes to stderr
+        # via the StreamHandler and gets buried under DDS / perception /
+        # OpenAI INFO noise — operators were reporting the terminal felt
+        # "stuck" because there was no clear ack that wake fired). flush=True
+        # so the line lands the moment wake is detected, not when the next
+        # stdio buffer flush happens.
+        print(
+            f"\n[g1_brain] wake heard: {evt.text!r} — listening, speak now",
+            flush=True,
+        )
         if self.logger is not None:
             try:
                 self.logger.log_wake_event(evt.text)
@@ -315,6 +325,10 @@ class BrainConversationStateMachine:
         self._cancel_no_speech_timer()
         self.agent.set_uplink_enabled(False)
         self._set_state(State.THINKING, reason="vad_commit")
+        # Stdout ack so the operator sees the system *did* hear them and is
+        # working on a response — without this the terminal sits silent for
+        # the full LLM + vision-gate latency window (often >5 s).
+        print("[g1_brain] thinking…", flush=True)
         # Arm the plan watchdog so a stuck tool call doesn't trap us in
         # SPEAKING forever.
         self._reset_plan_watchdog()
@@ -395,6 +409,11 @@ class BrainConversationStateMachine:
             "[capture] no speech for %.1fs after wake; aborting",
             self.cfg.no_speech_timeout_s,
         )
+        print(
+            f"[g1_brain] heard no speech in {self.cfg.no_speech_timeout_s:.0f}s "
+            "— back to idle (say 'Hi Sparky' to try again)",
+            flush=True,
+        )
         self.agent.set_uplink_enabled(False)
         # Best-effort drop of any partial server-side audio.
         if self.agent is not None:
@@ -430,6 +449,13 @@ class BrainConversationStateMachine:
             return
         self.agent.set_uplink_enabled(False)
         self._set_state(State.IDLE, reason="plan_done_drained")
+        # Stdout ack so the operator knows the agent is back to listening
+        # for the next wake — without this the prompt looks "stuck" again
+        # because the spoken reply ended but nothing said the turn is over.
+        print(
+            "[g1_brain] idle — say 'Hi Sparky' to start the next turn",
+            flush=True,
+        )
 
     def _cancel_drain(self) -> None:
         if self._drain_task is not None:

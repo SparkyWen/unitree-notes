@@ -15,9 +15,9 @@ class VisionClient:
     def __init__(
         self,
         client,
-        model: str = "gpt-5.5",
+        model: str = "gpt-5.5-mini",
         default_detail: str = "auto",
-        timeout_s: float = 15.0,
+        timeout_s: float = 30.0,
     ):
         self._client = client
         self._model = model
@@ -51,11 +51,18 @@ class VisionClient:
         loop = asyncio.get_event_loop()
 
         def _call() -> str:
-            client = (
-                self._client.with_options(timeout=http_timeout)
-                if http_timeout is not None
-                else self._client
-            )
+            # max_retries=0: the safety gate already times out on a per-call
+            # budget; letting the SDK silently retry 2x on a slow/erroring
+            # call multiplies wall-clock latency by 3x and starves the
+            # executor thread pool, so a single failure is exactly one
+            # attempt. Without timeout/max_retries overrides we reuse the
+            # parent client unchanged.
+            if http_timeout is not None:
+                client = self._client.with_options(
+                    timeout=http_timeout, max_retries=0,
+                )
+            else:
+                client = self._client.with_options(max_retries=0)
             data_url = f"data:image/jpeg;base64,{image_jpeg_b64}"
             inputs = [
                 {

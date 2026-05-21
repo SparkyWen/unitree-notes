@@ -141,28 +141,33 @@ safety:
     # run_mode. RISK -> fall through to the existing terminal y/N. With this
     # off, behaviour reverts bit-for-bit to the pre-design build.
     enabled: true
-    # Was 5.0s in the initial spec, but real GPT-5.5 vision latency at
-    # detail=auto is routinely 3-7s and detail=high pushes it past 10s,
-    # so the gate was timing out on most calls before the model could
-    # answer. 12s gives a cold-start call comfortable headroom; the
-    # VisionRiskGate also plumbs (timeout_s + 1.0) down to the OpenAI
-    # SDK as an HTTP-level timeout so timed-out requests no longer leak
-    # executor threads (see safety/vision_risk_gate.py).
-    timeout_s: 12.0         # GPT-5.5 hard timeout; on timeout -> RISK
+    # Operator-requested 30 s budget (was 12 s). The shorter budget was
+    # tripping on cold-start gpt-5.5 calls and forcing every motion through
+    # the y/N confirm prompt; 30 s gives the model enough headroom to
+    # actually return a verdict even when the OpenAI route is warming up,
+    # so SAFE responses can short-circuit the prompt instead of timing out
+    # to a defensive RISK. VisionRiskGate plumbs (timeout_s + 1.0) down to
+    # the OpenAI SDK as an HTTP-level timeout so a hung call still frees
+    # its executor thread promptly.
+    timeout_s: 30.0         # vision hard timeout; on timeout -> RISK
     max_frame_age_s: 2.0    # head-cam JPEG older than this -> RISK
     min_brightness: 30      # 0-255 mean luminance; below -> RISK (too dark)
     max_brightness: 235     # 0-255 mean luminance; above -> RISK (white-out)
     # The safety gate only needs coarse hazard detection (people,
     # stairs, obstacles, fragile items) — none of which require
-    # high-res image processing. "low" cuts GPT-5.5 vision latency
-    # from 3-7s to ~1-3s. The user-facing describe_scene tool keeps
-    # its independent default (openai.vision_detail) so detailed
-    # scene narration is unaffected.
+    # high-res image processing. "low" cuts vision latency materially.
+    # The user-facing describe_scene tool keeps its independent default
+    # (openai.vision_detail) so detailed scene narration is unaffected.
     detail: "low"           # OpenAI image detail: low / high / auto / original
 
 openai:
   realtime_model: "gpt-realtime"
-  vision_model: "gpt-5.5"
+  # gpt-5.5-mini is the fast-reasoning variant of gpt-5.5 — same vision
+  # capability for the binary SAFE/RISK classification the vision_gate
+  # needs, materially lower latency than the full gpt-5.5 (which was
+  # routinely tripping the gate's 12 s timeout). The operator can still
+  # override via OPENAI_VISION_MODEL=… at run time without editing yaml.
+  vision_model: "gpt-5.5-mini"
   tts_model: "gpt-4o-mini-tts"
   tts_voice: "alloy"
   realtime_voice: "alloy"
@@ -178,11 +183,25 @@ audio:
 wakeword:
   enabled: true
   backend: openai
-  openai_model: "gpt-4o-transcribe"
+  # gpt-4o-mini-transcribe is the lower-latency wake-word transcriber; the
+  # full gpt-4o-transcribe added ~300 ms per inference and the rolling window
+  # gating already filters out non-speech, so the cheaper model is a net win
+  # for perceived wake responsiveness. Override per-run via wakeword.openai_model.
+  openai_model: "gpt-4o-mini-transcribe"
   openai_prompt: "Sparky"
   rolling_window_s: 1.5
-  inference_rate_hz: 2.0
-  rms_threshold: 300
+  # Bumped from 2.0 to 3.0 Hz: at 2 Hz the worst-case wait between speaking
+  # "hi sparky" and the transcribe call running was ~500 ms before transport
+  # latency, which the operator perceived as the terminal "freezing" until
+  # something happened. 3 Hz cuts that to ~333 ms while still amortising
+  # OpenAI per-second transcription billing.
+  inference_rate_hz: 3.0
+  # Was 300 — calibrated for a noisy demo room — which routinely gated out
+  # normal-volume desk-mic speech, leaving the operator saying "hi sparky"
+  # several times with no visible response. 100 matches the code-side default
+  # and reliably opens the transcribe gate for ~conversation-volume speech.
+  # Bump back up only if false wakes from background noise become a problem.
+  rms_threshold: 100
   cooldown_s: 2.0
   language: null
   phrases:
@@ -250,7 +269,12 @@ audio_control:
     drain_max_wait_s: 6.0
   # Force plan_done if a tool call never resolves (skill_server hangs).
   # Without this, the state machine could be stuck in SPEAKING forever.
-  plan_watchdog_s: 30.0
+  # Must stay larger than (safety.vision_gate.timeout_s + confirm timeout
+  # in supervisor._confirm_in_terminal) — otherwise the state machine
+  # forces plan_done while the operator is still reading a RISK prompt
+  # and deciding y/N. Current budget: 30 s vision + 60 s confirm = 90 s,
+  # plus margin for the skill itself.
+  plan_watchdog_s: 150.0
   # Per-process conversation jsonl, Claude-shape so the future Claude
   # harness with memory retrieval / SQLite FTS5 can ingest these files.
   transcript:

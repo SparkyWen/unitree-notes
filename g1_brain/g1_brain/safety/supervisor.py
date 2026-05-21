@@ -124,6 +124,13 @@ async def _confirm_in_terminal(
          then fired with the user's ``y`` still sitting unconfirmed —
          "operator declined in confirm mode" with no way to recover.
 
+    Timeout was bumped from 15 s -> 60 s after a vision_gate=RISK call
+    used up ~14 s of vision latency, leaving the operator under one
+    second to read the printed ``[RISK]`` reason and decide before the
+    prompt declined itself. The timeout must also stay below
+    ``audio_control.plan_watchdog_s`` so the conversation state machine
+    does not force plan_done while the operator is still deciding.
+
     cbreak mode delivers each keypress as soon as it arrives, so ``y``
     accepts immediately, ``n`` (and any other key) declines immediately,
     and there is no readline-versus-stale-bytes race. We still strip
@@ -186,7 +193,7 @@ async def _confirm_in_terminal(
     loop = asyncio.get_event_loop()
     try:
         raw = await asyncio.wait_for(
-            loop.run_in_executor(None, _read_one_keypress), timeout=15.0
+            loop.run_in_executor(None, _read_one_keypress), timeout=60.0
         )
     except asyncio.TimeoutError:
         print("[g1_brain confirm] timed out, declining.", file=sys.stderr)

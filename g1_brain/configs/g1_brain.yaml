@@ -284,3 +284,35 @@ audio_control:
     keep_last_n: 50
     # Trim text payloads larger than this (full text remains in agent.log).
     max_text_kb: 4
+
+# Memory subsystem (Codex-style cross-session memory + ask_slow_brain).
+# Spec: docs/harness-design.md
+memory:
+  enabled: true
+  root_dir: "~/.unitree/g1_brain"
+
+  # Phase1 / Phase2 LLM extraction — empty string = use Codex subscription default
+  phase1_model: ""
+  phase2_model: ""
+  # Debounce window after plan_done before enqueueing Phase1. Keeps a
+  # chatty user from re-triggering extraction on every turn.
+  phase1_debounce_s: 30
+  # Cap on JSONL bytes fed into the Phase1 prompt. Older turns are dropped first.
+  phase1_max_jsonl_bytes: 80000
+  # Top-N stage1 outputs to keep for Phase2 consolidation.
+  phase2_max_raw_memories: 256
+  # Drop stage1 outputs unused for this long when picking Phase2 inputs.
+  phase2_max_unused_days: 30
+
+  # ask_slow_brain persistent Codex daemon (codex mcp-server)
+  slow_brain_model: ""
+  ask_default_timeout_s: 20
+  ask_queue_max: 2
+  daemon_ping_interval_s: 30
+  daemon_restart_max_attempts: 5
+
+  # Recall budgets exposed to the fast brain
+  passive_summary_max_tokens: 2500
+  passive_agents_md_max_tokens: 1500
+  recall_grep_default_max_lines: 50
+  recall_read_max_bytes: 4096

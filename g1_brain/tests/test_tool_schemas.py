@@ -16,12 +16,13 @@ from g1_brain.skills.tool_schemas import (
 
 L1_NAMES = {"say", "describe_scene", "query_scene_state", "recall_history",
             "look_at", "approach", "mock_imitate", "ask_human"}
+MEMORY_NAMES = {"recall_grep", "recall_read", "recall_glob", "ask_slow_brain"}
 L2_NAMES = {"walk", "turn", "gesture", "static_pose", "stop", "release_arms"}
 REAL_ONLY_NAMES = {"loco_high", "arm_action_high", "audio_tts_robot"}
-SIM_NAMES = L1_NAMES | L2_NAMES                               # 14
-ALL_NAMES = L1_NAMES | L2_NAMES | REAL_ONLY_NAMES             # 17
-VISION_ONLY_NAMES = {"say", "describe_scene", "query_scene_state",
-                     "recall_history"}
+SIM_NAMES = L1_NAMES | MEMORY_NAMES | L2_NAMES                # 18
+ALL_NAMES = L1_NAMES | MEMORY_NAMES | L2_NAMES | REAL_ONLY_NAMES  # 21
+VISION_ONLY_NAMES = ({"say", "describe_scene", "query_scene_state",
+                      "recall_history"} | MEMORY_NAMES)
 
 
 def _names(schemas):
@@ -30,27 +31,27 @@ def _names(schemas):
 
 # ---------- Counts ----------------------------------------------------------
 
-def test_default_returns_14_sim_tools():
+def test_default_returns_18_sim_tools():
     schemas = build_tool_schemas()
-    assert len(schemas) == 14
+    assert len(schemas) == 18
     assert _names(schemas) == SIM_NAMES
     # No real-robot stragglers.
     assert _names(schemas).isdisjoint(REAL_ONLY_NAMES)
 
 
-def test_real_robot_returns_17():
+def test_real_robot_returns_21():
     schemas = build_tool_schemas(sim=False)
-    assert len(schemas) == 17
+    assert len(schemas) == 21
     assert _names(schemas) == ALL_NAMES
 
 
-def test_vision_only_returns_4():
+def test_vision_only_returns_8():
     schemas = build_tool_schemas(vision_only=True)
-    assert len(schemas) == 4
+    assert len(schemas) == 8
     assert _names(schemas) == VISION_ONLY_NAMES
 
 
-def test_vision_only_with_real_still_only_3():
+def test_vision_only_with_real_still_only_8():
     # vision_only filter takes precedence over sim/real toggle.
     schemas = build_tool_schemas(sim=False, vision_only=True)
     assert _names(schemas) == VISION_ONLY_NAMES

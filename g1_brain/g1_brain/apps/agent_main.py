@@ -343,7 +343,7 @@ def _try_build_perception_runner(cfg, scene_bus, robot_bus):
 
 def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
                             scene_bus, fsm, sim: bool = True,
-                            conversation_logger=None):
+                            conversation_logger=None, memory=None):
     try:
         from ..skills.skill_server import SkillServer
     except Exception as e:  # noqa: BLE001
@@ -359,6 +359,7 @@ def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
         fsm=fsm,
         sim=sim,
         conversation_logger=conversation_logger,
+        memory=memory,
     )
 
 
@@ -985,6 +986,44 @@ async def _run(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001
             log.exception("conversation logger session_start failed")
 
+    # ---- safety_event: subscribe ConversationLogger to FSM transitions ----
+    # One-line wiring: every legal state change becomes a safety_event meta
+    # record so memory pipeline can extract safety lessons across sessions.
+    if conv_logger is not None and fsm is not None:
+        try:
+            fsm.subscribe(lambda old, new, reason: conv_logger.log_safety_event(
+                kind="fsm_transition",
+                from_state=old.value if hasattr(old, "value") else str(old),
+                to_state=new.value if hasattr(new, "value") else str(new),
+                details=reason or "",
+            ))
+        except Exception:  # noqa: BLE001
+            log.exception("fsm subscribe → log_safety_event failed")
+
+    # ---- memory subsystem (Codex-style long-term recall + ask_slow_brain) ----
+    memory_subsystem = None
+    memory_cfg = cfg.get("memory", {}) or {}
+    if memory_cfg.get("enabled", True) and conv_logger is not None and conv_logger.path is not None:
+        try:
+            from ..memory import MemorySubsystem  # noqa: WPS433
+            memory_subsystem = MemorySubsystem(
+                robot_root=Path(memory_cfg.get(
+                    "root_dir", "~/.unitree/g1_brain",
+                )).expanduser(),
+                rollout_path=conv_logger.path,
+                session_id=conv_logger.session_id,
+                cfg=memory_cfg,
+                conversations_dir=conv_logger.path.parent,
+                config_hash_input={k: v for k, v in cfg.items()
+                                    if k in ("mode", "robot", "memory")},
+            )
+            await memory_subsystem.start()
+            log.info("memory subsystem started; root=%s",
+                     memory_subsystem.robot_root)
+        except Exception as e:  # noqa: BLE001
+            log.exception("memory subsystem start failed: %s", e)
+            memory_subsystem = None
+
     # ---- skill server ----
     skill_server = None
     if not args.vision_only:
@@ -998,6 +1037,7 @@ async def _run(args: argparse.Namespace) -> int:
             fsm=fsm,
             sim=(cfg.get("mode", "sim") == "sim"),
             conversation_logger=conv_logger,
+            memory=memory_subsystem,
         )
 
     # ---- brain realtime agent ----
@@ -1039,6 +1079,43 @@ async def _run(args: argparse.Namespace) -> int:
             log.exception("BrainRealtimeAgent build failed: %s", e)
             brain_agent = None
 
+    # ---- memory: inject passive context into brain agent (one-shot) ----
+    if memory_subsystem is not None and brain_agent is not None:
+        try:
+            ctx_addendum = memory_subsystem.build_passive_context()
+        except Exception:  # noqa: BLE001
+            log.exception("memory.build_passive_context failed; skipping")
+            ctx_addendum = ""
+        if ctx_addendum:
+            try:
+                # BrainRealtimeAgent.append_developer_instructions appends to
+                # the agent's instructions before the Realtime session opens.
+                brain_agent.append_developer_instructions(ctx_addendum)
+                log.info("memory: injected %d chars of passive context",
+                         len(ctx_addendum))
+            except Exception:  # noqa: BLE001
+                log.exception("brain_agent.append_developer_instructions failed")
+        # Wire on_response_canceled to SkillServer so barge-in propagates
+        # cancel events to in-flight ask_slow_brain calls.
+        if skill_server is not None and hasattr(skill_server, "on_response_canceled"):
+            try:
+                prev = getattr(brain_agent, "on_response_canceled", None)
+
+                def _on_resp_cancel(response_id, _ss=skill_server, _prev=prev):
+                    try:
+                        _ss.on_response_canceled(response_id)
+                    except Exception:  # noqa: BLE001
+                        log.exception("skill_server.on_response_canceled failed")
+                    if callable(_prev):
+                        try:
+                            _prev(response_id)
+                        except Exception:  # noqa: BLE001
+                            log.exception("prev on_response_canceled raised")
+
+                brain_agent.on_response_canceled = _on_resp_cancel
+            except Exception:  # noqa: BLE001
+                log.exception("wiring on_response_canceled to skill_server failed")
+
     # ---- wake-word + utterance + conversation state machine ----
     sm = None
     if (
@@ -1052,6 +1129,27 @@ async def _run(args: argparse.Namespace) -> int:
         )
     elif brain_agent is not None:
         log.info("wake-word DISABLED; Realtime uplink runs continuously")
+
+    # ---- memory: chain on_plan_done AFTER state-machine init so we don't
+    # clobber the state machine's own handler (which set itself just above).
+    if memory_subsystem is not None and brain_agent is not None:
+        try:
+            _prev_plan_done = getattr(brain_agent, "on_plan_done", None)
+
+            def _on_plan_done_chained(_mem=memory_subsystem, _prev=_prev_plan_done):
+                if callable(_prev):
+                    try:
+                        _prev()
+                    except Exception:  # noqa: BLE001
+                        log.exception("prev on_plan_done raised")
+                try:
+                    asyncio.create_task(_mem.on_plan_done())
+                except Exception:  # noqa: BLE001
+                    log.exception("memory.on_plan_done scheduling failed")
+
+            brain_agent.on_plan_done = _on_plan_done_chained
+        except Exception:  # noqa: BLE001
+            log.exception("wiring on_plan_done to memory failed")
 
     # ---- mock-imitation auto-trigger ----
     auto_trigger = None
@@ -1110,6 +1208,10 @@ async def _run(args: argparse.Namespace) -> int:
             await _shutdown_step("camera_hub.close", camera_hub.close)
         await _shutdown_step("mic.close", mic.close, timeout=2.0)
         await _shutdown_step("speaker.close", speaker.close, timeout=2.0)
+        # Memory subsystem must stop BEFORE conv_logger.close so the final
+        # Phase1 pass can read the complete JSONL.
+        if memory_subsystem is not None:
+            await _shutdown_step("memory.stop", memory_subsystem.stop, timeout=10.0)
         if conv_logger is not None:
             await _shutdown_step("conv_logger.close", conv_logger.close, timeout=1.0)
         _release_instance_lock(instance_fd, lock_path)

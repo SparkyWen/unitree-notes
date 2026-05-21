@@ -118,12 +118,36 @@ class BrainRealtimeAgent(RealtimeAgent):
 
     # ------------------------------------------------------------------ hooks
 
+    # Additional developer-instructions text appended at session open time.
+    # The memory subsystem fills this with curated long-term context
+    # (memory_summary.md + AGENTS.md) so the Realtime model starts each
+    # session knowing what was learned in prior ones.
+    _instructions_addendum: str = ""
+
+    def append_developer_instructions(self, addendum: str) -> None:
+        """Append text to the developer instructions before the session opens.
+
+        Must be called BEFORE .run(). After that, instructions are baked
+        into the Realtime session and a session.update would be required
+        to change them mid-session (we intentionally do not do that for
+        latency reasons).
+        """
+        if not addendum:
+            return
+        if self._instructions_addendum:
+            self._instructions_addendum = self._instructions_addendum + "\n\n" + addendum
+        else:
+            self._instructions_addendum = addendum
+
     def _resolve_instructions(self) -> str:
-        return (
+        base = (
             REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY
             if self.vision_only
             else REALTIME_SYSTEM_PROMPT_BRAIN
         )
+        if self._instructions_addendum:
+            return base + "\n\n" + self._instructions_addendum
+        return base
 
     def _resolve_tool_schemas(self) -> List[Dict[str, Any]]:
         # Lazy import so `g1_brain.brain` can be imported in tests that don't
@@ -136,7 +160,7 @@ class BrainRealtimeAgent(RealtimeAgent):
             mock_imitate_enabled=self.mock_imitate_enabled,
         )
 
-    async def _execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_tool(self, name: str, args: Dict[str, Any], *, call_id: str = "") -> Dict[str, Any]:
         """Route every tool call to the SkillServer.
 
         We intentionally do NOT pre-validate here — the SkillServer runs its
@@ -147,6 +171,11 @@ class BrainRealtimeAgent(RealtimeAgent):
         if self.skill_server is None:
             return {"ok": False, "reason": "skill_server not wired"}
         try:
+            # call_id is propagated as a keyword for action_result logging
+            # and ask_slow_brain cancel-token tracking; older skill servers
+            # without the kwarg fall back transparently.
+            return await self.skill_server.execute(name, args, call_id=call_id)
+        except TypeError:
             return await self.skill_server.execute(name, args)
         except Exception as e:  # noqa: BLE001 — we want to surface anything
             log.exception("skill_server.execute(%s) raised", name)
@@ -309,7 +338,7 @@ class BrainRealtimeAgent(RealtimeAgent):
             result: Dict[str, Any] = {"ok": False, "reason": reason}
         else:
             try:
-                result = await self._execute_tool(name, sanitized)
+                result = await self._execute_tool(name, sanitized, call_id=call_id)
             except Exception as e:  # noqa: BLE001
                 log.exception("tool exception: %s", e)
                 result = {"ok": False, "reason": f"exception: {e!s}"}

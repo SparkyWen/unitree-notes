@@ -46,15 +46,17 @@ DEFAULT_CONFIG = REPO_ROOT / "g1_brain" / "configs" / "g1_brain.yaml"
 
 
 def _ensure_sibling_repos_on_path() -> None:
-    """Add ~/unitree-notes/{va-demo,g1_sim_demo} to sys.path.
+    """Add the sibling {va-demo,g1_sim_demo} clones to sys.path.
 
     Both packages live alongside g1_brain in the unitree-notes workspace and
-    are imported directly; we do not pip-install them.
+    are imported directly; we do not pip-install them. We anchor on
+    ``REPO_ROOT`` (derived from ``__file__``) rather than ``Path.home()`` so
+    this works whether the workspace is at ``~/unitree-notes`` or nested
+    under another dir like ``~/unitree/unitree-notes``.
     """
-    home = Path.home()
     candidates = [
-        home / "unitree-notes" / "va-demo",
-        home / "unitree-notes" / "g1_sim_demo",
+        REPO_ROOT / "va-demo",
+        REPO_ROOT / "g1_sim_demo",
     ]
     for p in candidates:
         sp = str(p)

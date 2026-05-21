@@ -269,7 +269,12 @@ audio_control:
     drain_max_wait_s: 6.0
   # Force plan_done if a tool call never resolves (skill_server hangs).
   # Without this, the state machine could be stuck in SPEAKING forever.
-  plan_watchdog_s: 30.0
+  # Must stay larger than (safety.vision_gate.timeout_s + confirm timeout
+  # in supervisor._confirm_in_terminal) — otherwise the state machine
+  # forces plan_done while the operator is still reading a RISK prompt
+  # and deciding y/N. Current budget: 30 s vision + 60 s confirm = 90 s,
+  # plus margin for the skill itself.
+  plan_watchdog_s: 150.0
   # Per-process conversation jsonl, Claude-shape so the future Claude
   # harness with memory retrieval / SQLite FTS5 can ingest these files.
   transcript:

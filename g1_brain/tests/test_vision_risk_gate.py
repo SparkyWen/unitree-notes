@@ -211,3 +211,71 @@ async def test_llm_exception_is_api_error():
     assert v.safe is False
     assert v.source == "api_error"
     assert "rate limit" in v.reason
+
+
+# ---------- request_timeout_s plumbing -----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_request_timeout_s_forwarded_when_supported():
+    """When describe() advertises ``request_timeout_s``, the gate passes
+    (timeout_s + 1.0) so the OpenAI SDK's HTTP-level timeout fires a
+    fraction after our outer wait_for, freeing the executor thread.
+    """
+    captured: Dict[str, Any] = {}
+
+    async def _describe(*, image_jpeg_b64, prompt, detail, request_timeout_s):
+        captured["request_timeout_s"] = request_timeout_s
+        return "SAFE: clear"
+
+    vision = MagicMock()
+    vision.describe = _describe
+    gate = VisionRiskGate(
+        vision_client=vision, camera_hub=_StubCam(),
+        cfg=_cfg(timeout_s=12.0),
+    )
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is True
+    assert captured["request_timeout_s"] == pytest.approx(13.0)
+
+
+@pytest.mark.asyncio
+async def test_request_timeout_s_omitted_for_legacy_describe_signature():
+    """An older VisionClient (or a test stub) whose describe() does NOT
+    accept ``request_timeout_s`` must not get the kwarg — otherwise the
+    gate would raise TypeError on every motion call.
+    """
+    captured: Dict[str, Any] = {}
+
+    async def _legacy_describe(*, image_jpeg_b64, prompt, detail):
+        captured["called"] = True
+        return "SAFE: clear"
+
+    vision = MagicMock()
+    vision.describe = _legacy_describe
+    gate = VisionRiskGate(
+        vision_client=vision, camera_hub=_StubCam(),
+        cfg=_cfg(timeout_s=12.0),
+    )
+    v = await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert v.safe is True
+    assert captured.get("called") is True
+
+
+@pytest.mark.asyncio
+async def test_low_detail_is_passed_to_describe():
+    """detail config flows through to the vision client unchanged."""
+    captured: Dict[str, Any] = {}
+
+    async def _describe(*, image_jpeg_b64, prompt, detail, request_timeout_s=None):
+        captured["detail"] = detail
+        return "SAFE: clear"
+
+    vision = MagicMock()
+    vision.describe = _describe
+    gate = VisionRiskGate(
+        vision_client=vision, camera_hub=_StubCam(),
+        cfg=_cfg(detail="low"),
+    )
+    await gate.evaluate("walk", {"vx": 0.2, "duration_s": 5.0})
+    assert captured["detail"] == "low"

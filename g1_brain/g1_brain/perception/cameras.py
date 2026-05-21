@@ -92,11 +92,15 @@ class CameraHub:
         # simulate_python/config.py — flat-floor scene_29dof.xml is the wrong
         # default because the simulator never loads it by default and choosing
         # it here silently gave the brain a different world to look at.
-        mjcf = cfg.get("mjcf_path") or self._robot_mjcf_path or os.path.expanduser(
-            os.environ.get(
-                "G1_MJCF_PATH",
-                "~/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml",
-            )
+        # Anchor the fallback on __file__ so it works regardless of whether
+        # the workspace lives at ~/unitree-notes or ~/unitree/unitree-notes.
+        from pathlib import Path as _Path
+        _ws_root = _Path(__file__).resolve().parents[3]
+        _default_mjcf = str(
+            _ws_root / "unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml"
+        )
+        mjcf = cfg.get("mjcf_path") or self._robot_mjcf_path or os.environ.get(
+            "G1_MJCF_PATH", _default_mjcf
         )
         # head.subscribe_dds in yaml may explicitly disable; otherwise inherit
         # the hub-wide flag (set False when agent_main runs without DDS).

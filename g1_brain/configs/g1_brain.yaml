@@ -15,7 +15,7 @@ robot:
   # mismatch here means the robot's first-person view sees a different world
   # than the simulator — describe_scene then reports "empty floor" while the
   # operator can clearly see boxes/ramps/heightfield in the simulator window.
-  mjcf_path: "${HOME}/unitree-notes/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml"
+  mjcf_path: "${WORKSPACE_ROOT}/unitree_mujoco/unitree_robots/g1/scene_29dof_terrain.xml"
 
 cameras:
   # === Two cameras, two completely different jobs ==========================
@@ -148,7 +148,12 @@ safety:
     detail: "auto"          # OpenAI image detail: low / high / auto / original
 
 openai:
-  realtime_model: "gpt-realtime"
+  # NOTE: gpt-realtime (the GA model) requires the new GA session.update
+  # shape; the va-demo client still sends the beta shape and OpenAI rejects
+  # the WS handshake with `beta_api_shape_disabled`. Pin to the preview
+  # model — it accepts the beta shape va-demo currently emits. Migrate to
+  # gpt-realtime + GA shape later (touches va-demo/realtime_agent.py).
+  realtime_model: "gpt-4o-realtime-preview"
   vision_model: "gpt-5.5"
   tts_model: "gpt-4o-mini-tts"
   tts_voice: "alloy"
@@ -207,7 +212,7 @@ mock_imitation:
 
 logging:
   level: "INFO"
-  log_dir: "${HOME}/unitree-notes/g1_brain/logs"
+  log_dir: "${WORKSPACE_ROOT}/g1_brain/logs"
   rotate_mb: 50
 
 audio_control:
@@ -242,7 +247,7 @@ audio_control:
   # harness with memory retrieval / SQLite FTS5 can ingest these files.
   transcript:
     enabled: true
-    dir: "${HOME}/unitree-notes/g1_brain/logs/conversations"
+    dir: "${WORKSPACE_ROOT}/g1_brain/logs/conversations"
     # Rotate by count: at agent_main start, delete oldest files beyond this.
     keep_last_n: 50
     # Trim text payloads larger than this (full text remains in agent.log).

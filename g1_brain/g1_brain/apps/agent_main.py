@@ -39,6 +39,11 @@ log = logging.getLogger("g1_brain")
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "g1_brain" / "configs" / "g1_brain.yaml"
 
+# Expose the workspace root for ${WORKSPACE_ROOT} substitution in yaml configs
+# (mjcf_path, log_dir, ...). Anchored on __file__ so it works whether the
+# checkout is at ~/unitree-notes or nested under ~/unitree/unitree-notes.
+os.environ.setdefault("WORKSPACE_ROOT", str(REPO_ROOT))
+
 
 # ---------------------------------------------------------------------------
 # Path / logging / config helpers

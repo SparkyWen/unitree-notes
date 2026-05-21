@@ -3,7 +3,7 @@
 终端 1：
 
 ```bash
-conda activate unitree
+conda activate agi
 
 export MESA_LOADER_DRIVER_OVERRIDE=d3d12
 export GALLIUM_DRIVER=d3d12

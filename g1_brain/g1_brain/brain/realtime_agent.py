@@ -180,7 +180,9 @@ class BrainRealtimeAgent(RealtimeAgent):
             log.debug("dropping event %s for cancelled response %s", t, rid)
             return
 
-        if t == "response.audio.delta":
+        # GA renamed the streaming audio + transcript events (see va_demo
+        # for the migration note).
+        if t == "response.output_audio.delta":
             b64 = evt.get("delta", "")
             if b64:
                 self.speaker.write(base64.b64decode(b64))
@@ -189,15 +191,15 @@ class BrainRealtimeAgent(RealtimeAgent):
                         self.on_response_audio_delta()
                     except Exception:
                         log.exception("on_response_audio_delta raised")
-        elif t == "response.audio.done":
+        elif t == "response.output_audio.done":
             pass
-        elif t == "response.audio_transcript.delta":
+        elif t == "response.output_audio_transcript.delta":
             piece = evt.get("delta", "")
             if piece:
                 print(piece, end="", flush=True)
                 if self.spoken_cache is not None:
                     self.spoken_cache.add(piece)
-        elif t == "response.audio_transcript.done":
+        elif t == "response.output_audio_transcript.done":
             print()  # newline
             transcript = evt.get("transcript", "")
             if transcript:
@@ -236,7 +238,10 @@ class BrainRealtimeAgent(RealtimeAgent):
                    "rate_limits.updated", "response.output_item.added",
                    "response.output_item.done", "response.content_part.added",
                    "response.content_part.done", "input_audio_buffer.committed",
-                   "input_audio_buffer.speech_stopped", "conversation.item.created"):
+                   "input_audio_buffer.speech_stopped",
+                   # GA split conversation.item.created into added + done.
+                   "conversation.item.added", "conversation.item.done",
+                   "conversation.item.created"):
             log.debug("rt event: %s", t)
         else:
             log.debug("rt event (unhandled): %s", t)

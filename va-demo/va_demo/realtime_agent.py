@@ -162,7 +162,6 @@ class RealtimeAgent:
         url = REALTIME_URL.format(model=self.model)
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
         ]
         log.info("connecting Realtime: %s", url)
         connect_kwargs = {"max_size": 16 * 1024 * 1024}
@@ -204,16 +203,30 @@ class RealtimeAgent:
         return _build_tool_schemas(vision_only=self.vision_only)
 
     async def _session_update(self, ws):
+        # GA shape (gpt-realtime). The beta shape — top-level voice /
+        # input_audio_format / output_audio_format / input_audio_transcription /
+        # turn_detection / modalities directly under "session" — was disabled
+        # on 2026-05-12 and the server now closes the WS with
+        # 4000 invalid_request_error.beta_api_shape_disabled. See:
+        # https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/realtime-audio-preview-api-migration-guide
         evt = {
             "type": "session.update",
             "session": {
-                "modalities": ["audio", "text"],
-                "voice": self.voice,
+                "type": "realtime",
+                "model": self.model,
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "transcription": {"model": "gpt-4o-mini-transcribe"},
+                        "turn_detection": None,
+                    },
+                    "output": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "voice": self.voice,
+                    },
+                },
                 "instructions": self._resolve_instructions(),
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "input_audio_transcription": {"model": "gpt-4o-mini-transcribe"},
-                "turn_detection": None,
                 "tools": self._resolve_tool_schemas(),
                 "tool_choice": "auto",
             },
@@ -256,7 +269,12 @@ class RealtimeAgent:
 
     async def _handle_event(self, ws, evt: Dict[str, Any]):
         t = evt.get("type", "")
-        if t == "response.audio.delta":
+        # GA renamed the streaming audio + transcript events:
+        #   response.audio.delta            -> response.output_audio.delta
+        #   response.audio.done             -> response.output_audio.done
+        #   response.audio_transcript.delta -> response.output_audio_transcript.delta
+        #   response.audio_transcript.done  -> response.output_audio_transcript.done
+        if t == "response.output_audio.delta":
             b64 = evt.get("delta", "")
             if b64:
                 self.speaker.write(base64.b64decode(b64))
@@ -265,15 +283,15 @@ class RealtimeAgent:
                         self.on_response_audio_delta()
                     except Exception:
                         log.exception("on_response_audio_delta raised")
-        elif t == "response.audio.done":
+        elif t == "response.output_audio.done":
             pass
-        elif t == "response.audio_transcript.delta":
+        elif t == "response.output_audio_transcript.delta":
             piece = evt.get("delta", "")
             if piece:
                 print(piece, end="", flush=True)
                 if self.spoken_cache is not None:
                     self.spoken_cache.add(piece)
-        elif t == "response.audio_transcript.done":
+        elif t == "response.output_audio_transcript.done":
             print()  # newline
             transcript = evt.get("transcript", "")
             if transcript and self.spoken_cache is not None:
@@ -300,7 +318,10 @@ class RealtimeAgent:
                    "rate_limits.updated", "response.output_item.added",
                    "response.output_item.done", "response.content_part.added",
                    "response.content_part.done", "input_audio_buffer.committed",
-                   "input_audio_buffer.speech_stopped", "conversation.item.created"):
+                   "input_audio_buffer.speech_stopped",
+                   # GA split conversation.item.created into added + done.
+                   "conversation.item.added", "conversation.item.done",
+                   "conversation.item.created"):
             log.debug("rt event: %s", t)
         else:
             log.debug("rt event (unhandled): %s", t)

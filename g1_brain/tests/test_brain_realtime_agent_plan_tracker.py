@@ -224,7 +224,7 @@ async def test_assistant_transcript_done_callback_fires():
     seen = []
     agent.on_assistant_transcript_done = lambda t: seen.append(t)
     await agent._handle_event(_RecordingWS(), {
-        "type": "response.audio_transcript.done",
+        "type": "response.output_audio_transcript.done",
         "transcript": "好的，开始走",
     })
     assert seen == ["好的，开始走"]
@@ -324,7 +324,7 @@ async def test_audio_delta_writes_speaker_and_fires_callback():
     delta_fired = []
     agent.on_response_audio_delta = lambda: delta_fired.append(1)
     await agent._handle_event(_RecordingWS(), {
-        "type": "response.audio.delta",
+        "type": "response.output_audio.delta",
         "delta": base64.b64encode(b"\x00\x01\x02").decode("ascii"),
     })
     assert bytes(agent.speaker.written) == b"\x00\x01\x02"
@@ -372,7 +372,7 @@ async def test_audio_delta_for_cancelled_response_is_dropped():
 
     # Late audio.delta from the cancelled response: dropped entirely.
     await agent._handle_event(ws, {
-        "type": "response.audio.delta",
+        "type": "response.output_audio.delta",
         "response_id": "resp_old",
         "delta": base64.b64encode(b"\x10\x20\x30").decode("ascii"),
     })
@@ -394,7 +394,7 @@ async def test_audio_transcript_delta_for_cancelled_response_is_dropped(capsys):
     # the leftover phrase (this was the visible 'I've moved forward 10
     # meters' echo in the field log).
     await agent._handle_event(ws, {
-        "type": "response.audio_transcript.delta",
+        "type": "response.output_audio_transcript.delta",
         "response_id": "resp_old",
         "delta": "I've moved forward 10 meters",
     })
@@ -477,7 +477,7 @@ async def test_new_response_after_cancel_passes_through():
         "type": "response.created", "response": {"id": "resp_new"},
     })
     await agent._handle_event(ws, {
-        "type": "response.audio.delta",
+        "type": "response.output_audio.delta",
         "response_id": "resp_new",
         "delta": base64.b64encode(b"\xaa\xbb").decode("ascii"),
     })

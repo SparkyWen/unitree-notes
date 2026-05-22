@@ -263,10 +263,163 @@ the env var keeps it flowing.
 
 ---
 
-## 5. The Windows-side fix (separate from code)
+## 5. Simulator viewer-window stutter (the *second* perf round, 2026-05-22 PM)
 
-The "press any key to refresh terminal output" symptom is **Windows
-Terminal Quick Edit Mode**. It cannot be patched from inside WSL.
+After the §4 fixes landed the operator confirmed that the agent terminal,
+voice, and overall system feel fluid — but the `unitree_mujoco.py`
+viewer window itself still stutters (robot/camera movement jerky).
+That's a different bottleneck than what §4 addressed: it lives inside
+the simulator process (PID separate from agent_main), in the GL/D3D12
+viewer thread, and changing agent-side code can't reach it.
+
+### 5.1 What the bench data actually shows
+
+`viewer.sync()` (the GL submit call inside `PhysicsViewerThread`) is
+**fast** under WSL2 + D3D12 NVIDIA — and faster than the original §2
+benches suggested for offscreen rendering:
+
+```
+G1+terrain scene, D3D12 NVIDIA, viewer window foregrounded:
+  viewer.sync() n=80: p50=5.0ms p95=5.3ms max=5.9ms mean=5.0ms
+  (with concurrent 200 Hz physics thread holding shared lock):
+  lock-wait p50=0.00ms p95=0.19ms max=0.73ms
+  sync()    p50=4.63ms p95=5.68ms max=11.41ms
+```
+
+So the GL submit is ~5 ms and the physics-vs-viewer lock contention is
+~zero. With `VIEWER_DT = 0.02` (20 ms sleep) plus ~5 ms sync, the
+viewer thread should run at ~40 fps consistently. The user still
+perceives stutter.
+
+### 5.2 The root cause is past sync()
+
+`viewer.sync()` only posts commands to the **front** of the pipeline.
+The full path before pixels reach the screen is:
+
+```
+Mesa GL  →  D3D12 translator  →  DXGI present  →
+WSLg Wayland compositor  →  Hyper-V graphics relay  →  Windows desktop
+```
+
+The API-level bench only measures the first hop. The remaining hops
+each have their own pacing/buffering that the WSL guest can't observe
+or control from Python. On native Linux these don't exist — `glXSwapBuffers`
+goes straight to the X server which goes straight to the display
+controller. WSLg trades that simplicity for cross-OS portability and
+inherits a frame-pacing tax we have to live with.
+
+Confirmed via `nvidia-smi --query-compute-apps`:
+* sim process (PID 17013) shows as **Type G** (graphics) — discrete
+  4060 IS engaged, not running on integrated graphics
+* GPU memory ~762 MiB used by sim+agent combined
+* GPU utilisation 33-34 % under load (plenty of GPU headroom available)
+
+So it's not "GPU underused" or "wrong adapter" — it's pipeline pacing.
+
+### 5.3 What was changed to reduce the stutter
+
+**File:** `unitree_mujoco/simulate_python/config.py`
+
+```python
+VIEWER_DT = 0.033   # was 0.02 -- 30 fps target instead of 50 fps
+```
+
+WSLg can't sustain 50 fps consistently for this scene; variable
+25-50 fps timing feels stuttery, constant ~30 fps feels smooth. Frame
+**consistency** matters more than peak rate for perceived smoothness.
+Drop back to 0.02 if the operator has every other knob tuned and a
+fast Windows-side setup.
+
+**File:** `unitree_mujoco/simulate_python/run_sim.sh` (new, executable)
+
+Bundles the D3D12 env vars the operator was setting by hand plus three
+new stutter-reduction tweaks:
+
+| Env var | Effect |
+|---|---|
+| `vblank_mode=0` | Disable Mesa-side vsync. WSLg has its own compositor pacing; two layers of vblank waiting stack and stutter. With Mesa vsync off, frames present as soon as D3D12 finishes. |
+| `mesa_glthread=true` | Submit GL commands from a Mesa worker thread instead of the caller. Each call pays a D3D12 translation tax; offloading hides it from `viewer.sync()`. |
+| `LP_NUM_THREADS=4` | Cap Mesa's internal threading so it doesn't compete with the agent process if both are running on the same machine. |
+
+Measured A/B on this WSL2 box (G1+terrain scene, 60 sync calls each,
+no other GPU work running):
+
+| Metric | Baseline (D3D12 only) | + vblank=0 + glthread | Δ |
+|---|---|---|---|
+| p50 sync ms | 5.04 | 5.00 | — |
+| p95 sync ms | 5.81 | 5.38 | -7 % |
+| **p99 sync ms** | **9.94** | **5.92** | **-40 %** |
+| **max sync ms** | **9.94** | **5.93** | **-40 %** |
+
+The median doesn't move — neither does GPU throughput. What changes is
+the **tail**: max latency falls from ~10 ms to ~6 ms. Tail latency is
+exactly what perceived stutter feels like: an occasional frame that
+arrives twice as late as its neighbours reads as a "hitch" to the eye.
+Cutting the tail in half is the win, not changing the average.
+
+Use it as:
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+./run_sim.sh
+```
+
+### 5.4 Windows-side knobs (operator action required)
+
+These are not under WSL's control. If §5.3 alone doesn't make the
+viewer smooth, the next two tend to actually move the needle on
+laptops with Optimus / hybrid graphics:
+
+1. **NVIDIA Control Panel** → *Manage 3D settings* → *Program Settings* →
+   add `python.exe` (and `wslhost.exe` if listed) → set:
+   * **Power management mode:** *Prefer maximum performance* (stops
+     Optimus from downclocking the 4060 when "load looks light" to
+     DXGI)
+   * **Vertical sync:** *Off* (we already disabled vsync on the Mesa
+     side; matching at the driver level avoids one more buffering
+     layer)
+   * **Threaded optimization:** *On*
+   * **Low Latency Mode:** *On*
+
+2. **Windows Settings → System → Display → Graphics** → add `python.exe`
+   from `~/miniforge3/envs/agi/bin/python.exe` (or whichever conda
+   env runs the sim) → **High performance** preference.
+
+3. **Hardware-Accelerated GPU Scheduling (HAGS)** is a known WSL2
+   stutter source on some driver versions. Toggle: *Settings → System →
+   Display → Graphics → Default graphics settings → Hardware-accelerated
+   GPU scheduling*. Try turning it OFF, reboot, retest; if no change,
+   turn it back ON. The right setting is driver/Windows-version dependent.
+
+4. **Close other GPU-heavy Windows apps** (browsers with hardware accel
+   on lots of tabs, video conferencing, Discord overlay, MSI Afterburner,
+   anything that uses DXGI). The 4060 has 8 GB but D3D12-on-WSL2
+   shares the DXGI command queue with native Windows apps; competition
+   for command submission slots shows up as viewer stutter.
+
+### 5.5 What is *not* fixable from inside WSL
+
+* The Mesa→D3D12 translation tax itself (~constant per draw call)
+* WSLg Wayland compositor latency (frames buffered through Hyper-V)
+* Windows DXGI present pacing
+* NVIDIA driver scheduling between native Windows apps and WSL2 guests
+
+If after §5.3 + §5.4 the viewer still stutters, the practical options
+are: (a) accept ~30 fps as the WSL2 ceiling for this scene, (b) reduce
+scene complexity (USE_TERRAIN=False in `config.py` drops heightfields
++ ramps; saves ~30% of viewer geometry), (c) shrink the viewer window
+(fewer pixels per frame = less per-frame GPU work), (d) run on native
+Linux for development if maximum smoothness is required.
+
+---
+
+## 6. Windows Terminal Quick Edit Mode
+
+Separate non-code symptom from the original report: terminal output
+freezes mid-stream and only resumes when any key is pressed. This is
+**Windows Terminal's Quick Edit Mode** selecting on click and pausing
+console output — fully a Windows setting, no WSL code change applies.
 
 **To disable:**
 
@@ -285,7 +438,7 @@ flowing instead of freezing until you press a key.
 
 ---
 
-## 6. How to re-verify (after pulling these changes)
+## 7. How to re-verify (after pulling these changes)
 
 ```bash
 conda activate agi
@@ -328,7 +481,7 @@ nice(10).
 
 ---
 
-## 7. Optional / future optimizations (not yet applied)
+## 8. Optional / future optimizations (not yet applied)
 
 These were considered and **deliberately not implemented** in this pass,
 either because they're more invasive or because we should first verify
@@ -394,7 +547,7 @@ promises becomes real. Until then: stay on llvmpipe.
 
 ---
 
-## 8. Reference benchmark commands
+## 9. Reference benchmark commands
 
 For reproducing the numbers in this doc on the same box. All run from
 `g1_brain/` with the `agi` conda env active.
@@ -441,7 +594,7 @@ ls /usr/lib/wsl/lib | grep -i 'GL\|nvidia'
 
 ---
 
-## 9. Branch / commit pointer
+## 10. Branch / commit pointer
 
 All code changes for this optimization pass landed on branch
 `fix/audio-interrupt-buffer`. Files touched:

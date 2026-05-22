@@ -41,7 +41,15 @@ ENABLE_ELASTIC_BAND = True # Virtual spring band, used for lifting h1
 ELASTIC_BAND_INIT_LENGTH = 0.0
 
 SIMULATE_DT = 0.005  # Need to be larger than the runtime of viewer.sync()
-VIEWER_DT = 0.02  # 50 fps for viewer
+# Viewer refresh period. The native MuJoCo viewer ran 50 fps (0.02) cleanly on
+# native Linux + libGL_nvidia. On WSL2 the path is Mesa GL -> D3D12 translator
+# -> DXGI present -> WSLg Wayland compositor -> Hyper-V -> Windows desktop, and
+# that pipeline can't sustain 50 fps consistently. A target of 30 fps (0.033)
+# gives steadier frame timing -- variable 25-50 fps feels stuttery, constant
+# ~30 fps feels smooth. If you've launched via run_sim.sh (vblank_mode=0,
+# mesa_glthread=true) and Windows-side NVIDIA "Prefer maximum performance" is
+# on, you can try dropping back to 0.02 (50 fps).
+VIEWER_DT = 0.033
 
 # ---------------------------------------------------------------------------
 # Default-pose holding PD (G1 only).

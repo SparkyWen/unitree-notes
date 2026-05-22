@@ -46,6 +46,10 @@ ALLOWED_TOOLS_NO_MOTION: Set[str] = {
     "describe_scene",
     "query_scene_state",
     "recall_history",
+    "recall_grep",
+    "recall_read",
+    "recall_glob",
+    "ask_slow_brain",
     "stop",
     "release_arms",
 }
@@ -530,6 +534,62 @@ class SafetySupervisor:
             return sanitized
         if tool in {"stop", "release_arms"}:
             return {}
+        if tool == "recall_grep":
+            pattern = str(args.get("pattern", "")).strip()
+            if not pattern:
+                return None
+            scope = args.get("scope", "registry")
+            if scope not in ("registry", "rollouts", "jsonl", "all"):
+                scope = "registry"
+            sanitized: Dict[str, Any] = {"pattern": pattern, "scope": scope}
+            sid = args.get("session_id")
+            if isinstance(sid, str) and sid:
+                sanitized["session_id"] = sid
+            try:
+                if "max_lines" in args:
+                    sanitized["max_lines"] = max(1, min(100, int(args["max_lines"])))
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "recall_read":
+            path = str(args.get("path", "")).strip()
+            if not path:
+                return None
+            sanitized = {"path": path}
+            try:
+                if "start_line" in args:
+                    sanitized["start_line"] = max(1, int(args["start_line"]))
+            except (TypeError, ValueError):
+                pass
+            try:
+                if args.get("end_line") is not None:
+                    sanitized["end_line"] = max(1, int(args["end_line"]))
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "recall_glob":
+            pattern = str(args.get("pattern", "")).strip()
+            if not pattern:
+                return None
+            sanitized = {"pattern": pattern}
+            try:
+                if "limit" in args:
+                    sanitized["limit"] = max(1, min(200, int(args["limit"])))
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "ask_slow_brain":
+            query = str(args.get("query", "")).strip()
+            if not query:
+                return None
+            sanitized = {"query": query}
+            try:
+                if "timeout_s" in args:
+                    t = float(args["timeout_s"])
+                    sanitized["timeout_s"] = _clip(t, 3.0, 60.0)
+            except (TypeError, ValueError):
+                pass
+            return sanitized
         return None
 
     def _sanitize_motion(

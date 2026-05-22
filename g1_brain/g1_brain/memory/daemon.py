@@ -86,6 +86,13 @@ class CodexDaemon:
         self._next_id = 1
         self._pending: Dict[int, asyncio.Future] = {}
         self._partial_text_parts: Dict[int, List[str]] = {}
+        # Set on stop() so a retry-loop sleep wakes immediately instead of
+        # blocking shutdown for up to 5 minutes. Lazily allocated inside
+        # start() so __init__ doesn't require a running event loop.
+        self._stop_event: Optional[asyncio.Event] = None
+        # Tracks the in-flight start() task so stop() can cancel it cleanly,
+        # avoiding "Task was destroyed but it is pending!" on Ctrl+C.
+        self._start_task: Optional[asyncio.Task] = None
 
     # ---------- public API ----------
 
@@ -110,26 +117,61 @@ class CodexDaemon:
             self._state = STATE_DEAD
             return
 
+        # Lazily allocate the stop-event on the running loop. Track the
+        # current task so stop() can cancel it.
+        if self._stop_event is None:
+            self._stop_event = asyncio.Event()
+        try:
+            self._start_task = asyncio.current_task()
+        except RuntimeError:
+            self._start_task = None
+
         self._state = STATE_STARTING
         attempt = 0
         delays = (1, 5, 30, 60, 300)
-        while True:
-            try:
-                await self._spawn_and_initialize()
-                self._state = STATE_READY
-                self._ping_task = asyncio.create_task(self._ping_loop())
-                log.info("codex daemon ready (tool=%s)", self._tool_name)
-                return
-            except Exception as e:
-                attempt += 1
-                log.warning("codex daemon start attempt %d failed: %s",
-                            attempt, e)
-                await self._cleanup_proc()
-                if attempt >= self._max_restart_attempts:
-                    self._state = STATE_DEAD
-                    log.error("codex daemon dead after %d attempts", attempt)
+        try:
+            while True:
+                if self._state == STATE_STOPPED:
                     return
-                await asyncio.sleep(delays[min(attempt - 1, len(delays) - 1)])
+                try:
+                    await self._spawn_and_initialize()
+                    self._state = STATE_READY
+                    self._ping_task = asyncio.create_task(self._ping_loop())
+                    log.info("codex daemon ready (tool=%s)", self._tool_name)
+                    return
+                except Exception as e:
+                    attempt += 1
+                    stderr_tail = b"".join(self._stderr_tail).decode(
+                        "utf-8", errors="replace",
+                    )[-512:]
+                    rc = self._proc.returncode if self._proc is not None else None
+                    log.warning(
+                        "codex daemon start attempt %d failed: %r (rc=%s) stderr=%s",
+                        attempt, e, rc, stderr_tail or "<empty>",
+                    )
+                    await self._cleanup_proc()
+                    if attempt >= self._max_restart_attempts:
+                        self._state = STATE_DEAD
+                        log.error("codex daemon dead after %d attempts", attempt)
+                        return
+                    if self._state == STATE_STOPPED:
+                        return
+                    # Race the back-off sleep against the stop event so
+                    # memory.stop() doesn't have to wait up to 300s for the
+                    # next sleep to expire. wait_for raises TimeoutError when
+                    # the delay elapses without a stop signal — that's the
+                    # normal retry path.
+                    delay = delays[min(attempt - 1, len(delays) - 1)]
+                    try:
+                        await asyncio.wait_for(
+                            self._stop_event.wait(), timeout=delay,
+                        )
+                        # stop_event fired during sleep → bail out.
+                        return
+                    except asyncio.TimeoutError:
+                        pass
+        finally:
+            self._start_task = None
 
     async def stop(self) -> None:
         """Best-effort shutdown."""
@@ -139,6 +181,20 @@ class CodexDaemon:
         # races with us sees STOPPED and bails out without spawning a new
         # subprocess.
         self._state = STATE_STOPPED
+        # Wake any retry-loop sleep so start() returns immediately instead
+        # of blocking shutdown for up to 5 minutes.
+        if self._stop_event is not None:
+            self._stop_event.set()
+        # If start() is still running in a background task, cancel and
+        # await it. Without this, agent_main's 10-s memory.stop timeout
+        # leaves a dangling task → "Task was destroyed but it is pending!".
+        start_task = self._start_task
+        if start_task is not None and not start_task.done():
+            start_task.cancel()
+            try:
+                await start_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         # Cancel in-flight asks
         for fut in list(self._pending.values()):
             if not fut.done():
@@ -276,16 +332,19 @@ class CodexDaemon:
     # ---------- internal: spawn / initialize ----------
 
     async def _spawn_and_initialize(self) -> None:
+        # codex 0.128.0's `mcp-server` subcommand only accepts -c/--enable/
+        # --disable. Flags valid for `codex exec` (-C/-s/--skip-git-repo-check/
+        # --ignore-user-config/-m) are rejected here with "unexpected argument"
+        # and the subprocess exits immediately (stdout EOF). Translate the
+        # ones we need into `-c key=value` overrides; cwd is passed per-call
+        # in tools/call arguments (see _do_one_ask), so -C is redundant.
         args = [
             self._bin, "mcp-server",
-            "-C", str(self._workdir),
-            "-s", self._sandbox,
-            "--skip-git-repo-check",
-            "--ignore-user-config",
             "-c", "approval_policy=never",
+            "-c", f'sandbox_mode="{self._sandbox}"',
         ]
         if self._model_override:
-            args.extend(["-m", self._model_override])
+            args.extend(["-c", f'model="{self._model_override}"'])
 
         env = os.environ.copy()
         if self._codex_home is not None:

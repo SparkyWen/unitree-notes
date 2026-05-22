@@ -314,3 +314,90 @@ cd ~/unitree/unitree-notes/g1_brain
 ```
 
 
+# 4. WSL2 下用 `run_sim.sh` 替代手动 export
+
+前面 §1 / §2 / §3 终端 1 那一坨 `export MESA_LOADER_DRIVER_OVERRIDE=...` 现在不用手敲了 —— `unitree_mujoco/simulate_python/run_sim.sh` 把它们打包好了，并且额外加了三条 WSL2 卡顿缓解的环境变量。
+
+## 4.1 新的启动方式
+
+**终端 1（sim）：**
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+./run_sim.sh
+```
+
+**终端 2（agent）：** 一字不变。
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a            # OPENAI_API_KEY etc.
+python -m g1_brain.apps.agent_main --mode confirm
+```
+
+顺序还是「先 sim 再 agent」—— agent 启动会立刻去 DDS 上找机器人状态，sim 没起的话第一帧就拿不到数据。
+
+## 4.2 `run_sim.sh` 里装了什么
+
+脚本最后一行 `exec python unitree_mujoco.py "$@"` 才是真正干活的，前面全是 `export`。两组：
+
+**第一组：原本要手 export 的（和 §1 / §3 终端 1 完全一致）**
+
+```
+MESA_LOADER_DRIVER_OVERRIDE=d3d12
+GALLIUM_DRIVER=d3d12
+MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+LIBGL_ALWAYS_SOFTWARE=0
+MUJOCO_GL=glfw
+```
+
+没这组会落到 llvmpipe CPU 软渲染，viewer 真卡。
+
+**第二组：本轮新加的 WSL2 viewer 卡顿缓解**
+
+```
+vblank_mode=0          # 关掉 Mesa 侧 vsync，避免和 WSLg 的 compositor pacing 叠两层
+mesa_glthread=true     # GL 命令在 Mesa 工作线程提交，viewer.sync() 返回更快
+LP_NUM_THREADS=4       # 限制 Mesa 内部线程，不和 agent 抢核
+```
+
+A/B 实测把 `viewer.sync()` 的 p99 / max 从 ~10 ms 降到 ~6 ms（**中位数没变，砍的是尾延迟** —— 这正是肉眼感知的「卡顿」对应指标）。完整诊断在 `g1_brain/docs/performance-optimization-GPU.md §5`。
+
+## 4.3 和之前手动跑相比，功能有没有缺？
+
+**没有功能缺失。** sim 进程在功能上和你之前 `python unitree_mujoco.py` 完全等价：
+
+- 同一个 viewer 窗口（`7` 放下 / `9` 松吊带 / `Backspace` 重置都一样）
+- 同一套物理、同一份 DDS 输出
+- `exec` 替换进程，Ctrl-C 行为一致
+- 透传命令行参数（`./run_sim.sh --foo` 原样传给 python）
+
+只有三个细节值得明确：
+
+1. **物理频率没动，只是 viewer 重绘变慢了**
+   `config.py` 里 `VIEWER_DT` 从 0.02 → 0.033 是**viewer 窗口的重绘周期**，不是物理频率。`SIMULATE_DT = 0.005`（200 Hz）没变。
+   - agent 收到的关节状态、IMU、相机数据完全没变频，DDS 那侧无感知
+   - 唯一变化：viewer 画面从「目标 50 fps、实际 25–50 跳变」→ 「目标 30 fps、稳定 ~30」
+   - 装好 §5.4 的 Windows 端设置后想恢复 50 fps，改 `config.py` 里 `VIEWER_DT = 0.02` 即可
+
+2. **`mesa_glthread=true` 是新引入的**
+   对 MuJoCo viewer 这种单线程 GL 调用模式安全；但如果**画面出现纹理错乱、几何丢失、闪烁**，注释掉脚本里那一行。这种 bug 是状态依赖的，可能在长跑 / 切场景时才冒出来。
+
+3. **脚本不替你做两件事**
+   - 不激活 conda — 必须先 `conda activate agi`
+   - 不 cd — 必须先 `cd` 到 `simulate_python/`，否则 `python unitree_mujoco.py` 找不到文件
+
+## 4.4 §1 / §2 / §3 怎么对接
+
+把上面三章里**终端 1 的所有内容**（从 `export ...` 到 `python unitree_mujoco.py`）替换成：
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+./run_sim.sh
+```
+
+其它终端（agent / teleimager / estop / va_demo 主进程）都不变。
+

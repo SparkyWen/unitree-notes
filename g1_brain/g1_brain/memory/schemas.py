@@ -119,6 +119,18 @@ class MemoryConfig:
     daemon_ping_interval_s: float = 30.0
     daemon_restart_max_attempts: int = 5
 
+    # Applied to every codex invocation (daemon mcp-server + exec). The user
+    # asked for "high + 1.5x speed" by default. service_tier="fast" maps to
+    # OpenAI's "Fast" priority tier ("1.5x speed, increased usage" per
+    # codex-rs models.json). NB: in TOML config it must be the lowercase
+    # serde variant name ("fast" or "flex"), NOT the API request_value
+    # ("priority") — codex's TOML deserializer rejects "priority" with
+    # "unknown variant". Set to "" / "auto" to fall back to account default.
+    # reasoning_summary="concise" keeps progress notifications small so
+    # daemon's StreamReader doesn't choke on a single 64 KB+ JSONL line.
+    codex_reasoning_effort: str = "high"
+    codex_reasoning_summary: str = "concise"
+    codex_service_tier: str = "fast"
     # StreamReader buffer for codex stdout. Some notifications carry full
     # tool-call payloads on a single JSONL line; 64KB (asyncio default) is
     # too small and was causing LimitOverrunError → daemon crash.

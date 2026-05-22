@@ -57,6 +57,9 @@ class CodexDaemon:
         max_restart_attempts: int = 5,
         ask_queue_max: int = 2,
         stdout_buffer_bytes: int = 16 * 1024 * 1024,
+        reasoning_effort: str = "high",
+        reasoning_summary: str = "concise",
+        service_tier: str = "fast",
     ):
         self._bin = codex_bin
         self._workdir = workdir.expanduser().resolve()
@@ -67,6 +70,9 @@ class CodexDaemon:
         self._max_restart_attempts = max_restart_attempts
         self._ask_queue_max = ask_queue_max
         self._stdout_buffer_bytes = max(int(stdout_buffer_bytes), 1 << 20)
+        self._reasoning_effort = (reasoning_effort or "").strip()
+        self._reasoning_summary = (reasoning_summary or "").strip()
+        self._service_tier = (service_tier or "").strip()
 
         self._state = STATE_INIT
         self._proc: Optional[asyncio.subprocess.Process] = None
@@ -345,6 +351,18 @@ class CodexDaemon:
             "-c", "approval_policy=never",
             "-c", f'sandbox_mode="{self._sandbox}"',
         ]
+        # Default-on reasoning + speed knobs ("high" + "1.5x" priority tier).
+        # The user explicitly asked these be the floor for every codex call.
+        # Pass "" / "auto" via config to opt out. service_tier value here is
+        # the TOML serde variant name ("fast"/"flex"), not the API
+        # request_value ("priority") — codex's deserializer rejects the
+        # latter.
+        if self._reasoning_effort:
+            args.extend(["-c", f'model_reasoning_effort="{self._reasoning_effort}"'])
+        if self._reasoning_summary:
+            args.extend(["-c", f'model_reasoning_summary="{self._reasoning_summary}"'])
+        if self._service_tier and self._service_tier != "auto":
+            args.extend(["-c", f'service_tier="{self._service_tier}"'])
         if self._model_override:
             args.extend(["-c", f'model="{self._model_override}"'])
 

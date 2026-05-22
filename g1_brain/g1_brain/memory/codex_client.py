@@ -67,6 +67,9 @@ class CodexClient:
         sandbox: str = "read-only",
         extra_args: Optional[List[str]] = None,
         stdout_buffer_bytes: int = 16 * 1024 * 1024,
+        reasoning_effort: str = "high",
+        reasoning_summary: str = "concise",
+        service_tier: str = "fast",
     ):
         self._bin = codex_bin
         self._workdir = workdir.expanduser().resolve()
@@ -74,6 +77,9 @@ class CodexClient:
         self._sandbox = sandbox
         self._extra_args = list(extra_args or [])
         self._stdout_buffer_bytes = max(int(stdout_buffer_bytes), 1 << 20)
+        self._reasoning_effort = (reasoning_effort or "").strip()
+        self._reasoning_summary = (reasoning_summary or "").strip()
+        self._service_tier = (service_tier or "").strip()
 
     def is_available(self) -> bool:
         return shutil.which(self._bin) is not None
@@ -104,6 +110,15 @@ class CodexClient:
             "-s", self._sandbox,
             "-c", "approval_policy=never",
         ]
+        # Default-on reasoning + speed knobs ("high" + "1.5x" priority tier),
+        # applied to every Phase1/Phase2 extraction as well as one-shot exec
+        # calls. Pass empty / "auto" to opt out from MemoryConfig.
+        if self._reasoning_effort:
+            args.extend(["-c", f'model_reasoning_effort="{self._reasoning_effort}"'])
+        if self._reasoning_summary:
+            args.extend(["-c", f'model_reasoning_summary="{self._reasoning_summary}"'])
+        if self._service_tier and self._service_tier != "auto":
+            args.extend(["-c", f'service_tier="{self._service_tier}"'])
         if ephemeral:
             args.append("--ephemeral")
         if model_override:

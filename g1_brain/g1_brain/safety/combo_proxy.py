@@ -144,11 +144,23 @@ def _combo_main(
     # short time it takes to dispatch — combo's 50 Hz control thread runs
     # uninterrupted because it is in the same process and there are no
     # heavy CPU consumers here (perception lives in the parent).
+    #
+    # KeyboardInterrupt handling: the child shares the parent's process
+    # group, so a Ctrl+C in the terminal hits this process too. Without
+    # catching it explicitly, the signal interrupts the blocking
+    # ``cmd_pipe.recv()`` and propagates out through
+    # ``multiprocessing.process._bootstrap``, which prints a full traceback
+    # at shutdown. The parent's ``ComboProxy.stop_and_settle`` was already
+    # going to send a "stop" message immediately after, so we just treat
+    # SIGINT as the stop signal here and exit cleanly.
     try:
         while True:
             try:
                 msg = cmd_pipe.recv()
             except EOFError:
+                break
+            except KeyboardInterrupt:
+                sub_log.info("combo subprocess: SIGINT received; stopping")
                 break
             if msg is None:
                 break
@@ -172,6 +184,8 @@ def _combo_main(
                     sub_log.warning("unknown combo op: %s", op)
             except Exception:  # noqa: BLE001 — never crash the worker on a single bad cmd
                 sub_log.exception("combo op %s raised", op)
+    except KeyboardInterrupt:
+        sub_log.info("combo subprocess: SIGINT during dispatch; stopping")
     finally:
         stop_status.set()
         try:

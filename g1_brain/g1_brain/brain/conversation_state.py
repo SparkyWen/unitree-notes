@@ -31,7 +31,19 @@ import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
+import numpy as np
+
 log = logging.getLogger(__name__)
+
+
+def _chunk_rms_int16(chunk: bytes) -> float:
+    if not chunk:
+        return 0.0
+    arr = np.frombuffer(chunk, dtype=np.int16)
+    if not arr.size:
+        return 0.0
+    arrf = arr.astype(np.float32, copy=False)
+    return float(np.sqrt(float(np.mean(arrf * arrf))))
 
 
 class State(enum.Enum):
@@ -59,6 +71,20 @@ class BrainConversationConfig:
     drain_max_wait_s: float = 6.0
     # Force plan_done if a tool call never resolves.
     plan_watchdog_s: float = 30.0
+    # ---- echo-aware voice-onset barge-in (SPEAKING-only) -------------------
+    # The wake-word ASR window during SPEAKING is dominated by the bot's own
+    # TTS leaking into the mic; "Hi Sparky" rarely survives that. This second
+    # barge-in path watches mic RMS, subtracts a prediction of the speaker
+    # echo (from SpeakerStream.recent_played_rms), and fires the standard
+    # barge-in when user voice clearly rides above the echo for a short
+    # streak. Active only in SPEAKING; THINKING/CAPTURING/IDLE still use the
+    # regular wake-word path.
+    voice_barge_in_enabled: bool = True
+    voice_barge_in_echo_gain: float = 1.0          # echo_rms ≈ speaker_rms × this
+    voice_barge_in_margin_rms: float = 350.0       # user must exceed echo + margin
+    voice_barge_in_min_rms: float = 500.0          # absolute mic floor (silence guard)
+    voice_barge_in_streak_chunks: int = 4          # consecutive chunks needed (~200 ms at 50 ms blocks)
+    voice_barge_in_speaker_window_s: float = 0.2   # window used to estimate speaker RMS
 
 
 # Type aliases for clarity.
@@ -108,6 +134,12 @@ class BrainConversationStateMachine:
         self._capture_started_at: float = 0.0
         self._barge_in_lock = asyncio.Lock()
         self._stopped = False
+
+        # Echo-aware voice-onset barge-in streak counter. Counted in mic
+        # chunks; reset to 0 on any state transition out of SPEAKING (so a
+        # half-finished streak from the previous turn can't fire mid-IDLE).
+        self._voice_bi_streak: int = 0
+        self._voice_bi_pending: bool = False
 
     # ---- public lifecycle ---------------------------------------------------
 
@@ -235,6 +267,10 @@ class BrainConversationStateMachine:
                     status, time.monotonic() - self._capture_started_at,
                 )
                 self._enter_thinking()
+        elif self._state == State.SPEAKING:
+            # Echo-aware barge-in. Cheap (one np.frombuffer + one sqrt per
+            # ~50 ms mic chunk). See BrainConversationConfig for tunables.
+            self._maybe_voice_barge_in(chunk)
 
     # ---- in-loop wake handler -----------------------------------------------
 
@@ -300,6 +336,16 @@ class BrainConversationStateMachine:
             except Exception:
                 log.exception("logger.log_state_transition raised")
         self._state = new
+        # Voice-onset barge-in streak only makes sense while SPEAKING. Any
+        # transition (into SPEAKING from THINKING, or out of SPEAKING) resets
+        # it so a leftover partial streak can't fire across boundaries.
+        if new != State.SPEAKING:
+            self._voice_bi_streak = 0
+            self._voice_bi_pending = False
+        else:
+            # Fresh SPEAKING window — start clean.
+            self._voice_bi_streak = 0
+            self._voice_bi_pending = False
 
     def _enter_capturing(self, *, reason: str) -> None:
         # Cancel any pending drain task — wake takes priority.
@@ -410,6 +456,94 @@ class BrainConversationStateMachine:
 
             # 5. transition into CAPTURING for the new turn.
             self._enter_capturing(reason="barge_in")
+
+    def _maybe_voice_barge_in(self, chunk: bytes) -> None:
+        """Echo-aware barge-in trigger that runs only in SPEAKING.
+
+        Why this exists: the wake-word's 1.5 s ASR window is fed every mic
+        chunk in all states, but during SPEAKING it is dominated by the
+        bot's own TTS leaking back through the mic. The OpenAI transcribe
+        call almost always returns the bot's narration text and "hi sparky"
+        never appears, so the regular wake path silently fails — exactly
+        the user-reported "can't interrupt the robot mid-speech" bug.
+
+        Instead of relying on ASR through the echo, watch the mic RMS
+        envelope and subtract a prediction of the speaker echo derived
+        from ``SpeakerStream.recent_played_rms`` (RMS of bytes the device
+        callback just consumed — that's the audio currently coming out,
+        modulo PortAudio's small output latency). If the user's voice is
+        clearly louder than the predicted echo for a short streak, fire
+        the same barge-in path the wake-word would have taken.
+
+        Safety:
+          * Active ONLY in SPEAKING — never CAPTURING / THINKING / IDLE.
+          * ``barge_in_enabled`` config still gates this.
+          * Requires a sustained streak (default ~200 ms) so single coughs
+            and one-block transients don't trigger barge-in.
+          * Once fired, ``_voice_bi_pending`` blocks re-fire until the
+            state machine transitions out of SPEAKING.
+        """
+        if not self.cfg.voice_barge_in_enabled:
+            return
+        if not self.cfg.barge_in_enabled:
+            return
+        if self._voice_bi_pending:
+            return
+        try:
+            mic_rms = _chunk_rms_int16(chunk)
+        except Exception:
+            log.exception("voice_barge_in: mic RMS failed")
+            return
+        # Speaker echo prediction. If no speaker is wired (e.g. tests), the
+        # predicted echo is 0 — the threshold then collapses to min_rms.
+        speaker_rms = 0.0
+        if self.speaker is not None:
+            try:
+                speaker_rms = self.speaker.recent_played_rms(
+                    self.cfg.voice_barge_in_speaker_window_s,
+                )
+            except Exception:
+                speaker_rms = 0.0
+        echo_predicted = speaker_rms * self.cfg.voice_barge_in_echo_gain
+        threshold = max(
+            echo_predicted + self.cfg.voice_barge_in_margin_rms,
+            self.cfg.voice_barge_in_min_rms,
+        )
+        if mic_rms > threshold:
+            self._voice_bi_streak += 1
+        else:
+            self._voice_bi_streak = 0
+            return
+        if self._voice_bi_streak < self.cfg.voice_barge_in_streak_chunks:
+            return
+        # Fire. Build a synthetic WakeEvent so the logger / barge-in path
+        # see a uniform shape regardless of trigger source.
+        log.info(
+            "[voice_barge_in] mic_rms=%.0f speaker_rms=%.0f "
+            "echo_pred=%.0f thr=%.0f streak=%d — firing barge-in",
+            mic_rms, speaker_rms, echo_predicted, threshold,
+            self._voice_bi_streak,
+        )
+        print(
+            "\n[g1_brain] heard you speaking — interrupting reply",
+            flush=True,
+        )
+        self._voice_bi_pending = True
+        self._voice_bi_streak = 0
+        try:
+            from va_demo.wake_word import WakeEvent  # local import; sibling pkg
+            evt = WakeEvent(text="<voice-barge-in>", t=time.monotonic())
+        except Exception:
+            # Fallback minimal shape: anything with .text and .t is enough
+            # for the barge-in path (only logging uses these fields).
+            class _FallbackEvt:  # noqa: D401
+                text = "<voice-barge-in>"
+                t = time.monotonic()
+            evt = _FallbackEvt()
+        asyncio.create_task(
+            self._handle_barge_in(evt, was_state=State.SPEAKING),
+            name="bcsm-voice-barge-in",
+        )
 
     def _no_speech_timeout_cb(self) -> None:
         if self._state != State.CAPTURING:

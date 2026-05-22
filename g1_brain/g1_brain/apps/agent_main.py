@@ -1211,7 +1211,14 @@ async def _run(args: argparse.Namespace) -> int:
         # Memory subsystem must stop BEFORE conv_logger.close so the final
         # Phase1 pass can read the complete JSONL.
         if memory_subsystem is not None:
-            await _shutdown_step("memory.stop", memory_subsystem.stop, timeout=10.0)
+            # 10 s was below the floor of the work that runs in stop():
+            # mark_session_ended + force a Phase1 codex call on the current
+            # session + Phase2 + daemon teardown. The codex MCP server alone
+            # can take 5–15 s to answer Phase1 for a normal turn, so the
+            # 10 s budget was guaranteed to warn at almost every shutdown.
+            # 30 s covers a typical Phase1 run with margin; if it really
+            # blocks beyond that the backfill on next launch will catch up.
+            await _shutdown_step("memory.stop", memory_subsystem.stop, timeout=30.0)
         if conv_logger is not None:
             await _shutdown_step("conv_logger.close", conv_logger.close, timeout=1.0)
         _release_instance_lock(instance_fd, lock_path)
@@ -1243,6 +1250,7 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
     conv_cfg = cfg.get("conversation", {}) or {}
     audio_ctl = cfg.get("audio_control", {}) or {}
     barge_in_cfg = audio_ctl.get("barge_in", {}) or {}
+    voice_bi_cfg = audio_ctl.get("voice_barge_in", {}) or {}
     idle_cfg = audio_ctl.get("idle_after_plan", {}) or {}
 
     backend_name = (wakeword_cfg.get("backend") or "openai").lower()
@@ -1315,6 +1323,14 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             drain_threshold_bytes=int(idle_cfg.get("drain_threshold_bytes", 2400)),
             drain_max_wait_s=float(idle_cfg.get("drain_max_wait_s", 6.0)),
             plan_watchdog_s=float(audio_ctl.get("plan_watchdog_s", 30.0)),
+            voice_barge_in_enabled=bool(voice_bi_cfg.get("enabled", True)),
+            voice_barge_in_echo_gain=float(voice_bi_cfg.get("echo_gain", 1.0)),
+            voice_barge_in_margin_rms=float(voice_bi_cfg.get("margin_rms", 350.0)),
+            voice_barge_in_min_rms=float(voice_bi_cfg.get("min_rms", 500.0)),
+            voice_barge_in_streak_chunks=int(voice_bi_cfg.get("streak_chunks", 4)),
+            voice_barge_in_speaker_window_s=float(
+                voice_bi_cfg.get("speaker_window_s", 0.2),
+            ),
         ),
         wake_word=wake,
         utterance_vad=utt_vad,
@@ -1328,10 +1344,11 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
 
     log.info(
         "wake-word enabled: phrases=%s; barge_in=%s also_stop_skills=%s "
-        "idle_after_plan=%s",
+        "voice_barge_in=%s idle_after_plan=%s",
         wakeword_cfg.get("phrases"),
         barge_in_cfg.get("enabled", True),
         barge_in_cfg.get("also_stop_skills", True),
+        voice_bi_cfg.get("enabled", True),
         idle_cfg.get("enabled", True),
     )
     return sm

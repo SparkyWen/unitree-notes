@@ -13,7 +13,9 @@ import ctypes
 import logging
 import sys
 import threading
-from typing import List, Optional
+import time
+from collections import deque
+from typing import Deque, List, Optional, Tuple
 
 import numpy as np
 
@@ -184,12 +186,15 @@ class SpeakerStream:
     Use `clear()` to interrupt playback (e.g. on wake-word barge-in) — that
     is the correct way to stop unwanted audio, NOT capping the buffer.
 
-    A loose sanity cap (~60 s of audio) is kept so a runaway producer can't
-    grow memory without bound, but it's far above any real response length
-    and is never hit in normal operation.
+    A loose sanity cap (~10 min of audio) is kept so a runaway producer can't
+    grow memory without bound. The cap used to be 60 s, but long bilingual
+    Realtime replies (Chinese narration of a recall result is ~1 min of TTS,
+    streamed from the API in <1 s) routinely exceeded that, and the drop-
+    from-front behaviour produced audible audio jumps mid-sentence ("声音
+    说话不清晰"). 10 min × 24 kHz × 2 B ≈ 29 MB — fine to keep resident.
     """
 
-    SANITY_CAP_SECONDS = 60
+    SANITY_CAP_SECONDS = 600
 
     # WSL2's PulseAudio bridge underruns aggressively when the Python
     # callback is delayed by GIL contention from perception/DDS/ML threads
@@ -230,6 +235,15 @@ class SpeakerStream:
             if blocksize_frames is None
             else int(blocksize_frames)
         )
+        # Rolling (timestamp, rms) of chunks actually shipped to the device
+        # in the playback callback. Consumers (echo-aware barge-in detector)
+        # ask "how loud is the speaker right now?" — and the right answer is
+        # the chunk PortAudio just consumed, not the chunk that just got
+        # write()'d (which may be tens of seconds ahead of the playhead when
+        # the Realtime API streams faster than realtime).
+        self._played_rms_history: Deque[Tuple[float, float]] = deque()
+        self._played_rms_lock = threading.Lock()
+        self._played_rms_window_s = 1.0
 
     def pending_bytes(self) -> int:
         """How many bytes of audio are still queued to play out."""
@@ -253,6 +267,48 @@ class SpeakerStream:
                 chunk = bytes(self._buf) + b"\x00" * (need - avail)
                 self._buf.clear()
         outdata[:] = chunk
+        # Record what the device just received so an echo-aware mic
+        # consumer can ask "is the speaker hot right now?". Keep it cheap:
+        # one np.frombuffer + one sqrt per ~20 ms block, evicting older
+        # than _played_rms_window_s. The lock guards the deque only.
+        try:
+            arr = np.frombuffer(chunk, dtype=np.int16)
+            if arr.size:
+                arrf = arr.astype(np.float32, copy=False)
+                rms_val = float(np.sqrt(float(np.mean(arrf * arrf))))
+            else:
+                rms_val = 0.0
+            now = time.monotonic()
+            cutoff = now - self._played_rms_window_s
+            with self._played_rms_lock:
+                self._played_rms_history.append((now, rms_val))
+                while (
+                    self._played_rms_history
+                    and self._played_rms_history[0][0] < cutoff
+                ):
+                    self._played_rms_history.popleft()
+        except Exception:  # noqa: BLE001 — must never raise from audio cb
+            pass
+
+    def recent_played_rms(self, window_s: float = 0.2) -> float:
+        """RMS of audio shipped to the device in the last ``window_s`` s.
+
+        Reflects what the speaker is *actually* playing right now (modulo
+        PortAudio's ~20–200 ms output latency), not what was written into
+        ``self._buf`` — the buffer may be many seconds ahead of the playhead
+        when the producer streams faster than realtime. Used by the brain's
+        echo-aware barge-in: predict how loud the mic should be picking up
+        the speaker, compare to actual mic RMS, fire if user voice clearly
+        rides above the echo.
+        """
+        now = time.monotonic()
+        cutoff = now - max(window_s, 0.0)
+        with self._played_rms_lock:
+            recent = [r for t, r in self._played_rms_history if t >= cutoff]
+        if not recent:
+            return 0.0
+        arr = np.asarray(recent, dtype=np.float32)
+        return float(np.sqrt(float(np.mean(arr * arr))))
 
     def start(self):
         self._stream = self._sd.RawOutputStream(

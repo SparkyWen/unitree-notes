@@ -38,6 +38,13 @@ export mesa_glthread=true
 # thread or the agent process if you run them on the same machine.
 export LP_NUM_THREADS=${LP_NUM_THREADS:-4}
 
+# Fail loudly if no conda env is active — bare `python` isn't on WSL2's system
+# PATH, so the exec below would otherwise die with a cryptic "not found".
+if ! command -v python >/dev/null; then
+  echo "run_sim.sh: 'python' not on PATH — did you forget 'conda activate agi'?" >&2
+  exit 1
+fi
+
 # Hand off to the actual launcher. Pass through any extra args (the upstream
 # script ignores them today but might gain CLI flags later).
 exec python unitree_mujoco.py "$@"

@@ -113,7 +113,13 @@ async def test_daemon_starts_and_serves_ask(tmp_path: Path, workdir) -> None:
         assert d.state == STATE_READY
         result = await d.ask_slow_brain("hello", timeout_s=5.0)
         assert result.status == "ok"
-        assert "echo: hello" in result.text
+        # The daemon wraps the user query in a slow-brain recall preamble
+        # before sending it to codex (_wrap_recall_prompt), so the fake
+        # server's echo contains the wrapped prompt rather than just the
+        # raw query. Verify the echo round-trip ran AND the user query
+        # survived the wrap.
+        assert result.text.startswith("echo:")
+        assert "hello" in result.text
     finally:
         await d.stop()
 

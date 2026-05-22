@@ -91,22 +91,38 @@ jobs:
 
           echo "Scanning for obvious secret patterns..."
 
-          if grep -RInI -E \
-            "(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----)" \
-            . \
-            --exclude-dir=.git \
-            --exclude-dir=.venv \
-            --exclude-dir=venv \
-            --exclude-dir=node_modules \
-            --exclude="*.png" \
-            --exclude="*.jpg" \
-            --exclude="*.jpeg" \
-            --exclude="*.gif" \
-            --exclude="*.mp4" \
-            --exclude="*.webm" \
-            --exclude="*.pt" \
-            --exclude="*.onnx"; then
-            echo "Possible secret detected. Please remove it and rotate the key if needed."
+          # docs/references/ is a read-only mirror of upstream projects
+          # (OpenAI codex, Claude Code, etc.) vendored for documentation.
+          # Its test fixtures legitimately contain placeholder API keys
+          # and PEM blocks (codex CLI login tests, agent-identity unit
+          # tests, etc.) that look like sk-... strings but are not real
+          # credentials. Those belong to upstream maintainers; we cannot
+          # rotate or delete them. Post-filter the grep output by path
+          # so we only flag in-tree secrets, not vendored fixtures.
+          hits="$(
+            grep -RInI -E \
+              "(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[0-9A-Z]{16}|-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----)" \
+              . \
+              --exclude-dir=.git \
+              --exclude-dir=.venv \
+              --exclude-dir=venv \
+              --exclude-dir=node_modules \
+              --exclude="*.png" \
+              --exclude="*.jpg" \
+              --exclude="*.jpeg" \
+              --exclude="*.gif" \
+              --exclude="*.mp4" \
+              --exclude="*.webm" \
+              --exclude="*.pt" \
+              --exclude="*.onnx" \
+              | grep -v -E '^\./docs/references/' \
+              || true
+          )"
+
+          if [ -n "$hits" ]; then
+            echo "Possible secret detected:"
+            echo "$hits"
+            echo "Please remove it and rotate the key if needed."
             exit 1
           fi
 

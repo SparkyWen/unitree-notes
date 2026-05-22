@@ -346,12 +346,30 @@ class RecallSearcher:
         self, *, cwd: Path, pattern: str, globs: list[str],
         jsonl_target: Optional[Path], max_lines: int,
     ) -> dict:
-        # Simpler fallback: grep -rn --include=GLOB PATTERN .
-        args = ["grep", "-rn", "--color=never"]
+        # GNU grep's --include=GLOB matches basenames only, so a glob with a
+        # path component (e.g. "rollout_summaries/*.md") silently matches
+        # nothing. Enumerate matching files ourselves via Path.glob, then
+        # pass them explicitly to a single grep -Hn invocation. -H forces
+        # the filename prefix even if only one file matches.
+        files: list[str] = []
         for g in globs:
-            args.append(f"--include={g}")
-        args.append(pattern)
-        args.append(".")
+            if g.startswith(("/", "..")):
+                continue
+            try:
+                for f in cwd.glob(g):
+                    if f.is_file():
+                        files.append(str(f.relative_to(cwd)))
+                        if len(files) >= 1000:
+                            break
+            except OSError:
+                continue
+            if len(files) >= 1000:
+                break
+        if not files:
+            return {"status": RECALL_STATUS_OK, "matches": [],
+                    "truncated": False, "scope_cwd": str(cwd)}
+
+        args = ["grep", "-Hn", "--color=never", pattern, *files]
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args, cwd=str(cwd),
@@ -362,9 +380,10 @@ class RecallSearcher:
         except (asyncio.TimeoutError, OSError, ProcessLookupError):
             return {"status": RECALL_STATUS_TOOL_UNAVAILABLE,
                     "reason": "grep unavailable or timed out"}
-        lines = out.decode("utf-8", errors="replace").splitlines()[:max_lines]
+        all_lines = out.decode("utf-8", errors="replace").splitlines()
+        lines = all_lines[:max_lines]
         return {"status": RECALL_STATUS_OK, "matches": lines,
-                "truncated": len(lines) >= max_lines,
+                "truncated": len(all_lines) > max_lines,
                 "scope_cwd": str(cwd)}
 
     async def _python_search(

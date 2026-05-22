@@ -186,30 +186,43 @@ which rg && rg --version | head -1
 
 `configs/g1_brain.yaml` 末尾的 `memory:` 节默认 `enabled: true`,无需改。
 
-## 3.2 启动顺序(与现有跑法保持一致,只是 memory 自动跟随)
+## 3.2 启动顺序(memory 自动跟随 agent)
+
+只需 2 个终端就能跑 memory harness。**不要单独再跑 `g1_sim_rl_combo.py`** —— `agent_main.py` 内部默认 `isolate_controller=True`,会自动 spawn 一个 `ComboProxy` 子进程跑 ComboController;如果你再独立启动 `g1_sim_rl_combo.py`,两个 ComboController 会同时往 `/rt/lowcmd` 发包打架。
 
 ```bash
-# 终端 1 — MuJoCo
+# 终端 1 — MuJoCo 仿真
 conda activate agi
+
+# WSL2 下走 D3D12 GPU 加速(原生 Linux 可跳过这段)
+export MESA_LOADER_DRIVER_OVERRIDE=d3d12
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+export LIBGL_ALWAYS_SOFTWARE=0
+export MUJOCO_GL=glfw
+glxinfo -B | grep -E "OpenGL renderer|Accelerated|Device|Vendor"
+
 cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 python unitree_mujoco.py    # 按 7 放下,按 9 松开吊带
 
-# 终端 2 — RL combo controller
+# 终端 2 — agent(memory 自动启用,内部自带 ComboProxy 子进程)
 conda activate agi
-cd ~/unitree/unitree-notes/g1_sim_demo
-python g1_sim_rl_combo.py
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a            # OPENAI_API_KEY etc.
+python -m g1_brain.apps.agent_main --mode confirm
+```
 
-# 终端 3 (可选)— E-stop 监听
+可选的第 3 个终端 —— E-stop 监听(panic-button,按 ESC 立刻零力矩):
+
+```bash
 conda activate agi
 cd ~/unitree/unitree-notes/g1_brain
 python -m g1_brain.safety.estop_listener
-
-# 终端 4 — agent(memory 自动启用)
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-set -a; source .env; set +a
-python -m g1_brain.apps.agent_main --mode confirm
 ```
+
+不启它的话 SafetySupervisor 的软安全仍然在工作,只是少了一个独立兜底进程。
+
+> ⚠️ `cameras.usb.source` 默认是 `teleimager`,如果你不打算测 wave / pose 类视觉技能,agent 起来会持续报 `watchdog usb_frame tripped`(不致命,memory harness 主流程不受影响)。要彻底消掉就跑 `teleimager.image_server`,或在 `configs/g1_brain.yaml` 里把 `cameras.usb.enabled` 改 `false`。
 
 启动时 `agent.log` 里应看到:
 ```

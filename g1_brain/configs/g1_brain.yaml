@@ -56,7 +56,14 @@ cameras:
     camera_name: "head_camera"  # synthesized on attach_body if missing in MJCF
     width: 640
     height: 480
-    poll_hz: 20
+    # 10 Hz is the sweet spot on WSL2 where the head-cam renders on Mesa
+    # llvmpipe (CPU/SIMD) — NVIDIA's GL is not exposed in WSL2 (only D3D12
+    # translation, which is ~2x slower than llvmpipe for MuJoCo's draw
+    # pattern). At 20 Hz the render thread saturated a CPU core continuously
+    # and starved audio + the simulator window. The vision LLM is called
+    # at most every few seconds, ground watchdog only needs ~5 Hz, so 10 Hz
+    # is plenty of headroom.
+    poll_hz: 10
     # When the included MJCF has no <camera>, MuJoCoHeadCamera attaches one
     # via MjSpec onto this body. Defaults match unitree_mujoco's G1 torso.
     # To inspect the rendered head view live, run:

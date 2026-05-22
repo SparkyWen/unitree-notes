@@ -17,6 +17,19 @@ Bypass flags (mostly for debugging individual subsystems):
 """
 from __future__ import annotations
 
+# CPU budget for ML/render threads. Must be set BEFORE numpy / mujoco / yolo
+# import or their thread pools latch the system core count. On a WSL2 box
+# with NVIDIA the head-cam renders on Mesa llvmpipe (CPU/SIMD — WSL2 has no
+# libGL_nvidia.so, only D3D12 translation which is ~2x slower for MuJoCo's
+# draw pattern). Letting llvmpipe spawn one thread per core stalls audio /
+# asyncio / DDS. 3 threads keeps render fast without monopolizing the box.
+# OMP_NUM_THREADS caps numpy/scipy/torch's intra-op OpenMP pool similarly.
+import os as _os
+_os.environ.setdefault("LP_NUM_THREADS", "3")
+_os.environ.setdefault("OMP_NUM_THREADS", "3")
+_os.environ.setdefault("MKL_NUM_THREADS", "3")
+_os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
 import argparse
 import asyncio
 import errno

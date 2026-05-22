@@ -477,18 +477,25 @@ def _recall_read() -> dict:
         "name": "recall_read",
         "description": (
             "Read a memory file. Use after recall_grep finds a relevant entry "
-            "and you want full context. Paths are relative to the memories/ "
-            "directory or logs/conversations/. Returns up to 4 KB of text; "
-            "for larger files specify start_line / end_line."
+            "and you want full context. The path is a BARE filename relative "
+            "to one of two sandbox roots (memories/ or logs/conversations/) — "
+            "do NOT include 'logs/conversations/' or 'memories/' as a prefix; "
+            "they are the roots, not directories inside the path. Returns up "
+            "to 4 KB; for larger files specify start_line / end_line."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Relative path: e.g. 'MEMORY.md', "
-                                   "'rollout_summaries/abc-walk.md', "
-                                   "or '<session>.jsonl' under conversations/.",
+                    "description": (
+                        "Bare filename relative to a sandbox root. Examples: "
+                        "'MEMORY.md', 'raw_memories.md', "
+                        "'rollout_summaries/abc-walk.md', "
+                        "'2026-05-22T03-04-43Z-6da3f1a0.jsonl' (NOT "
+                        "'logs/conversations/2026-05-22T...jsonl'). Use "
+                        "exactly the filename recall_grep returned."
+                    ),
                 },
                 "start_line": {
                     "type": "integer",
@@ -540,11 +547,13 @@ def _ask_slow_brain() -> dict:
         "description": (
             "Consult the slow deliberative brain (Codex) for queries that "
             "need multi-step reasoning, planning, or deep recall over many "
-            "past sessions. SLOW: 5-20 seconds. Use SPARINGLY. Good cases: "
-            "(1) user asks for a multi-step plan; (2) recall_grep failed and "
-            "you suspect rare historical knowledge; (3) deep think about a "
-            "non-obvious safety implication. NEVER use for any reflex or "
-            "motion decision — those stay on the fast path."
+            "past sessions. SLOW: 5-30 seconds on a warm daemon, up to 60s "
+            "for deep cross-session searches. Use SPARINGLY. Good cases: "
+            "(1) user asks for a multi-step plan; (2) recall_grep returned "
+            "nothing useful and you suspect rare historical knowledge "
+            "buried in jsonl transcripts; (3) deep think about a non-obvious "
+            "safety implication. NEVER use for any reflex or motion "
+            "decision — those stay on the fast path."
         ),
         "parameters": {
             "type": "object",
@@ -557,8 +566,10 @@ def _ask_slow_brain() -> dict:
                 },
                 "timeout_s": {
                     "type": "number",
-                    "description": "Wait budget in seconds (3-60, default 20). "
-                                   "Lower = faster fallback.",
+                    "description": "Wait budget in seconds (3-60, default 30). "
+                                   "Bump to 45-60 when asking the slow brain "
+                                   "to grep many old sessions; lower for "
+                                   "quick plan-style queries.",
                 },
             },
             "required": ["query"],

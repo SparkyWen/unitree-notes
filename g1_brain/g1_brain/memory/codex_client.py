@@ -203,21 +203,38 @@ class CodexClient:
     def _extract_final_text(ev: dict, sink: List[str]) -> None:
         """Best-effort extraction across codex event shape variations.
 
-        We accept several common shapes:
+        Accepted shapes (older codex versions through codex-cli 0.128):
         - {"type":"agent_message", "message":"..."}
         - {"type":"message", "role":"assistant", "content":[{"type":"text","text":"..."}]}
         - {"type":"task_complete", "last_agent_message":"..."}
         - {"msg":{"type":"agent_message","message":"..."}}
         - {"type":"final_assistant_message", "text":"..."}
+        - {"type":"item.completed", "item":{"type":"agent_message","text":"..."}}  (codex 0.128)
+        - {"type":"item.completed", "item":{"type":"message","role":"assistant",
+                                              "content":[{"type":"text","text":"..."}]}}
         """
         if not isinstance(ev, dict):
             return
-        # Unwrap a common "msg" envelope
+
+        # codex-cli 0.128+ wraps assistant output in an item.completed envelope.
+        if ev.get("type") == "item.completed":
+            item = ev.get("item")
+            if isinstance(item, dict):
+                # Recurse into the nested item: same parser handles it.
+                CodexClient._extract_final_text(item, sink)
+            return
+
+        # Unwrap a common "msg" envelope used by some intermediate codex builds.
         body = ev.get("msg") if isinstance(ev.get("msg"), dict) else ev
 
         t = body.get("type") or ev.get("type")
-        if t in ("agent_message",) and isinstance(body.get("message"), str):
-            sink.append(body["message"])
+        if t == "agent_message":
+            # Old shape uses "message"; 0.128 nested-item shape uses "text".
+            for k in ("message", "text"):
+                v = body.get(k)
+                if isinstance(v, str) and v:
+                    sink.append(v)
+                    return
             return
         if t == "task_complete" and isinstance(body.get("last_agent_message"), str):
             sink.append(body["last_agent_message"])

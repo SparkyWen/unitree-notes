@@ -97,6 +97,39 @@ async def test_grep_jsonl_with_session(searcher) -> None:
 
 
 @pytest.mark.asyncio
+async def test_grep_jsonl_returns_content_not_omitted_marker(
+    memories_tree, tmp_path,
+) -> None:
+    """JSONL lines are typically 0.5–5 kB. With a tight --max-columns rg
+    returns '[Omitted long matching line]' which is useless to the caller.
+    Verify the search now returns the start of the matching line instead.
+    """
+    mem, convs = memories_tree
+    # Write a long JSONL line (~1500 chars) with a unique marker near the start
+    long_value = "x" * 1400
+    long_event = json.dumps({
+        "type": "user", "session_id": "longline12345",
+        "message": {"role": "user",
+                    "content": [{"type": "text",
+                                 "text": f"MARKER_TOKEN {long_value}"}]},
+    }, ensure_ascii=False)
+    (convs / "2026-05-22T10-00-00Z-longline.jsonl").write_text(
+        long_event + "\n", encoding="utf-8",
+    )
+
+    searcher = RecallSearcher(memories_dir=mem, conversations_dir=convs)
+    r = await searcher.grep(pattern="MARKER_TOKEN", scope="jsonl")
+    assert r["status"] == RECALL_STATUS_OK
+    assert r["matches"], "expected at least one match"
+    # The match line must include the marker prefix, not just a placeholder.
+    joined = "\n".join(r["matches"])
+    assert "MARKER_TOKEN" in joined, (
+        f"matches should contain actual content, got: {joined[:300]!r}"
+    )
+    assert "[Omitted long matching line]" not in joined
+
+
+@pytest.mark.asyncio
 async def test_grep_no_match_returns_empty_matches(searcher) -> None:
     r = await searcher.grep(pattern="zzz-nonexistent-zzz", scope="registry")
     assert r["status"] == RECALL_STATUS_OK
@@ -161,6 +194,46 @@ async def test_read_jsonl_with_line_range(searcher, memories_tree) -> None:
     # Sandbox allows conversations/ too; recall_read uses relative within either root
     r = await searcher.read(path=rel, start_line=1, end_line=5)
     assert r["status"] == RECALL_STATUS_OK
+
+
+@pytest.mark.asyncio
+async def test_read_strips_logs_conversations_prefix(
+    searcher, memories_tree,
+) -> None:
+    """The fast brain commonly prefixes paths with the sandbox root name.
+
+    'logs/conversations/foo.jsonl' should still resolve because
+    logs/conversations/ IS the sandbox root, not a subdir inside it.
+    """
+    _mem, convs = memories_tree
+    files = list(convs.glob("*.jsonl"))
+    assert files
+    rel = files[0].name
+    r = await searcher.read(
+        path=f"logs/conversations/{rel}", start_line=1, end_line=5,
+    )
+    assert r["status"] == RECALL_STATUS_OK
+
+
+@pytest.mark.asyncio
+async def test_read_strips_bare_conversations_prefix(
+    searcher, memories_tree,
+) -> None:
+    _mem, convs = memories_tree
+    rel = next(convs.glob("*.jsonl")).name
+    r = await searcher.read(
+        path=f"conversations/{rel}", start_line=1, end_line=5,
+    )
+    assert r["status"] == RECALL_STATUS_OK
+
+
+@pytest.mark.asyncio
+async def test_read_strips_memories_prefix(searcher) -> None:
+    """'memories/MEMORY.md' should resolve like 'MEMORY.md'."""
+    r = await searcher.read(path="memories/MEMORY.md")
+    assert r["status"] == RECALL_STATUS_OK
+    text = "\n".join(r["lines"])
+    assert "G1 Memory Registry" in text
 
 
 # ---------- glob ----------

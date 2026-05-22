@@ -815,7 +815,7 @@ class SkillServer:
     async def _skill_ask_slow_brain(
         self,
         query: str,
-        timeout_s: float = 20.0,
+        timeout_s: float = 30.0,
     ) -> Dict[str, Any]:
         if self.memory is None:
             return {"ok": False, "skill": "ask_slow_brain",

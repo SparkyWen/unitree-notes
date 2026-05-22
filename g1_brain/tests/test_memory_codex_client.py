@@ -121,6 +121,57 @@ async def test_exec_once_takes_last_message_when_multiple(
 
 
 @pytest.mark.asyncio
+async def test_exec_once_extracts_codex_0128_item_completed_envelope(
+    tmp_path: Path, workdir,
+) -> None:
+    """codex-cli 0.128 wraps agent_message inside an item.completed envelope.
+
+    Real event observed from codex-cli 0.128.0:
+      {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"4"}}
+
+    Before the fix the parser only knew the old {"type":"agent_message",
+    "message":"..."} shape and Phase1 failed on every session with
+    "produced no assistant text".
+    """
+    events = [
+        json.dumps({"type": "thread.started",
+                    "thread_id": "019e4e27-d5fd-7193-8506-711aebbaf2a4"}),
+        json.dumps({"type": "turn.started"}),
+        json.dumps({
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": "agent_message", "text": "4"},
+        }),
+        json.dumps({"type": "turn.completed",
+                    "usage": {"input_tokens": 13748, "output_tokens": 5}}),
+    ]
+    fake = _make_fake_codex_bin(tmp_path, stdout_lines=events)
+    client = CodexClient(codex_bin=str(fake), workdir=workdir)
+    result = await client.exec_once("p", timeout_s=10)
+    assert result.text == "4"
+
+
+@pytest.mark.asyncio
+async def test_exec_once_extracts_codex_0128_item_completed_message_role(
+    tmp_path: Path, workdir,
+) -> None:
+    """Some codex 0.128 builds nest a role=assistant message inside item.completed."""
+    events = [
+        json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_0", "type": "message", "role": "assistant",
+                "content": [{"type": "text", "text": "hello "},
+                            {"type": "text", "text": "world"}],
+            },
+        }),
+    ]
+    fake = _make_fake_codex_bin(tmp_path, stdout_lines=events)
+    client = CodexClient(codex_bin=str(fake), workdir=workdir)
+    result = await client.exec_once("p", timeout_s=10)
+    assert result.text == "hello world"
+
+
+@pytest.mark.asyncio
 async def test_exec_once_quota_detection_in_stderr(
     tmp_path: Path, workdir,
 ) -> None:

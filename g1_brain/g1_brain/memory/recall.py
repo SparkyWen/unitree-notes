@@ -226,47 +226,89 @@ class RecallSearcher:
             raise PathSandboxError("empty path")
         if Path(rel).is_absolute():
             raise PathSandboxError(f"absolute path forbidden: {rel}")
+        # The fast brain often re-uses paths it saw in recall_grep output or
+        # in the tool description and prefixes them with the root name. The
+        # roots ARE those directories, so accept and strip common prefixes
+        # before the sandbox check. This keeps the model from getting stuck
+        # in a "FILE_NOT_FOUND" loop on what is really the right file.
+        candidates_rel = self._candidate_rel_paths(rel)
+
         # Two-pass: first try roots that ACTUALLY contain the file (after
         # symlink resolution). Only accept if the resolved real path stays
         # under the root. If the file exists in the join but resolves out,
         # raise sandbox (don't fall through to a different root where the
         # path doesn't exist).
         first_match: Optional[Path] = None
-        for root in self._allowed_roots:
-            joined = root / rel
-            if not joined.exists():
-                continue
-            candidate = joined.resolve(strict=False)
-            try:
-                candidate.relative_to(root.resolve())
-            except ValueError:
-                # Symlink (or other) leaves the sandbox root
-                raise PathSandboxError(
-                    f"path resolves outside sandbox: {rel} → {candidate}"
-                )
-            first_match = candidate
-            break
+        for r in candidates_rel:
+            for root in self._allowed_roots:
+                joined = root / r
+                if not joined.exists():
+                    continue
+                candidate = joined.resolve(strict=False)
+                try:
+                    candidate.relative_to(root.resolve())
+                except ValueError:
+                    # Symlink (or other) leaves the sandbox root
+                    raise PathSandboxError(
+                        f"path resolves outside sandbox: {rel} → {candidate}"
+                    )
+                first_match = candidate
+                break
+            if first_match is not None:
+                break
         if first_match is not None:
             return first_match
         # Nothing existed — fall back to returning a path under the first
         # root for the not-found branch. Still sandbox-validate.
-        for root in self._allowed_roots:
-            candidate = (root / rel).resolve(strict=False)
-            try:
-                candidate.relative_to(root.resolve())
-            except ValueError:
-                continue
-            return candidate
+        for r in candidates_rel:
+            for root in self._allowed_roots:
+                candidate = (root / r).resolve(strict=False)
+                try:
+                    candidate.relative_to(root.resolve())
+                except ValueError:
+                    continue
+                return candidate
         raise PathSandboxError(f"path not in allowed roots: {rel}")
+
+    @staticmethod
+    def _candidate_rel_paths(rel: str) -> list[str]:
+        """Return rel with common root-name prefixes stripped.
+
+        Caller may legitimately send e.g. 'logs/conversations/foo.jsonl' or
+        'conversations/foo.jsonl' or 'memories/MEMORY.md' even though those
+        directories ARE the sandbox roots. Try the literal path first, then
+        each prefix-stripped variant.
+        """
+        out = [rel]
+        # Normalise leading "./" once
+        if rel.startswith("./"):
+            out.append(rel[2:])
+        prefixes = (
+            "logs/conversations/",
+            "conversations/",
+            "memories/",
+        )
+        for p in prefixes:
+            if rel.startswith(p):
+                stripped = rel[len(p):]
+                if stripped and stripped not in out:
+                    out.append(stripped)
+        return out
 
     async def _rg_search(
         self, *, cwd: Path, pattern: str, globs: list[str],
         jsonl_target: Optional[Path], max_lines: int,
     ) -> dict:
+        # JSONL lines can be 0.5–5 kB each; a tight --max-columns turns every
+        # match into "[Omitted long matching line]" which is useless to the
+        # caller. Use a generous cap plus --max-columns-preview so truncated
+        # lines still show their first ~2 kB (long enough to expose role +
+        # text content of typical user/assistant/tool events).
         args = [
             self._rg_bin,
             "--line-number", "--color=never", "--no-heading",
-            "--max-columns=240",
+            "--max-columns=2000",
+            "--max-columns-preview",
             f"--max-count={max_lines}",
         ]
         for g in globs:

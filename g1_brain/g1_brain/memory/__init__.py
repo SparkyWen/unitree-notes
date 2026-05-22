@@ -77,12 +77,15 @@ class MemorySubsystem:
         self.storage = StorageLayer(self.robot_root)
         self.jobs = JobScheduler(self.storage)
 
-        # Two distinct codex usage modes share the same binary + codex_home
+        # Two distinct codex usage modes share the same binary + codex_home.
+        # Both get a 16 MB StreamReader buffer so long progress notifications
+        # can't crash the read loop (asyncio default is 64 KB).
         self.codex_exec = CodexClient(
             codex_bin="codex",
             workdir=self.storage.memories_dir,
             codex_home=self.storage.codex_runtime_dir,
             sandbox="read-only",
+            stdout_buffer_bytes=self.cfg.daemon_stdout_buffer_bytes,
         )
         self.daemon = CodexDaemon(
             codex_bin="codex",
@@ -93,6 +96,7 @@ class MemorySubsystem:
             ping_interval_s=self.cfg.daemon_ping_interval_s,
             max_restart_attempts=self.cfg.daemon_restart_max_attempts,
             ask_queue_max=self.cfg.ask_queue_max,
+            stdout_buffer_bytes=self.cfg.daemon_stdout_buffer_bytes,
         )
 
         self.phase1 = Phase1Worker(

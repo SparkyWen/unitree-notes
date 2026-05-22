@@ -119,6 +119,11 @@ class MemoryConfig:
     daemon_ping_interval_s: float = 30.0
     daemon_restart_max_attempts: int = 5
 
+    # StreamReader buffer for codex stdout. Some notifications carry full
+    # tool-call payloads on a single JSONL line; 64KB (asyncio default) is
+    # too small and was causing LimitOverrunError → daemon crash.
+    daemon_stdout_buffer_bytes: int = 16 * 1024 * 1024
+
     passive_summary_max_tokens: int = 2500
     passive_agents_md_max_tokens: int = 1500
     recall_grep_default_max_lines: int = 50

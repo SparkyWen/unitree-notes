@@ -56,6 +56,7 @@ class CodexDaemon:
         ping_interval_s: float = 30.0,
         max_restart_attempts: int = 5,
         ask_queue_max: int = 2,
+        stdout_buffer_bytes: int = 16 * 1024 * 1024,
     ):
         self._bin = codex_bin
         self._workdir = workdir.expanduser().resolve()
@@ -65,6 +66,7 @@ class CodexDaemon:
         self._ping_interval_s = ping_interval_s
         self._max_restart_attempts = max_restart_attempts
         self._ask_queue_max = ask_queue_max
+        self._stdout_buffer_bytes = max(int(stdout_buffer_bytes), 1 << 20)
 
         self._state = STATE_INIT
         self._proc: Optional[asyncio.subprocess.Process] = None
@@ -351,12 +353,19 @@ class CodexDaemon:
             env["CODEX_HOME"] = str(self._codex_home)
 
         log.debug("spawning codex mcp-server: %s", args)
+        # `limit=` raises the StreamReader buffer well above the asyncio default
+        # 64 KB. Codex mcp-server emits progress notifications whose `content`
+        # may carry full tool-call output on one JSONL line; with the default
+        # limit we get LimitOverrunError("Separator is found, but chunk is
+        # longer than limit") and the read loop dies, taking the daemon with
+        # it. 16 MB is generous; codex 0.128 events stay well below that.
         self._proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            limit=self._stdout_buffer_bytes,
         )
         assert self._proc.stdin and self._proc.stdout and self._proc.stderr
         self._stdin = self._proc.stdin

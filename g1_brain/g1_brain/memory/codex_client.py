@@ -66,12 +66,14 @@ class CodexClient:
         codex_home: Optional[Path] = None,
         sandbox: str = "read-only",
         extra_args: Optional[List[str]] = None,
+        stdout_buffer_bytes: int = 16 * 1024 * 1024,
     ):
         self._bin = codex_bin
         self._workdir = workdir.expanduser().resolve()
         self._codex_home = codex_home.expanduser().resolve() if codex_home else None
         self._sandbox = sandbox
         self._extra_args = list(extra_args or [])
+        self._stdout_buffer_bytes = max(int(stdout_buffer_bytes), 1 << 20)
 
     def is_available(self) -> bool:
         return shutil.which(self._bin) is not None
@@ -114,12 +116,16 @@ class CodexClient:
 
         log.debug("codex exec args: %s", args)
 
+        # See daemon.py for the rationale on `limit=`: codex --json stdout
+        # lines can carry large tool-call payloads in one event, and the
+        # asyncio default 64 KB buffer raises LimitOverrunError mid-stream.
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            limit=self._stdout_buffer_bytes,
         )
         assert proc.stdin and proc.stdout and proc.stderr
 

@@ -165,4 +165,152 @@ python -m g1_brain.apps.agent_main --mode confirm
 ```
 
 
+# 3. Memory Harness 全流程
+
+把 G1 接入 Codex 订阅做长期记忆 + ask_slow_brain 的完整跑法。设计在 `docs/harness-design.md`,spec 在 `g1_brain/docs/superpowers/specs/2026-05-21-g1-memory-harness-design.md`。
+
+## 3.1 一次性准备
+
+```bash
+# 1. Codex CLI 已登录(用你订阅的账号)
+codex login                     # 弹浏览器,授权,只做一次
+codex --version                 # 应该输出版本号
+
+# 2. ripgrep 已装(快脑 recall_grep 用)
+which rg && rg --version | head -1
+# 没装就 sudo apt install ripgrep
+
+# 3. agi 环境里有 pytest 等(只为跑测试用,运行 agent 不需要)
+~/miniforge3/envs/agi/bin/python -c "import pytest, asyncio; print('ok')"
+```
+
+`configs/g1_brain.yaml` 末尾的 `memory:` 节默认 `enabled: true`,无需改。
+
+## 3.2 启动顺序(memory 自动跟随 agent)
+
+只需 2 个终端就能跑 memory harness。**不要单独再跑 `g1_sim_rl_combo.py`** —— `agent_main.py` 内部默认 `isolate_controller=True`,会自动 spawn 一个 `ComboProxy` 子进程跑 ComboController;如果你再独立启动 `g1_sim_rl_combo.py`,两个 ComboController 会同时往 `/rt/lowcmd` 发包打架。
+
+```bash
+# 终端 1 — MuJoCo 仿真
+conda activate agi
+
+# WSL2 下走 D3D12 GPU 加速(原生 Linux 可跳过这段)
+export MESA_LOADER_DRIVER_OVERRIDE=d3d12
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+export LIBGL_ALWAYS_SOFTWARE=0
+export MUJOCO_GL=glfw
+glxinfo -B | grep -E "OpenGL renderer|Accelerated|Device|Vendor"
+
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py    # 按 7 放下,按 9 松开吊带
+
+# 终端 2 — agent(memory 自动启用,内部自带 ComboProxy 子进程)
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a            # OPENAI_API_KEY etc.
+python -m g1_brain.apps.agent_main --mode confirm
+```
+
+可选的第 3 个终端 —— E-stop 监听(panic-button,按 ESC 立刻零力矩):
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.safety.estop_listener
+```
+
+不启它的话 SafetySupervisor 的软安全仍然在工作,只是少了一个独立兜底进程。
+
+> ⚠️ `cameras.usb.source` 默认是 `teleimager`,如果你不打算测 wave / pose 类视觉技能,agent 起来会持续报 `watchdog usb_frame tripped`(不致命,memory harness 主流程不受影响)。要彻底消掉就跑 `teleimager.image_server`,或在 `configs/g1_brain.yaml` 里把 `cameras.usb.enabled` 改 `false`。
+
+启动时 `agent.log` 里应看到:
+```
+memory subsystem started; root=/home/<user>/.unitree/g1_brain
+codex daemon ready (tool=codex)
+memory: injected N chars of passive context     # 首次启用时 N=0,Phase2 跑过一次以后才有
+```
+
+## 3.3 第一次运行会发生什么
+
+- `~/.unitree/g1_brain/` 自动建出来:`memories/{AGENTS.md, MEMORY.md, .git/, rollout_summaries/}` + `state.sqlite` + `.codex_runtime/`(隔离的 CODEX_HOME)
+- `MEMORY.md` 首行写下时间锚:`# Memory enabled at <ISO>`,这之前的所有 `logs/conversations/*.jsonl` 永不进 pipeline
+- 每个 turn 的 `plan_done` 后,Phase1 在 30s debounce 后台跑(`codex exec --json --ephemeral`),把这次 session 的 JSONL 抽成 `{raw_memory, rollout_summary, slug}` 写进 SQLite
+- Phase1 完成立刻评估 Phase2(没有 idle 周期):同步 `raw_memories.md` + `rollout_summaries/`,git diff 非空时再调一次 `codex exec` 整合,产出 `MEMORY.md` 和 `memory_summary.md`,然后 `git commit`
+- session 结束(Ctrl-C / 关 agent)时强制 Phase1 + Phase2 各跑一次,保证当前 session 落盘
+
+## 3.4 LLM 在 turn 内能用的 4 个新 tool
+
+- `recall_grep(pattern, scope, [session_id], [max_lines])` — scope: `registry` / `rollouts` / `jsonl` / `all`。毫秒级,纯本地 rg。
+- `recall_read(path, [start_line], [end_line])` — 沙箱路径,只读 `memories/` 和 `logs/conversations/`。
+- `recall_glob(pattern, [limit])` — 列出 memory 文件。
+- `ask_slow_brain(query, [timeout_s=20])` — 通过常驻 `codex mcp-server` daemon 做深思考。barge-in 自动取消。
+
+LLM 按 `~/.unitree/g1_brain/memories/AGENTS.md` 里写的 4-6 步顺序自主调用(summary → 提关键词 → grep MEMORY.md → 开 1-2 个 rollout_summaries → 必要时 grep jsonl)。
+
+## 3.5 检查状态
+
+```bash
+# 看 memory 树
+ls -la ~/.unitree/g1_brain/memories/
+cat ~/.unitree/g1_brain/memories/MEMORY.md
+cat ~/.unitree/g1_brain/memories/memory_summary.md
+ls ~/.unitree/g1_brain/memories/rollout_summaries/
+
+# 看 SQLite jobs 表
+sqlite3 ~/.unitree/g1_brain/state.sqlite \
+  "SELECT kind, job_key, status, retry_remaining, last_error
+   FROM jobs ORDER BY started_at DESC LIMIT 10;"
+
+# 看 stage1 输出
+sqlite3 ~/.unitree/g1_brain/state.sqlite \
+  "SELECT session_id, rollout_slug, length(raw_memory), generated_at
+   FROM stage1_outputs ORDER BY generated_at DESC LIMIT 10;"
+
+# 看 baseline 历史
+git -C ~/.unitree/g1_brain/memories log --oneline
+
+# 看 agent 日志里的 memory 子系统轨迹
+grep -E "memory|phase1|phase2|codex daemon" \
+  ~/unitree/unitree-notes/g1_brain/logs/agent.log | tail -30
+```
+
+## 3.6 出问题怎么救
+
+```bash
+cd ~/unitree/unitree-notes/g1_brain
+
+# state.sqlite 损坏 / 想清空 job 状态
+python -m g1_brain.tools.reset_memory --rebuild-state
+
+# memories/.git 损坏
+python -m g1_brain.tools.reset_memory --rebuild-git
+
+# MEMORY.md / summary / rollout_summaries 想推倒重来(stage1 在 DB 里保留,下次 Phase2 重建)
+python -m g1_brain.tools.reset_memory --reset-md
+
+# 整个核弹清空(慎重,要传两次 --confirm)
+python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
+```
+
+常见症状对照:
+
+| 现象 | 原因 | 修法 |
+|---|---|---|
+| `codex daemon dead after 5 attempts` 在 agent.log | codex 没登录 / binary 在别处 | `codex login` 后重启 agent |
+| ask_slow_brain 总返回 `quota_exhausted` | 订阅额度用尽 | 等 30min 冷却,或换账号 |
+| ask_slow_brain 总返回 `queue_full` | 同时太多 LLM 调,设计默认上限 2 | 改 `memory.ask_queue_max` |
+| Phase1 jobs 卡在 `failed` | 看 `last_error`,通常是 JSON parse 失败 | 通常自愈,持续失败时 `--rebuild-state` |
+| 想关掉 memory 跑老路径 | — | `memory.enabled: false` 改回 |
+
+## 3.7 验证一切就绪
+
+```bash
+# 所有测试绿(不烧订阅,codex subprocess 全 mock)
+cd ~/unitree/unitree-notes/g1_brain
+~/miniforge3/envs/agi/bin/python -m pytest tests/ \
+  --ignore=tests/manual -q
+# 预期: 416 passed
+```
+
 

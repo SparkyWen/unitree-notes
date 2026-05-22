@@ -318,6 +318,17 @@ class BrainConversationStateMachine:
                 self.logger.begin_turn()
             except Exception:
                 log.exception("logger.begin_turn raised")
+            # Memory: capture a turn_start scene snapshot as a keyframe for
+            # the memory pipeline. Best-effort; never raise.
+            scene_bus = getattr(self.agent, "scene_bus", None)
+            if scene_bus is not None and hasattr(self.logger, "log_scene_snapshot"):
+                try:
+                    self.logger.log_scene_snapshot(
+                        trigger="turn_start",
+                        scene_state=scene_bus.snapshot(),
+                    )
+                except Exception:
+                    log.exception("logger.log_scene_snapshot raised")
         self._set_state(State.CAPTURING, reason=reason)
         self._reset_no_speech_timer()
 

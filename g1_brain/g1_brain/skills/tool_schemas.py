@@ -403,13 +403,16 @@ def build_tool_schemas(
         _say(), _describe_scene(), _query_scene_state(), _recall_history(),
         _look_at(), _approach(), _mock_imitate(), _ask_human(),
     ]
+    memory_tools = [
+        _recall_grep(), _recall_read(), _recall_glob(), _ask_slow_brain(),
+    ]
     l2 = [
         _walk(), _turn(), _gesture(), _static_pose(),
         _stop(), _release_arms(),
     ]
     real_only = [_loco_high(), _arm_action_high(), _audio_tts_robot()]
 
-    schemas = l1 + l2
+    schemas = l1 + memory_tools + l2
     if not sim:
         schemas = schemas + real_only
 
@@ -417,10 +420,169 @@ def build_tool_schemas(
         schemas = [s for s in schemas if s["name"] != "mock_imitate"]
 
     if vision_only:
-        keep = {"say", "describe_scene", "query_scene_state", "recall_history"}
+        keep = {"say", "describe_scene", "query_scene_state", "recall_history",
+                "recall_grep", "recall_read", "recall_glob", "ask_slow_brain"}
         schemas = [s for s in schemas if s["name"] in keep]
 
     return schemas
+
+
+def _recall_grep() -> dict:
+    return {
+        "type": "function",
+        "name": "recall_grep",
+        "description": (
+            "Search the robot's long-term memory files with ripgrep. "
+            "Returns matching lines with file path and line number, capped "
+            "at max_lines. Use this FIRST when you suspect prior-session "
+            "knowledge is relevant. Start with scope='registry' (MEMORY.md "
+            "+ raw_memories.md + AGENTS.md); escalate to 'rollouts' for "
+            "narrative detail; only fall back to 'jsonl' when you need "
+            "exact tool args or transcript text. Stop within 4-6 searches."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": (
+                        "ripgrep regex. Word boundaries (\\b) only work for "
+                        "ASCII — for Chinese terms use the bare literal "
+                        "(e.g. '圆柱体|长方体', NOT '\\b(圆柱体|长方体)\\b' "
+                        "— that never matches because CJK chars aren't "
+                        "word chars in rg's default engine). For short "
+                        "English terms, \\b is fine (e.g. '\\bcup\\b'). "
+                        "If unsure, drop \\b and rely on the keyword being "
+                        "specific enough."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["registry", "rollouts", "jsonl", "all"],
+                    "description": "registry=MEMORY.md + raw_memories.md + "
+                                   "AGENTS.md; rollouts=rollout_summaries/*.md; "
+                                   "jsonl=raw transcripts (slow, use last); "
+                                   "all=combination of registry+rollouts.",
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional: restrict jsonl scope to one "
+                                   "session's transcript file (first 8 hex chars).",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Cap on returned matches (default 50, max 100).",
+                },
+            },
+            "required": ["pattern"],
+        },
+    }
+
+
+def _recall_read() -> dict:
+    return {
+        "type": "function",
+        "name": "recall_read",
+        "description": (
+            "Read a memory file. Use after recall_grep finds a relevant entry "
+            "and you want full context. The path is a BARE filename relative "
+            "to one of two sandbox roots (memories/ or logs/conversations/) — "
+            "do NOT include 'logs/conversations/' or 'memories/' as a prefix; "
+            "they are the roots, not directories inside the path. Returns up "
+            "to 4 KB; for larger files specify start_line / end_line."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Bare filename relative to a sandbox root. Examples: "
+                        "'MEMORY.md', 'raw_memories.md', "
+                        "'rollout_summaries/abc-walk.md', "
+                        "'2026-05-22T03-04-43Z-6da3f1a0.jsonl' (NOT "
+                        "'logs/conversations/2026-05-22T...jsonl'). Use "
+                        "exactly the filename recall_grep returned."
+                    ),
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "1-indexed start line (default 1).",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "1-indexed end line (inclusive). Omit to "
+                                   "read until budget exhausted.",
+                },
+            },
+            "required": ["path"],
+        },
+    }
+
+
+def _recall_glob() -> dict:
+    return {
+        "type": "function",
+        "name": "recall_glob",
+        "description": (
+            "List memory files matching a glob pattern. Use to discover what "
+            "rollout_summaries exist or find files by name. Patterns are "
+            "evaluated under the allowed memory roots; absolute paths and "
+            "'..' escapes are rejected."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string",
+                    "description": "e.g. 'rollout_summaries/*walk*.md' or "
+                                   "'rollout_summaries/2026-05*.md'.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 50, max 200).",
+                },
+            },
+            "required": ["pattern"],
+        },
+    }
+
+
+def _ask_slow_brain() -> dict:
+    return {
+        "type": "function",
+        "name": "ask_slow_brain",
+        "description": (
+            "Consult the slow deliberative brain (Codex) for queries that "
+            "need multi-step reasoning, planning, or deep recall over many "
+            "past sessions. SLOW: 5-30 seconds on a warm daemon, up to 60s "
+            "for deep cross-session searches. Use SPARINGLY. Good cases: "
+            "(1) user asks for a multi-step plan; (2) recall_grep returned "
+            "nothing useful and you suspect rare historical knowledge "
+            "buried in jsonl transcripts; (3) deep think about a non-obvious "
+            "safety implication. NEVER use for any reflex or motion "
+            "decision — those stay on the fast path."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Full question for the slow brain. Be "
+                                   "specific and self-contained; the slow "
+                                   "brain doesn't see live conversation.",
+                },
+                "timeout_s": {
+                    "type": "number",
+                    "description": "Wait budget in seconds (3-60, default 30). "
+                                   "Bump to 45-60 when asking the slow brain "
+                                   "to grep many old sessions; lower for "
+                                   "quick plan-style queries.",
+                },
+            },
+            "required": ["query"],
+        },
+    }
 
 
 __all__ = [

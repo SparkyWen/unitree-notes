@@ -225,6 +225,173 @@ def test_meta_helpers(tmp_path):
     assert expected.issubset(set(subtypes))
 
 
+class _FakeUser:
+    def __init__(self, pose=None, gesture=None):
+        self.pose = pose
+        self.gesture = gesture
+
+
+class _FakeDetection:
+    def __init__(self, class_name):
+        self.class_name = class_name
+
+
+class _FakeSceneState:
+    """Minimal duck-typed scene state for log_scene_snapshot tests."""
+
+    def __init__(
+        self, persons_visible=1, user=None,
+        nearest_person_m=1.3, nearest_obstacle_m=0.8,
+        ground_constraint="flat", warnings=None, detections=None,
+    ):
+        self.persons_visible = persons_visible
+        self.user = user
+        self.nearest_person_m = nearest_person_m
+        self.nearest_obstacle_m = nearest_obstacle_m
+        self.ground_constraint = ground_constraint
+        self.warnings = warnings or []
+        self.detections = detections or {}
+
+
+def test_log_scene_snapshot_full(tmp_path):
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    scene = _FakeSceneState(
+        persons_visible=2,
+        user=_FakeUser(pose="standing", gesture="wave"),
+        nearest_person_m=1.5,
+        nearest_obstacle_m=0.6,
+        ground_constraint="flat",
+        warnings=["close_obstacle"],
+        detections={
+            "head_cam": [_FakeDetection("person"),
+                         _FakeDetection("person"),
+                         _FakeDetection("chair")],
+        },
+    )
+    lg.log_scene_snapshot(trigger="turn_start", scene_state=scene)
+    lg.close()
+    recs = _read_lines(lg.path)
+    snaps = [r for r in recs if r.get("subtype") == "scene_snapshot"]
+    assert len(snaps) == 1
+    d = snaps[0]["data"]
+    assert d["trigger"] == "turn_start"
+    assert d["persons_visible"] == 2
+    assert d["user_pose"] == "standing"
+    assert d["user_gesture"] == "wave"
+    assert d["nearest_obstacle_m"] == 0.6
+    assert d["ground_constraint"] == "flat"
+    assert "close_obstacle" in d["warnings"]
+    assert d["detections_summary"]["head_cam"]["person"] == 2
+    assert d["detections_summary"]["head_cam"]["chair"] == 1
+    assert d["frame_ref"] is None
+
+
+def test_log_scene_snapshot_missing_fields(tmp_path):
+    """If scene_state lacks fields, snapshot is still emitted with Nones."""
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    lg.log_scene_snapshot(trigger="pre_motion", scene_state=None)
+    lg.close()
+    snaps = [r for r in _read_lines(lg.path)
+             if r.get("subtype") == "scene_snapshot"]
+    assert len(snaps) == 1
+    d = snaps[0]["data"]
+    assert d["trigger"] == "pre_motion"
+    assert d["persons_visible"] is None
+
+
+def test_log_action_result(tmp_path):
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    lg.log_action_result(
+        tool_use_id="call_abc",
+        tool_name="walk",
+        args={"vx": 0.3, "duration": 2.0},
+        status="ok",
+        outcome_metrics={"displacement_m": 0.58,
+                         "end_safety_state": "STANDING"},
+        result_payload_brief='{"walked": 0.58}',
+    )
+    lg.close()
+    recs = _read_lines(lg.path)
+    ars = [r for r in recs if r.get("subtype") == "action_result"]
+    assert len(ars) == 1
+    d = ars[0]["data"]
+    assert d["tool_use_id"] == "call_abc"
+    assert d["tool_name"] == "walk"
+    assert d["status"] == "ok"
+    assert d["outcome_metrics"]["displacement_m"] == 0.58
+    assert d["blocked_reason"] is None
+
+
+def test_log_action_result_blocked(tmp_path):
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    lg.log_action_result(
+        tool_use_id="call_x",
+        tool_name="turn",
+        args={"yaw_deg": 90},
+        status="blocked_by_safety",
+        blocked_reason="scene_check_turn:person_close",
+    )
+    lg.close()
+    ars = [r for r in _read_lines(lg.path) if r.get("subtype") == "action_result"]
+    assert ars[0]["data"]["status"] == "blocked_by_safety"
+    assert "person_close" in ars[0]["data"]["blocked_reason"]
+
+
+def test_log_action_result_brief_trimmed(tmp_path):
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    long_payload = "x" * 1000
+    lg.log_action_result(
+        tool_use_id="c", tool_name="t", args={}, status="ok",
+        result_payload_brief=long_payload,
+    )
+    lg.close()
+    ar = [r for r in _read_lines(lg.path)
+          if r.get("subtype") == "action_result"][0]
+    assert len(ar["data"]["result_payload_brief"]) <= 256
+
+
+def test_log_safety_event_all_kinds(tmp_path):
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    lg.log_safety_event(kind="tool_rejected", rule="scene_check_walk",
+                        details="obstacle 0.2m",
+                        associated_tool_use_id="c1")
+    lg.log_safety_event(kind="fsm_transition", from_state="STANDING",
+                        to_state="ACTING")
+    lg.log_safety_event(kind="vision_gate_risk", details="cardboard box")
+    lg.log_safety_event(kind="estop", details="user pressed button")
+    lg.close()
+    evts = [r for r in _read_lines(lg.path)
+            if r.get("subtype") == "safety_event"]
+    kinds = [e["data"]["kind"] for e in evts]
+    assert kinds == ["tool_rejected", "fsm_transition",
+                     "vision_gate_risk", "estop"]
+    assert evts[0]["data"]["associated_tool_use_id"] == "c1"
+    assert evts[1]["data"]["from_state"] == "STANDING"
+
+
+def test_log_safety_event_details_trimmed(tmp_path):
+    lg = ConversationLogger(tmp_path)
+    lg.log_session_start(argv=[], config_path="")
+    lg.begin_turn()
+    lg.log_safety_event(kind="estop", details="x" * 2000)
+    lg.close()
+    evt = [r for r in _read_lines(lg.path)
+           if r.get("subtype") == "safety_event"][0]
+    assert len(evt["data"]["details"]) <= 512
+
+
 def test_trim_text_preserves_short_strings():
     assert _trim_text("hello", 4096) == "hello"
 

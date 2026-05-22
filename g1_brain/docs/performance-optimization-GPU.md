@@ -412,6 +412,101 @@ scene complexity (USE_TERRAIN=False in `config.py` drops heightfields
 (fewer pixels per frame = less per-frame GPU work), (d) run on native
 Linux for development if maximum smoothness is required.
 
+### 5.6 Correction: mouse-rotation lag is a *render_loop* problem, not a sync problem (third round, 2026-05-22 evening)
+
+After §5.3 landed the operator reported that the viewer window is
+**still** laggy when they rotate the camera with the mouse. Re-reading
+the MuJoCo viewer source clarifies why §5.3 was aimed at the wrong
+target for *this* symptom:
+
+* `mujoco.viewer.launch_passive` spawns a **C++ `render_loop` thread**
+  inside `_simulate.cpython-311.so`. That thread owns the GLFW window,
+  receives mouse callbacks, and renders one frame per loop iteration,
+  paced by `glfwSwapInterval(1)` against the display refresh (WSLg
+  reports 60 Hz here).
+* `viewer.sync()` only copies `MjData` → the internal `MjvScene`. It
+  does **not** issue a redraw, and it does not run in the render
+  thread. The §5.3 `VIEWER_DT` knob therefore controls how often the
+  *robot animation* updates inside the viewer window — it has no
+  influence on mouse-rotation responsiveness.
+* So the §5.3 measurements (p99 sync 10 → 6 ms) were real and useful
+  for robot-motion smoothness, but the mouse-rotation symptom is a
+  separate issue: **render_loop per-frame cost exceeds the 16.6 ms
+  60 Hz budget, so frames drop 60 → 30 → 60 unevenly during rotation**,
+  which reads as "卡顿不流畅".
+
+#### What drives the per-frame cost on this scene (WSL2 D3D12)
+
+The G1+terrain scene has no `<quality>` block, so it inherits MuJoCo
+defaults. The dominant costs per frame, ranked:
+
+1. **Shadow map for the directional light** — default `shadowsize=4096`,
+   one full extra geometry pass per shadow-casting light.
+2. **Floor reflection** — `<material name="groundplane" reflectance=
+   "0.2"/>` triggers a second full geometry pass mirrored through the
+   floor.
+3. **MSAA 4×** — default `offsamples=4` quadruples fragment-shader work.
+4. Terrain geoms (≈30 boxes + 1 hfield) — moderate.
+5. Skybox 3072×512 — small.
+
+On native Linux + libGL_nvidia each GL call is essentially free, so
+these defaults are fine. On WSL2 every call pays the Mesa→D3D12
+translation tax, and (1)+(2)+(3) together push the per-frame budget
+over 16.6 ms.
+
+#### The fix (this round)
+
+**File:** `unitree_mujoco/simulate_python/unitree_mujoco.py`
+
+Added `_apply_low_quality_viewer(mj_model)` called right before
+`launch_passive`. It mutates the *model* (not the viewer's scene,
+which the passive viewer doesn't expose to Python):
+
+```python
+for i in range(model.nlight):
+    model.light_castshadow[i] = 0      # skip shadow pass entirely
+for i in range(model.nmat):
+    model.mat_reflectance[i] = 0.0     # skip reflection pass
+model.vis.quality.shadowsize = 1024     # was 4096
+model.vis.quality.offsamples = 2        # was 4 (MSAA halved)
+```
+
+These are upstream causes — disabling them at the source removes the
+extra render passes regardless of `MjvScene.flags`. The
+`shadowsize`/`offsamples` changes don't matter while shadows are off
+but keep the toggle cheap if the operator re-enables shadows from the
+UI later.
+
+**File:** `unitree_mujoco/simulate_python/config.py`
+
+* `VIEWER_DT = 0.02` (restored from 0.033). The §5.3 → 0.033 was
+  diagnosed against the wrong bottleneck; this knob doesn't gate
+  mouse rotation, so we go back to 50 Hz robot-animation update.
+* `LOW_QUALITY_VIEWER = True` — set False to restore full visual
+  fidelity (e.g. for screenshots), accepting the WSL2 stutter.
+
+#### Why this works even though §5.3 was "right" too
+
+§5.3's `vblank_mode=0` + `mesa_glthread=true` + `LP_NUM_THREADS` are
+still useful — they cut the *tail* of `viewer.sync()`, which the
+physics thread depends on (the SimulationThread blocks behind the
+lock that sync() holds). The §5.6 fix is independent: it cuts the
+C++ render_loop's per-frame cost so the loop itself stays inside
+the 16.6 ms vsync window. The two rounds address different threads.
+
+#### Sanity check
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+./run_sim.sh
+```
+
+Expected: the floor no longer mirrors the robot; no cast shadow on
+the ground; mouse-drag rotation feels smooth (no 60→30 fps oscillation).
+If shadow/reflection are wanted back for a screenshot, set
+`LOW_QUALITY_VIEWER = False` in `config.py` and relaunch.
+
 ---
 
 ## 6. Windows Terminal Quick Edit Mode

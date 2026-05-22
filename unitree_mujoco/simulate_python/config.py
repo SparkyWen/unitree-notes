@@ -41,15 +41,26 @@ ENABLE_ELASTIC_BAND = True # Virtual spring band, used for lifting h1
 ELASTIC_BAND_INIT_LENGTH = 0.0
 
 SIMULATE_DT = 0.005  # Need to be larger than the runtime of viewer.sync()
-# Viewer refresh period. The native MuJoCo viewer ran 50 fps (0.02) cleanly on
-# native Linux + libGL_nvidia. On WSL2 the path is Mesa GL -> D3D12 translator
-# -> DXGI present -> WSLg Wayland compositor -> Hyper-V -> Windows desktop, and
-# that pipeline can't sustain 50 fps consistently. A target of 30 fps (0.033)
-# gives steadier frame timing -- variable 25-50 fps feels stuttery, constant
-# ~30 fps feels smooth. If you've launched via run_sim.sh (vblank_mode=0,
-# mesa_glthread=true) and Windows-side NVIDIA "Prefer maximum performance" is
-# on, you can try dropping back to 0.02 (50 fps).
-VIEWER_DT = 0.033
+# Cadence at which the Python side calls `viewer.sync()` to copy MjData into
+# the rendered scene. This only paces how often the *robot animation* updates
+# in the viewer -- it does NOT control window redraw or mouse-rotation
+# responsiveness, both of which live entirely in MuJoCo's C++ render_loop
+# thread (paced by display vsync). 0.02 = 50 Hz scene-data update, which
+# matches the original native-Linux behaviour. An earlier round briefly set
+# this to 0.033 hoping it would smooth viewer-window stutter; it doesn't,
+# because the stutter root cause is per-frame render cost in the C++ loop
+# (shadows + reflections + MSAA on a heavy scene), not sync cadence.
+VIEWER_DT = 0.02
+
+# Viewer-window visual quality. WSL2's Mesa->D3D12 translation layer charges
+# a per-call overhead, so multi-pass effects (shadow map, reflection probe,
+# MSAA) blow per-frame cost past the 16.6 ms vsync budget and trigger 60->30
+# frame drops that read as "laggy when rotating with the mouse". With these
+# defaults the viewer renders at a steady 60 fps even on scene_29dof_terrain.
+# Set False if you want full visual fidelity (e.g. for screenshots) and can
+# tolerate the stutter -- shadows and reflections are also toggleable live
+# from the viewer's "Rendering" panel (or keys S / R if rebound).
+LOW_QUALITY_VIEWER = True
 
 # ---------------------------------------------------------------------------
 # Default-pose holding PD (G1 only).

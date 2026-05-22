@@ -60,6 +60,7 @@ class CodexDaemon:
         reasoning_effort: str = "high",
         reasoning_summary: str = "concise",
         service_tier: str = "fast",
+        conversations_dir: Optional[Path] = None,
     ):
         self._bin = codex_bin
         self._workdir = workdir.expanduser().resolve()
@@ -73,6 +74,10 @@ class CodexDaemon:
         self._reasoning_effort = (reasoning_effort or "").strip()
         self._reasoning_summary = (reasoning_summary or "").strip()
         self._service_tier = (service_tier or "").strip()
+        self._conversations_dir = (
+            conversations_dir.expanduser().resolve()
+            if conversations_dir else None
+        )
 
         self._state = STATE_INIT
         self._proc: Optional[asyncio.subprocess.Process] = None
@@ -261,13 +266,14 @@ class CodexDaemon:
         self._partial_text_parts[req_id] = []
 
         tool_name = self._tool_name or "codex"
+        wrapped = self._wrap_recall_prompt(query)
         request = {
             "jsonrpc": "2.0",
             "id": req_id,
             "method": "tools/call",
             "params": {
                 "name": tool_name,
-                "arguments": {"prompt": query, "cwd": str(self._workdir)},
+                "arguments": {"prompt": wrapped, "cwd": str(self._workdir)},
             },
         }
         try:
@@ -336,6 +342,68 @@ class CodexDaemon:
                 cancel_waiter.cancel()
             self._pending.pop(req_id, None)
             self._partial_text_parts.pop(req_id, None)
+
+    # ---------- internal: prompt wrap ----------
+
+    def _wrap_recall_prompt(self, query: str) -> str:
+        """Prepend recall context so codex actually does the search.
+
+        Codex's default base_instructions cast it as a coding agent. Without
+        this preamble it ignores AGENTS.md "recall procedure" headers and
+        gives generic answers (or runs `ls` once and gives up). The preamble
+        names absolute paths to MEMORY.md and the JSONL transcripts, tells
+        codex to use rg/cat/sed, and caps the answer length so realtime TTS
+        stays snappy.
+        """
+        memories = str(self._workdir)
+        convs = (
+            str(self._conversations_dir)
+            if self._conversations_dir is not None else
+            "<conversations_dir not configured>"
+        )
+        preamble = (
+            "# Slow brain — robot memory recall task\n"
+            "\n"
+            "You are the slow brain for Sparky (G1 humanoid). The fast brain "
+            "exhausted its local recall budget and is asking you to find one "
+            "specific fact from prior sessions.\n"
+            "\n"
+            "## Filesystem layout (read-only)\n"
+            "\n"
+            f"- Memory registry:   `{memories}/MEMORY.md`\n"
+            f"- Raw entries:       `{memories}/raw_memories.md`\n"
+            f"- Per-session notes: `{memories}/rollout_summaries/*.md`\n"
+            f"- High-level digest: `{memories}/memory_summary.md`\n"
+            f"- Raw JSONL transcripts: `{convs}/*.jsonl` "
+            "(one event per line; lines can be >2 KB)\n"
+            "\n"
+            "## Recall procedure (≤6 shell calls; STOP as soon as you can answer)\n"
+            "\n"
+            "1. `rg -n --max-columns=600 <keywords> "
+            f"{memories}/MEMORY.md {memories}/raw_memories.md`\n"
+            "2. If a hit names a `rollout_summaries/<slug>.md`, "
+            f"`cat {memories}/rollout_summaries/<slug>.md`.\n"
+            "3. For exact evidence (commands, args, scene fields), "
+            f"`rg -n --max-columns=600 <keywords> {convs}/*.jsonl`.\n"
+            "4. For Chinese terms DO NOT use `\\b` word boundaries — they do "
+            "not match between CJK chars. Use the bare term or `-F` "
+            "(literal). Also try common English synonyms (cylinder, cuboid, "
+            "obstacle, step back, take N steps back, walk vx=-).\n"
+            "5. After 4–6 unproductive shell calls, stop and answer "
+            "'I can't find that in prior sessions.'\n"
+            "\n"
+            "## Output\n"
+            "\n"
+            "Plain text, ≤120 Chinese chars or 80 English words. Cite "
+            "`session_id` 8-char prefix + turn_id (e.g., `7f33e260 t-0012`) "
+            "when you quote a transcript. Do NOT echo the procedure or list "
+            "files you grep'd; just answer the user's question.\n"
+            "\n"
+            "## User query (verbatim)\n"
+            "\n"
+            f"{query}\n"
+        )
+        return preamble
 
     # ---------- internal: spawn / initialize ----------
 

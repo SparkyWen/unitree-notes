@@ -445,8 +445,16 @@ def _recall_grep() -> dict:
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "ripgrep regex pattern. Use word boundaries "
-                                   "for short terms (e.g. '\\bcup\\b').",
+                    "description": (
+                        "ripgrep regex. Word boundaries (\\b) only work for "
+                        "ASCII — for Chinese terms use the bare literal "
+                        "(e.g. '圆柱体|长方体', NOT '\\b(圆柱体|长方体)\\b' "
+                        "— that never matches because CJK chars aren't "
+                        "word chars in rg's default engine). For short "
+                        "English terms, \\b is fine (e.g. '\\bcup\\b'). "
+                        "If unsure, drop \\b and rely on the keyword being "
+                        "specific enough."
+                    ),
                 },
                 "scope": {
                     "type": "string",

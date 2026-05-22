@@ -10,6 +10,7 @@ Everything else is internal.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -104,6 +105,7 @@ class MemorySubsystem:
             reasoning_effort=self.cfg.codex_reasoning_effort,
             reasoning_summary=self.cfg.codex_reasoning_summary,
             service_tier=self.cfg.codex_service_tier,
+            conversations_dir=self.conversations_dir,
         )
 
         self.phase1 = Phase1Worker(
@@ -166,6 +168,14 @@ class MemorySubsystem:
             await self.phase1.start()
         except Exception:  # noqa: BLE001
             log.exception("phase1 worker start failed")
+
+        # Backfill: any historical JSONL in conversations_dir that isn't
+        # already represented in sessions/stage1_outputs gets queued for
+        # Phase1 so future recalls can hit summaries, not just raw grep.
+        try:
+            await asyncio.to_thread(self._backfill_historical_sessions)
+        except Exception:  # noqa: BLE001
+            log.exception("historical backfill failed (non-fatal)")
 
         # Daemon starts in background; failures are non-fatal
         try:
@@ -261,6 +271,79 @@ class MemorySubsystem:
 
     def _on_phase1_complete(self, session_id: str):
         return self.phase2.trigger_after_phase1(session_id)
+
+    def _backfill_historical_sessions(self) -> None:
+        """Register any JSONL transcript not yet in sessions and enqueue Phase1.
+
+        The conversation logger uses a per-log random ID in the filename, not
+        the in-event `session_id` — so reading the first JSONL line is the
+        only way to map filename → durable session_id. Sessions that already
+        have a stage1_output are skipped; the live session is also skipped
+        (it will be handled by on_plan_done debounce / shutdown force-run).
+        """
+        if not self.conversations_dir.exists():
+            return
+        files = sorted(self.conversations_dir.glob("*.jsonl"))
+        if not files:
+            return
+        live_path = self.rollout_path
+        enqueued = 0
+        for jsonl in files:
+            try:
+                if jsonl.resolve() == live_path.resolve():
+                    continue
+            except OSError:
+                pass
+            session_id = self._read_session_id_from_jsonl(jsonl)
+            if not session_id:
+                continue
+            try:
+                if self.storage.get_stage1_output(session_id) is not None:
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.storage.upsert_session(
+                    session_id=session_id,
+                    rollout_path=jsonl,
+                    robot_id=os.environ.get("UNITREE_ROBOT_ID", "g1"),
+                )
+            except Exception as e:  # noqa: BLE001
+                # rollout_path is UNIQUE in the schema; if another session
+                # already owns this path (rare) we just skip rather than
+                # blowing up the whole backfill.
+                log.debug("backfill upsert skipped for %s: %s", jsonl, e)
+                continue
+            try:
+                self.storage.mark_session_ended(session_id)
+                self.jobs.enqueue(
+                    kind=JOB_KIND_PHASE1, job_key=session_id,
+                    retry_remaining=2,
+                )
+                enqueued += 1
+            except Exception:  # noqa: BLE001
+                log.exception("backfill: failed for %s", jsonl)
+        if enqueued:
+            log.info("memory backfill: enqueued %d historical sessions for phase1", enqueued)
+
+    @staticmethod
+    def _read_session_id_from_jsonl(path: Path) -> Optional[str]:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                for _ in range(5):  # session_id is on the very first meta line
+                    line = fh.readline()
+                    if not line:
+                        return None
+                    try:
+                        ev = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    sid = ev.get("session_id") if isinstance(ev, dict) else None
+                    if isinstance(sid, str) and sid:
+                        return sid
+        except OSError:
+            return None
+        return None
 
     @staticmethod
     def _read_git_sha() -> Optional[str]:

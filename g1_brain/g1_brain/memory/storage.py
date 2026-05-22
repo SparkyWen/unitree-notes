@@ -249,15 +249,52 @@ class StorageLayer:
         )
 
     def _write_default_agents_md_if_missing(self) -> None:
+        """Sync the packaged default AGENTS.md if missing or stale.
+
+        We own AGENTS.md (the consolidation agent only touches MEMORY.md /
+        memory_summary.md / raw_memories.md / rollout_summaries/). The
+        packaged default carries a version marker in the first line:
+
+            <!-- g1_brain.agents_md_version: <N> -->
+
+        If the on-disk file is missing, has no marker, or has an older
+        version, overwrite it. This lets new releases ship updated recall
+        guidance without forcing every user to delete the old file.
+        """
         agents_md = self.memories_dir / "AGENTS.md"
-        if agents_md.exists():
-            return
-        # Load from packaged default
         default_path = Path(__file__).parent / "prompts" / "default_agents_md.md"
-        if default_path.exists():
-            atomic_write(agents_md, default_path.read_text(encoding="utf-8"))
-        else:
-            atomic_write(agents_md, "# G1 robot memory — read path\n")
+        if not default_path.exists():
+            if not agents_md.exists():
+                atomic_write(agents_md, "# G1 robot memory — read path\n")
+            return
+
+        default_text = default_path.read_text(encoding="utf-8")
+        default_ver = self._extract_agents_md_version(default_text)
+        if not agents_md.exists():
+            atomic_write(agents_md, default_text)
+            return
+        existing_ver = self._extract_agents_md_version(
+            agents_md.read_text(encoding="utf-8", errors="replace"),
+        )
+        if default_ver > existing_ver:
+            log.info(
+                "AGENTS.md version %s -> %s; refreshing %s",
+                existing_ver, default_ver, agents_md,
+            )
+            atomic_write(agents_md, default_text)
+
+    @staticmethod
+    def _extract_agents_md_version(text: str) -> int:
+        """Read `<!-- g1_brain.agents_md_version: N -->` from first ~5 lines."""
+        import re as _re
+        for line in text.splitlines()[:5]:
+            m = _re.search(r"g1_brain\.agents_md_version:\s*(\d+)", line)
+            if m:
+                try:
+                    return int(m.group(1))
+                except ValueError:
+                    return 0
+        return 0
 
     # ---------- generic DB helpers ----------
 

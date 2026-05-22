@@ -321,8 +321,11 @@ class RecallSearcher:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        # 3 s was too tight for jsonl scope (single transcript can be 75 KB
+        # and there can be 20+ of them). 8 s keeps the fast brain responsive
+        # while letting most realistic queries finish.
         try:
-            out, _err = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            out, _err = await asyncio.wait_for(proc.communicate(), timeout=8.0)
         except asyncio.TimeoutError:
             try:
                 proc.terminate()

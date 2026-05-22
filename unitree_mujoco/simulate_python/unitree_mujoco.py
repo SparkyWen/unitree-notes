@@ -51,6 +51,45 @@ def _set_g1_default_qpos():
 _set_g1_default_qpos()
 
 
+def _apply_low_quality_viewer(model):
+    """Lower per-frame render cost so mouse rotation stays smooth on WSL2.
+
+    Mouse-rotation responsiveness in the viewer is bounded by MuJoCo's C++
+    render_loop frame time. On WSL2 the GL path is Mesa -> D3D12 translator,
+    which charges per-call overhead -- so multi-pass effects (shadow map,
+    reflection probe, MSAA) drive the per-frame budget past the 16.6 ms
+    60 Hz vsync window and trigger 60 -> 30 fps drops that read as "laggy
+    when rotating the view".
+
+    We disable the heavy effects at the *source* (model fields), not via
+    `MjvScene.flags`, because the passive viewer's C++ Simulate owns its
+    MjvScene and doesn't expose it to Python. Disabling here is permanent
+    for this run; turn `LOW_QUALITY_VIEWER` off in config.py to restore.
+
+    Specifically:
+      * `light_castshadow[i] = 0` -- skip the shadow-map pass entirely for
+        every directional light. The biggest single win (~one full extra
+        render pass per shadow-casting light per frame).
+      * `mat_reflectance[i] = 0` -- zero out floor reflection. Otherwise
+        the scene is rendered a second time mirrored through the floor.
+      * `vis.quality.shadowsize 4096 -> 1024` -- shrink the shadow texture
+        even though shadows are off, in case the operator toggles them
+        back on from the viewer UI; keeps that toggle cheap.
+      * `vis.quality.offsamples 4 -> 2` -- halve MSAA. Fragment-shader
+        work scales ~linearly with sample count, 2x still softens edges.
+    """
+    if not getattr(config, "LOW_QUALITY_VIEWER", False):
+        return
+    for i in range(model.nlight):
+        model.light_castshadow[i] = 0
+    for i in range(model.nmat):
+        model.mat_reflectance[i] = 0.0
+    model.vis.quality.shadowsize = 1024
+    model.vis.quality.offsamples = 2
+
+
+_apply_low_quality_viewer(mj_model)
+
 if config.ENABLE_ELASTIC_BAND:
     elastic_band = ElasticBand()
     # Pre-set band length so the robot sits near standing height instead of

@@ -56,7 +56,14 @@ cameras:
     camera_name: "head_camera"  # synthesized on attach_body if missing in MJCF
     width: 640
     height: 480
-    poll_hz: 20
+    # 10 Hz is the sweet spot on WSL2 where the head-cam renders on Mesa
+    # llvmpipe (CPU/SIMD) — NVIDIA's GL is not exposed in WSL2 (only D3D12
+    # translation, which is ~2x slower than llvmpipe for MuJoCo's draw
+    # pattern). At 20 Hz the render thread saturated a CPU core continuously
+    # and starved audio + the simulator window. The vision LLM is called
+    # at most every few seconds, ground watchdog only needs ~5 Hz, so 10 Hz
+    # is plenty of headroom.
+    poll_hz: 10
     # When the included MJCF has no <camera>, MuJoCoHeadCamera attaches one
     # via MjSpec onto this body. Defaults match unitree_mujoco's G1 torso.
     # To inspect the rendered head view live, run:
@@ -257,6 +264,24 @@ audio_control:
     # entered. Counters the model's last word echoing into the new capture
     # window before the wake-word detector's rolling buffer flushes.
     min_capture_age_s: 0.4
+  # Echo-aware voice-onset barge-in. Active only in SPEAKING state, as a
+  # backup for the wake-word path — during SPEAKING the bot's own TTS leaks
+  # into the mic and dominates the wake-word ASR window, so "hi sparky"
+  # rarely survives that transcribe. This second path watches mic RMS and
+  # subtracts a prediction of the speaker echo (derived from the bytes
+  # PortAudio just consumed); when user voice clearly rides above the echo
+  # for ~200 ms it fires the same barge-in the wake-word would have.
+  # Tune `margin_rms` / `min_rms` up if you see false barge-ins from a
+  # noisy room; tune `echo_gain` up (towards 1.5) if the mic picks up the
+  # speaker very loudly (e.g. PulseAudio loopback on WSL2 with a single
+  # device for both directions).
+  voice_barge_in:
+    enabled: true
+    echo_gain: 1.0
+    margin_rms: 350.0
+    min_rms: 500.0
+    streak_chunks: 4
+    speaker_window_s: 0.2
   # When the entire current plan finishes (all responses done, all tools
   # returned, speaker drained), go straight to IDLE — no follow-up VAD,
   # no LISTENING_WINDOW. The mic still streams to the wake-word detector

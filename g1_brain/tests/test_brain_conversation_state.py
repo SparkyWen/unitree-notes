@@ -89,6 +89,7 @@ class _StubSpeaker:
     def __init__(self):
         self.cleared = 0
         self._pending = 0
+        self._played_rms = 0.0
 
     def clear(self):
         self.cleared += 1
@@ -99,6 +100,14 @@ class _StubSpeaker:
 
     def set_pending(self, n):
         self._pending = n
+
+    # Used by the echo-aware voice-onset barge-in. Tests inject the value
+    # they want the predicted-echo subtraction to use.
+    def recent_played_rms(self, window_s: float = 0.2) -> float:
+        return float(self._played_rms)
+
+    def set_played_rms(self, rms: float) -> None:
+        self._played_rms = float(rms)
 
 
 class _StubMic:
@@ -611,3 +620,158 @@ async def test_concurrent_barge_in_serialised():
     # Exactly one barge-in path executed; second wake collapses into
     # capture-restart at most.
     assert len(stop_calls) == 1
+
+
+# ------------------------- voice-onset barge-in (SPEAKING) ----------------
+
+def _pcm16_chunk(rms_target: float, n_samples: int = 1200) -> bytes:
+    """Build a PCM16 mono chunk whose RMS ≈ `rms_target`.
+
+    n_samples=1200 → 50 ms at 24 kHz, matching MicStream block_ms default.
+    """
+    import numpy as np
+
+    # Constant-amplitude signal: RMS == |A|.
+    amp = max(1, int(round(rms_target)))
+    arr = np.full(n_samples, amp, dtype=np.int16)
+    return arr.tobytes()
+
+
+@pytest.mark.asyncio
+async def test_voice_barge_in_fires_when_user_overrides_echo():
+    """Mic clearly louder than predicted speaker echo for a streak fires
+    the same barge-in path the wake-word would have."""
+    stop_calls = []
+
+    async def stop_fn():
+        stop_calls.append(time.monotonic())
+
+    sm = _make_sm(stop_skill_callable=stop_fn)
+    await _start_no_mic_loop(sm)
+    # Move to SPEAKING.
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    # Predict echo at ~800; user voice rides above echo + margin (350)
+    # comfortably. 4 chunks satisfies the default streak.
+    sm.speaker.set_played_rms(800.0)
+    loud_chunk = _pcm16_chunk(2500.0)
+    for _ in range(sm.cfg.voice_barge_in_streak_chunks):
+        sm._on_audio_chunk(loud_chunk)
+
+    for _ in range(20):
+        await asyncio.sleep(0.01)
+        if sm.state == State.CAPTURING:
+            break
+
+    assert sm.state == State.CAPTURING
+    assert sm.agent.cancel_calls == 1
+    assert sm.speaker.cleared >= 1
+    assert len(stop_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_voice_barge_in_silent_under_echo():
+    """When the mic only hears the speaker echo (mic_rms ≈ echo_predicted)
+    the barge-in must NOT fire, even with a long stream of chunks."""
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    # Speaker is loud; mic only catches the echo at roughly the same level.
+    sm.speaker.set_played_rms(2000.0)
+    echo_only = _pcm16_chunk(2000.0)
+    for _ in range(20):
+        sm._on_audio_chunk(echo_only)
+
+    await asyncio.sleep(0.02)
+    assert sm.state == State.SPEAKING
+    assert sm.agent.cancel_calls == 0
+    assert sm.speaker.cleared == 0
+
+
+@pytest.mark.asyncio
+async def test_voice_barge_in_requires_streak():
+    """A single loud chunk (cough / desk thump / button click) must not
+    fire the barge-in — the streak guard exists for exactly this case."""
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    sm.speaker.set_played_rms(0.0)
+    loud_chunk = _pcm16_chunk(3000.0)
+    # 1 < default streak (4).
+    sm._on_audio_chunk(loud_chunk)
+    # Quiet again — streak resets.
+    quiet_chunk = _pcm16_chunk(100.0)
+    sm._on_audio_chunk(quiet_chunk)
+
+    await asyncio.sleep(0.02)
+    assert sm.state == State.SPEAKING
+    assert sm.agent.cancel_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_voice_barge_in_disabled_by_config():
+    """Operator can turn the new path off via config; behaviour collapses
+    back to the old wake-word-only barge-in path."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+        idle_after_plan_enabled=False,
+        plan_watchdog_s=10.0,
+        voice_barge_in_enabled=False,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    sm.speaker.set_played_rms(0.0)
+    loud_chunk = _pcm16_chunk(4000.0)
+    for _ in range(20):
+        sm._on_audio_chunk(loud_chunk)
+
+    await asyncio.sleep(0.02)
+    assert sm.state == State.SPEAKING
+    assert sm.agent.cancel_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_voice_barge_in_inactive_outside_speaking():
+    """Loud mic chunks in CAPTURING must not be routed through the new
+    barge-in path (the user is already being captured; nothing to drop)."""
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    assert sm.state == State.CAPTURING
+
+    sm.speaker.set_played_rms(0.0)
+    loud_chunk = _pcm16_chunk(4000.0)
+    # No VAD commit, so we stay in CAPTURING.
+    for _ in range(20):
+        sm._on_audio_chunk(loud_chunk)
+
+    await asyncio.sleep(0.02)
+    assert sm.state == State.CAPTURING
+    assert sm.agent.cancel_calls == 0
+    assert sm.speaker.cleared == 0

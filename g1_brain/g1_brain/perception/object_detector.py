@@ -56,11 +56,24 @@ class ObjectDetector:
             raise
 
         self._model = YOLO(weights)
-        if device and device != "auto":
+        # Resolve "auto" -> actual device. The previous code only called
+        # .to(device) for non-"auto" values, which left YOLO sitting on CPU
+        # forever — ~8x slower than CUDA on this box (99 ms vs 13 ms per
+        # inference at 640x480), saturating one core per source thread.
+        resolved = device
+        if not device or device == "auto":
             try:
-                self._model.to(device)
-            except Exception as e:
-                log.debug("YOLO.to(%s) failed: %s", device, e)
+                import torch
+                resolved = "cuda:0" if torch.cuda.is_available() else "cpu"
+            except Exception:  # noqa: BLE001
+                resolved = "cpu"
+        try:
+            self._model.to(resolved)
+        except Exception as e:  # noqa: BLE001
+            log.warning("YOLO.to(%s) failed: %s; staying on default device", resolved, e)
+            resolved = "cpu"
+        self._device = resolved
+        log.info("yolo device: %s", resolved)
 
     def start(self) -> None:
         for src in self._sources:
@@ -116,7 +129,9 @@ class ObjectDetector:
 
     def _infer(self, bgr: np.ndarray, src: str) -> List[Detection]:
         # YOLO accepts BGR np arrays directly; verbose=False keeps logs clean.
-        results = self._model(bgr, conf=self._conf, verbose=False)
+        # Pass device explicitly: ultralytics' predict() otherwise re-runs its
+        # own auto-detect each call and can drift back to CPU.
+        results = self._model(bgr, conf=self._conf, verbose=False, device=self._device)
         if not results:
             return []
         r0 = results[0]

@@ -401,3 +401,141 @@ cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 
 其它终端（agent / teleimager / estop / va_demo 主进程）都不变。
 
+
+# 5. mujoco跑 phone bridge (Twilio + Realtime)
+
+通过电话遥控机器人。打通后的流程：你拨打 Twilio 号码 → Twilio Media Streams 走反向隧道 → 落到本机 `g1_brain/phone/bridge_server.py` → 桥接到 OpenAI Realtime → 模型听懂你说的话 → 调用 `gesture` / `walk` / `stop` 等工具 → 现有的安全监督 + 视觉风险门 + SkillServer → DDS → MuJoCo 里的 G1 真的动。
+
+详细设计在 `mcp_twilio_design.md`，实现计划在 `docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`，VPS 反向隧道在 systemd-user 单元 `sparkytun-tunnel.service` 已常驻。
+
+## 5.1 一次性准备（只做一次）
+
+```bash
+# 1. .env 里写好 Twilio + 公网桥 URL（gitignored）
+cd ~/unitree/unitree-notes/g1_brain
+# 把 TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER /
+# PUBLIC_BRIDGE_URL / PHONE_ALLOWED_CALLERS 写入 .env
+# 参考: g1_brain/.env.example
+
+# 2. 验证 Twilio 凭据
+set -a; source .env; set +a
+python -m g1_brain.phone.call_me --dry-run
+# 期望: Twilio credentials valid; account: <你的账号 friendly name>
+
+# 3. 验证反向隧道常驻
+systemctl --user is-active sparkytun-tunnel    # 应输出 active
+curl -i https://twilio.openproduct.cn/healthz  # 桥未跑时返回 502（正常）
+```
+
+## 5.2 启动顺序
+
+需要 3 个终端（estop 可选第 4 个）。**电话场景下 `--mode active` 是强制的**——你在打电话，没法去敲终端按 y/N，所以 confirm 模式无法用；安全靠 §10 的 Rule 12 (vision_risk_gate) 兜底。
+
+### 终端 1 — MuJoCo 仿真
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py
+```
+
+viewer 弹出后：按 `7` 把 G1 放下，按 `9` 松开 elastic band。看到 G1 站稳即可。
+
+### 终端 2 — E-stop listener (recommended but optional)
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.safety.estop_listener
+```
+
+`ESC` 触发 E-stop，触发后任何动作 tool 都会被 Rule 11 拒绝，模型会通过电话告诉你「Emergency stop engaged」。
+
+### 终端 3 — brain + phone bridge (the full pipeline)
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a
+python -m g1_brain.apps.agent_main --enable-phone --mode active
+```
+
+等到看到这两行才往下走：
+
+```
+... INFO g1_brain: combo policy active
+... INFO g1_brain: phone bridge listening on 127.0.0.1:8787
+```
+
+注意 `phone bridge listening` 那行在所有 perception/yolo/vision-gate 初始化完成之后才出现，从 `python ...` 按下回车到桥真正监听大约 60 秒。在这之前打电话，Twilio 会 502 然后 1 秒挂断。
+
+## 5.3 发起电话
+
+两种方式，任选其一。
+
+### 方式 A — CLI 直接拨号
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a
+python -m g1_brain.phone.call_me
+# 默认拨 PHONE_ALLOWED_CALLERS[0]；也可显式 --to +61...
+```
+
+输出 `call placed; CallSid=CA...; To=+61...` 之后约 3 秒手机响铃。
+
+### 方式 B — 本地说 "Hi Sparky, call me"
+
+T3 已经在跑，话筒打开。说 "Hi Sparky"，等到日志出现 `wake heard`，然后说 "call me"（或 "给我打电话"）。本地 Realtime 看到 `start_phone_call` 工具，调用它 → 自动选 `PHONE_ALLOWED_CALLERS[0]` 拨号。
+
+**安全注意**：模型只能拨 `PHONE_ALLOWED_CALLERS` 白名单里的号码——这是 2026-05-24 一次事故后加的硬门，那次 wake-word ASR 把 `+6848` 听成 `+6888`，结果给一个澳洲陌生人拨了 3 分钟电话。现在即使 ASR 出错，dial 也会被 SkillServer 拒掉并返回 `not in allowed callers`。
+
+## 5.4 通话中
+
+接听后直接说话，**不需要唤醒词**——电话 session 是独立的 Realtime context，server VAD 自动处理 turn-taking。
+
+| 你说 | 期望听到 / 看到 |
+|---|---|
+| (接通后第一句) | "Hi, this is Sparky. What would you like me to do?" — 英文 |
+| "Wave your right hand" | 模型说 "Waving my right hand now"，MuJoCo 里 G1 右手挥动 |
+| "Walk forward one step" | 模型说 "Walking forward"，G1 迈步 |
+| "Stop" | 模型说 "Stopping"，G1 立即停下 |
+| "Goodbye" | 模型调用 `end_call`，电话挂断 |
+
+T3 日志里看：
+
+```
+... phone: start streamSid=MZ... callSid=CA... bsid=...
+... openai.session.updated
+... tool: gesture(name="wave_right")
+... safety.check pass
+... vision_gate.review: SAFE
+... skill.execute → {"ok":true,"summary":"..."}
+... [assistant] Waving my right hand now.
+... twilio.stop received
+... phone: lease released
+```
+
+## 5.5 故障排查
+
+| 症状 | 第一时间检查 |
+|---|---|
+| 拨号成功但 1 秒挂断（"click"）| T3 还没打印 `phone bridge listening`；桥没起来。等到那行再拨。 |
+| 电话响 → 接通 → 听到一段 Twilio 自动留言 "by upgrading to a full account, press any key to execute your code" | Twilio 处于 Trial 模式，每次外拨都加 preroll。按任意键跳过；升级账号后消失。 |
+| 接通了但 Sparky 说的不是英文也不是中文 | 检查 T3 日志 `[assistant]` 行看模型说了什么。`PHONE_CALL_PREAMBLE` 已经 pin 了语言（caller 用什么语言就回什么，默认英文）；如果还跑偏，加强 prompt。 |
+| 拨号返回 `401 Authenticate` | API Key 失效或 Account SID/Auth Token 不匹配。`TwilioDialer._auth()` 默认用 Account SID + Auth Token；改成 API Key 看注释。 |
+| 拨号返回 `21219 unverified number` | Twilio Trial 账户只能拨 verified 号码。去 console → Phone Numbers → Verified Caller IDs 加号码（或升级账号）。 |
+| Tool call 后机器人没动，模型说 "I can't" | `safety.vision_gate.enabled` 必须 true（fail-closed）。`safety/supervisor.py` 的 `ALLOWED_TOOLS_*` 白名单必须包含该 tool。检查 T3 是否打印了 `vision_gate.review: RISK: ...`。 |
+| 通话中我说话模型没反应 | `cancel_in_flight` 已经 gated 在 `_current_response_id` 非空时才发；如果还是有 `response_cancel_not_active` 错，看 OpenAI Realtime WS 状态。或 server VAD threshold 太高，调 `_session_update` 里的 0.5。 |
+| 模型自己挂断后 lease 没释放 | bridge_server 的 finally 块永远会 release lease + defensive `stop()`；如果真的卡住，看 `/tmp/g1_brain_voice_lease` JSON。 |
+
+## 5.6 关掉电话桥（保留 brain 本地话筒）
+
+按 Ctrl+C 停 T3。隧道（`sparkytun-tunnel.service`）继续在后台跑——下次 T3 起来时桥立刻又通。要彻底停隧道：
+
+```bash
+systemctl --user stop sparkytun-tunnel
+# 永久禁用:
+systemctl --user disable --now sparkytun-tunnel
+```

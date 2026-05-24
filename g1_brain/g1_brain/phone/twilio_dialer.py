@@ -30,6 +30,18 @@ class TwilioDialer:
         self._cfg = cfg
         self._public_bridge_url = public_bridge_url
 
+    def _auth(self) -> aiohttp.BasicAuth:
+        # Account SID + Auth Token works for every account; API Key creds
+        # require an explicit Twilio-side provisioning step. We default to
+        # the universally-working pair so a fresh demo runs without the
+        # operator having to mint API Keys first. If you'd rather use a
+        # rotatable API Key, swap to:
+        #   return aiohttp.BasicAuth(self._cfg.api_key_sid,
+        #                            self._cfg.api_key_secret.get_secret_value())
+        return aiohttp.BasicAuth(
+            self._cfg.account_sid, self._cfg.auth_token.get_secret_value()
+        )
+
     def build_twiml(self, brain_session_id: str) -> str:
         # Note: <Stream> URL is inserted verbatim; caller must ensure it
         # has no XML-special chars (a wss:// URL never does).
@@ -50,9 +62,7 @@ class TwilioDialer:
         bsid = brain_session_id or str(uuid.uuid4())
         twiml = self.build_twiml(bsid)
         url = f"{_API_BASE}/Accounts/{self._cfg.account_sid}/Calls.json"
-        auth = aiohttp.BasicAuth(
-            self._cfg.api_key_sid, self._cfg.api_key_secret.get_secret_value()
-        )
+        auth = self._auth()
         data = {
             "To": to,
             "From": self._cfg.from_number,
@@ -78,9 +88,7 @@ class TwilioDialer:
             f"{_API_BASE}/Accounts/{self._cfg.account_sid}"
             f"/Calls/{call_sid}.json"
         )
-        auth = aiohttp.BasicAuth(
-            self._cfg.api_key_sid, self._cfg.api_key_secret.get_secret_value()
-        )
+        auth = self._auth()
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data={"Status": "completed"}, auth=auth) as resp:
                 if resp.status >= 400:
@@ -90,9 +98,7 @@ class TwilioDialer:
     async def dry_run(self) -> str:
         """GET /Accounts/{sid}.json. Returns the account's friendly_name."""
         url = f"{_API_BASE}/Accounts/{self._cfg.account_sid}.json"
-        auth = aiohttp.BasicAuth(
-            self._cfg.api_key_sid, self._cfg.api_key_secret.get_secret_value()
-        )
+        auth = self._auth()
         async with aiohttp.ClientSession() as session:
             async with session.get(url, auth=auth) as resp:
                 if resp.status >= 400:

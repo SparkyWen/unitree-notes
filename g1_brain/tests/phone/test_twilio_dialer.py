@@ -65,8 +65,10 @@ async def test_dial_posts_to_calls_endpoint(cfg, monkeypatch):
     assert captured["data"]["To"] == "+14155550199"
     assert captured["data"]["From"] == "+14155550100"
     assert "<Stream url=" in captured["data"]["Twiml"]
-    assert captured["auth"].login == cfg.api_key_sid
-    assert captured["auth"].password == cfg.api_key_secret.get_secret_value()
+    # Default auth: Account SID + Auth Token (universally works without
+    # the operator having to mint a Twilio API Key first).
+    assert captured["auth"].login == cfg.account_sid
+    assert captured["auth"].password == cfg.auth_token.get_secret_value()
 
 
 @pytest.mark.asyncio

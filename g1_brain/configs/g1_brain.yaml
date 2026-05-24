@@ -203,12 +203,15 @@ wakeword:
   # something happened. 3 Hz cuts that to ~333 ms while still amortising
   # OpenAI per-second transcription billing.
   inference_rate_hz: 3.0
-  # Was 300 — calibrated for a noisy demo room — which routinely gated out
-  # normal-volume desk-mic speech, leaving the operator saying "hi sparky"
-  # several times with no visible response. 100 matches the code-side default
-  # and reliably opens the transcribe gate for ~conversation-volume speech.
-  # Bump back up only if false wakes from background noise become a problem.
-  rms_threshold: 100
+  # 300 is the operator-preferred gate: 100 was too lax — ambient room
+  # noise / keyboard / fan kept opening the transcribe gate, which is
+  # both a billing cost (every gate-open is one OpenAI transcribe call)
+  # and the main source of perceived "any-sound interruption" during
+  # SPEAKING. 300 still passes ~conversation-volume speech on a desk mic
+  # while keeping idle noise below the gate (idle measured at <50 on
+  # this rig). Drop back toward 100 only if "hi sparky" stops firing
+  # because the mic is unusually quiet.
+  rms_threshold: 300
   cooldown_s: 2.0
   language: null
   phrases:
@@ -271,12 +274,19 @@ audio_control:
   # subtracts a prediction of the speaker echo (derived from the bytes
   # PortAudio just consumed); when user voice clearly rides above the echo
   # for ~200 ms it fires the same barge-in the wake-word would have.
+  #
+  # DEFAULT OFF: operator explicitly only wants "Hi Sparky" to interrupt —
+  # an envelope-only path is loudness-based, so any cough / desk thump /
+  # casual speech crossing the threshold trips it (observed: mic_rms=1093
+  # with speaker_rms=8 firing on stray speech). Re-enable only on setups
+  # where the wake-word transcribe genuinely can't survive the echo and
+  # the operator accepts the false-positive trade.
   # Tune `margin_rms` / `min_rms` up if you see false barge-ins from a
   # noisy room; tune `echo_gain` up (towards 1.5) if the mic picks up the
   # speaker very loudly (e.g. PulseAudio loopback on WSL2 with a single
   # device for both directions).
   voice_barge_in:
-    enabled: true
+    enabled: false
     echo_gain: 1.0
     margin_rms: 350.0
     min_rms: 500.0

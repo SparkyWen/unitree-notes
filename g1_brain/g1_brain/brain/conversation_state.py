@@ -79,7 +79,13 @@ class BrainConversationConfig:
     # barge-in when user voice clearly rides above the echo for a short
     # streak. Active only in SPEAKING; THINKING/CAPTURING/IDLE still use the
     # regular wake-word path.
-    voice_barge_in_enabled: bool = True
+    # Off by default: operator wants "Hi Sparky" to be the sole interrupt
+    # trigger. An envelope-only path fires on any sustained mic loudness
+    # (cough, desk thump, ambient speech), which is exactly the
+    # over-sensitive behaviour we are trying to remove. See the
+    # `audio_control.voice_barge_in` block in g1_brain.yaml for full
+    # rationale and the conditions under which re-enabling makes sense.
+    voice_barge_in_enabled: bool = False
     voice_barge_in_echo_gain: float = 1.0          # echo_rms ≈ speaker_rms × this
     voice_barge_in_margin_rms: float = 350.0       # user must exceed echo + margin
     voice_barge_in_min_rms: float = 500.0          # absolute mic floor (silence guard)

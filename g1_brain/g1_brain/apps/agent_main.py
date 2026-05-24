@@ -1297,6 +1297,30 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         if sm is not None:
             sm.handle_wake(evt)
 
+    # AEC: subtract recently-played speaker bytes from the mic snapshot
+    # before transcribing. Without this, a long bot reply masks the
+    # user's "Hi Sparky" in the transcribe window and barge-in fails for
+    # the full duration of the reply. Defaults to gain 0.6, delay 0.2 s —
+    # tuned for the laptop mic/speaker pairing on WSL2; operators can
+    # override via wakeword.aec.* in yaml. gain=0 disables.
+    #
+    # cleaned_rms_threshold is the post-AEC gate that fixes
+    # operator-reported "first Hi-Sparky misses, second hits during TTS":
+    # during SPEAKING the raw mic is always loud (bot's echo) so the raw
+    # gate is permanently open and every iteration runs a synchronous
+    # transcribe — by the time the user actually speaks, the loop is
+    # mid-call on a bot-only snapshot and the user's voice ends up in the
+    # NEXT iteration's window. Gating on the cleaned RMS skips the
+    # silent-user transcribes so the worker thread stays responsive and
+    # each network call lands on a snapshot that actually contains user
+    # voice. See va_demo.wake_word for the full rationale.
+    aec_cfg = (wakeword_cfg.get("aec") or {})
+    aec_gain = float(aec_cfg.get("gain", 0.6))
+    aec_delay_s = float(aec_cfg.get("delay_s", 0.2))
+    cleaned_rms_threshold = float(
+        wakeword_cfg.get("cleaned_rms_threshold", 0.0),
+    )
+
     wake = WakeWordDetector(
         backend=backend,
         spoken_cache=spoken_cache,
@@ -1308,6 +1332,10 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         cooldown_s=float(wakeword_cfg.get("cooldown_s", 2.0)),
         phrases=wakeword_cfg.get("phrases") or ["hi sparky"],
         selfecho_window_s=float(conv_cfg.get("selfecho_dedup_window_s", 6.0)),
+        speaker_ref=speaker,
+        aec_gain=aec_gain,
+        aec_delay_s=aec_delay_s,
+        cleaned_rms_threshold=cleaned_rms_threshold,
     )
 
     # Bind the stop skill so the state machine can hard-interrupt motion on
@@ -1336,7 +1364,7 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             drain_threshold_bytes=int(idle_cfg.get("drain_threshold_bytes", 2400)),
             drain_max_wait_s=float(idle_cfg.get("drain_max_wait_s", 6.0)),
             plan_watchdog_s=float(audio_ctl.get("plan_watchdog_s", 30.0)),
-            voice_barge_in_enabled=bool(voice_bi_cfg.get("enabled", True)),
+            voice_barge_in_enabled=bool(voice_bi_cfg.get("enabled", False)),
             voice_barge_in_echo_gain=float(voice_bi_cfg.get("echo_gain", 1.0)),
             voice_barge_in_margin_rms=float(voice_bi_cfg.get("margin_rms", 350.0)),
             voice_barge_in_min_rms=float(voice_bi_cfg.get("min_rms", 500.0)),
@@ -1361,7 +1389,7 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         wakeword_cfg.get("phrases"),
         barge_in_cfg.get("enabled", True),
         barge_in_cfg.get("also_stop_skills", True),
-        voice_bi_cfg.get("enabled", True),
+        voice_bi_cfg.get("enabled", False),
         idle_cfg.get("enabled", True),
     )
     return sm

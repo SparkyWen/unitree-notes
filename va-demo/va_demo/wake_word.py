@@ -140,6 +140,10 @@ class WakeWordDetector:
         cooldown_s: float = 2.0,
         phrases: Optional[List[str]] = None,
         selfecho_window_s: float = 6.0,
+        speaker_ref: Optional[object] = None,
+        aec_gain: float = 0.0,
+        aec_delay_s: float = 0.2,
+        cleaned_rms_threshold: float = 0.0,
     ):
         self._backend = backend
         self._cache = spoken_cache
@@ -151,6 +155,44 @@ class WakeWordDetector:
         self._cooldown_s = cooldown_s
         self._phrases = [self._normalize(p) for p in (phrases or ["hi sparky"])]
         self._selfecho_window_s = selfecho_window_s
+        # Post-AEC RMS gate. Raw mic RMS is dominated by the bot's speaker
+        # echo during SPEAKING, so the raw `rms_threshold` is permanently
+        # tripped open while TTS plays — every loop iteration sends a
+        # transcribe call to the network even when the user is silent. The
+        # synchronous transcribe (200–500 ms per call on the OpenAI route)
+        # holds the worker thread, so by the time the user actually says
+        # "Hi Sparky" the loop is mid-call on a bot-only snapshot and the
+        # NEXT iteration is the one that finally looks at the user's audio.
+        # That race is the bulk of the operator-reported "first miss,
+        # second hit" pattern.
+        #
+        # The fix: after AEC subtracts the speaker bytes, gate the
+        # transcribe call by the *cleaned* signal's RMS. When the user is
+        # silent the cleaned signal is just AEC residual (small); when the
+        # user is talking it spikes (user voice survives the subtraction
+        # because it's uncorrelated with the bot's output). Skipping the
+        # silent-user transcribes keeps the worker thread responsive and
+        # focuses each network call on a snapshot likely to contain real
+        # user speech — both of which directly raise first-attempt hit
+        # rate during TTS playback.
+        #
+        # Default 0 disables the gate (preserves bit-for-bit behaviour on
+        # call sites that don't opt in, including the existing test
+        # suite). The yaml config sets a meaningful production value.
+        self._cleaned_rms_threshold = float(cleaned_rms_threshold)
+        # ---- echo subtraction ------------------------------------------
+        # When the bot is talking, the mic captures speaker output much
+        # louder than the user's "Hi Sparky"; the transcribe call returns
+        # mostly the bot's narration and the wake phrase never matches.
+        # If a speaker reference is wired in, we subtract a time-aligned,
+        # scaled copy of the recently-played speaker bytes from the mic
+        # snapshot before transcribing. Gain of 0.0 disables this path
+        # (default — preserves pre-fix behaviour bit-for-bit on call sites
+        # that don't pass a speaker_ref). Gain of ~0.5-1.0 is typical for
+        # a laptop with mic + speaker close together; tune per rig.
+        self._speaker_ref = speaker_ref
+        self._aec_gain = float(aec_gain)
+        self._aec_delay_s = float(aec_delay_s)
 
         self._buf = bytearray()
         self._buf_lock = threading.Lock()
@@ -214,8 +256,34 @@ class WakeWordDetector:
                 log.debug("rms gate: %.0f < %d (skip)", rms_val, self._rms_threshold)
                 continue
             log.debug("rms gate: %.0f >= %d (transcribe)", rms_val, self._rms_threshold)
+            transcribe_input = self._aec_subtract(snapshot)
+            # Post-AEC gate: if the cleaned signal is below threshold the
+            # snapshot is bot-residual only (or silence); transcribing it
+            # just burns network round-trip on a result that can't match
+            # the wake phrase and starves the next snapshot — which is the
+            # one that finally has the user's voice. Skip and loop again.
+            # Only applied when the threshold is configured AND AEC is
+            # actually active; otherwise the cleaned signal equals the raw
+            # mic and the gate would be redundant with the raw RMS gate.
+            if (
+                self._cleaned_rms_threshold > 0.0
+                and self._speaker_ref is not None
+                and self._aec_gain > 0.0
+                and transcribe_input is not snapshot
+            ):
+                cleaned_rms = self._rms(transcribe_input)
+                if cleaned_rms < self._cleaned_rms_threshold:
+                    log.debug(
+                        "cleaned rms gate: %.0f < %.0f (skip; raw was %.0f)",
+                        cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                    )
+                    continue
+                log.debug(
+                    "cleaned rms gate: %.0f >= %.0f (transcribe; raw %.0f)",
+                    cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                )
             try:
-                text = self._backend.transcribe(snapshot, self._samplerate)
+                text = self._backend.transcribe(transcribe_input, self._samplerate)
             except Exception as e:
                 log.warning("wake-word backend error: %s", e)
                 continue
@@ -246,3 +314,51 @@ class WakeWordDetector:
             return 0.0
         arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
         return float(np.sqrt(np.mean(arr * arr)))
+
+    def _aec_subtract(self, mic_pcm: bytes) -> bytes:
+        """Subtract time-aligned speaker output from the mic snapshot.
+
+        Returns ``mic_pcm`` unchanged when no speaker reference is wired
+        (gain stays at 0, or recent_played_pcm is unavailable) — so call
+        sites that don't opt in see no behavioural change.
+
+        When wired and active, retrieves the speaker bytes that drove the
+        device ``aec_delay_s`` seconds ago, end-aligns them with the mic
+        snapshot, and subtracts ``gain * speaker`` sample-by-sample. The
+        intent is to make the bot's own voice quiet enough in the
+        transcribe input that the user's "Hi Sparky" survives — a perfect
+        AEC would need an adaptive filter, but a fixed-delay subtraction
+        is enough for the laptop-mic case where speaker and mic are
+        electrically dry-coupled by the WSL2 PulseAudio bridge.
+
+        Defensive: any exception is logged and the original mic snapshot
+        is returned unchanged so a numeric edge case can never silence
+        wake-word detection entirely.
+        """
+        if self._speaker_ref is None or self._aec_gain <= 0.0:
+            return mic_pcm
+        getter = getattr(self._speaker_ref, "recent_played_pcm", None)
+        if getter is None:
+            return mic_pcm
+        try:
+            window_s = len(mic_pcm) / 2.0 / float(self._samplerate)
+            spk_pcm = getter(window_s, delay_s=self._aec_delay_s)
+            if not spk_pcm:
+                return mic_pcm
+            mic_arr = np.frombuffer(mic_pcm, dtype=np.int16).astype(np.int32)
+            spk_arr = np.frombuffer(spk_pcm, dtype=np.int16).astype(np.int32)
+            n = min(mic_arr.size, spk_arr.size)
+            if n <= 0:
+                return mic_pcm
+            mic_tail = mic_arr[-n:]
+            spk_tail = spk_arr[-n:]
+            cleaned_tail = mic_tail - (self._aec_gain * spk_tail).astype(np.int32)
+            np.clip(cleaned_tail, -32768, 32767, out=cleaned_tail)
+            cleaned_tail = cleaned_tail.astype(np.int16)
+            if mic_arr.size > n:
+                prefix = mic_arr[:-n].astype(np.int16)
+                return prefix.tobytes() + cleaned_tail.tobytes()
+            return cleaned_tail.tobytes()
+        except Exception:  # noqa: BLE001 — never break the wake path
+            log.debug("AEC subtract failed; using raw mic snapshot", exc_info=True)
+            return mic_pcm

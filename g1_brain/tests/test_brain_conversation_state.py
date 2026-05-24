@@ -190,6 +190,11 @@ def _make_sm(*, cfg: Optional[BrainConversationConfig] = None,
         drain_threshold_bytes=0,
         drain_max_wait_s=0.2,
         plan_watchdog_s=10.0,
+        # Production default is False (operator wants Hi-Sparky-only
+        # interrupts); the test suite still needs the path on by default
+        # so the voice_barge_in_* tests exercise it. Tests that need it
+        # off pass their own cfg with voice_barge_in_enabled=False.
+        voice_barge_in_enabled=True,
     )
     sm = BrainConversationStateMachine(
         cfg=cfg,

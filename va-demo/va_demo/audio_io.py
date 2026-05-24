@@ -244,6 +244,18 @@ class SpeakerStream:
         self._played_rms_history: Deque[Tuple[float, float]] = deque()
         self._played_rms_lock = threading.Lock()
         self._played_rms_window_s = 1.0
+        # Rolling (timestamp, bytes) of raw PCM chunks shipped to the device.
+        # The wake-word detector reads this through ``recent_played_pcm`` to
+        # perform a simple time-domain echo subtraction on the mic snapshot
+        # before transcribing during SPEAKING — without that subtraction the
+        # mic is dominated by the bot's own narration and the user saying
+        # "Hi Sparky" never makes it into the transcript, so wake-word
+        # barge-in fails for the entire duration of a long reply.
+        # Window cap is conservative; long enough to cover the wake-word's
+        # 1.5 s rolling buffer plus alignment slack.
+        self._played_pcm_history: Deque[Tuple[float, bytes]] = deque()
+        self._played_pcm_lock = threading.Lock()
+        self._played_pcm_window_s = 3.0
 
     def pending_bytes(self) -> int:
         """How many bytes of audio are still queued to play out."""
@@ -287,8 +299,63 @@ class SpeakerStream:
                     and self._played_rms_history[0][0] < cutoff
                 ):
                     self._played_rms_history.popleft()
+            # Also record the raw bytes for the wake-word AEC path. Same
+            # cadence as RMS (one entry per device callback) so the two
+            # histories stay in lock-step on the timeline. We store a copy
+            # because PortAudio reuses the outdata buffer between callbacks.
+            pcm_cutoff = now - self._played_pcm_window_s
+            with self._played_pcm_lock:
+                self._played_pcm_history.append((now, bytes(chunk)))
+                while (
+                    self._played_pcm_history
+                    and self._played_pcm_history[0][0] < pcm_cutoff
+                ):
+                    self._played_pcm_history.popleft()
         except Exception:  # noqa: BLE001 — must never raise from audio cb
             pass
+
+    def recent_played_pcm(
+        self,
+        window_s: float,
+        *,
+        delay_s: float = 0.0,
+    ) -> bytes:
+        """Last ``window_s`` seconds of raw PCM shipped to the device.
+
+        Returns the bytes that were emitted in the time interval
+        ``[now - delay_s - window_s, now - delay_s]``, concatenated in
+        order. ``delay_s`` shifts the window backward in time to compensate
+        for the speaker→air→mic propagation delay; the caller picks the
+        value that matches their pipeline (typical: speaker_latency +
+        mic_latency, ~0.2 s on this rig).
+
+        Returned bytes are int16 mono at ``self.samplerate``. The result
+        may be shorter than ``window_s * samplerate * 2`` when the speaker
+        has not been running long enough to fill the requested window;
+        callers should align against the *end* of the buffer (most recent
+        sample) and treat any missing bytes as leading silence.
+
+        Cheap: deque scan + bytes.join — no copying of the underlying
+        chunks. Safe to call from any thread.
+        """
+        if window_s <= 0:
+            return b""
+        now = time.monotonic()
+        hi = now - max(delay_s, 0.0)
+        lo = hi - window_s
+        with self._played_pcm_lock:
+            chunks = [b for t, b in self._played_pcm_history if lo <= t <= hi]
+        if not chunks:
+            return b""
+        # Concatenate, then truncate from the front if the deque happened
+        # to span more than `window_s` (defensive — eviction handles the
+        # common case but a long-deferred eviction during a hot loop could
+        # leave extras).
+        out = b"".join(chunks)
+        max_bytes = int(window_s * self.samplerate) * self.bytes_per_sample
+        if len(out) > max_bytes:
+            out = out[-max_bytes:]
+        return out
 
     def recent_played_rms(self, window_s: float = 0.2) -> float:
         """RMS of audio shipped to the device in the last ``window_s`` s.

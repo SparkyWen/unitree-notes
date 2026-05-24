@@ -24,7 +24,6 @@ from scipy.signal import resample_poly
 
 _MULAW_FRAME_BYTES = 160          # 8000 Hz × 1 byte × 20 ms
 _PCM24K_FRAME_BYTES = 960         # 24000 Hz × 2 bytes × 20 ms
-_PCM8K_FRAME_BYTES = 320          # 8000 Hz × 2 bytes × 20 ms
 
 
 def mulaw8k_to_pcm24k(payload_b64: str) -> bytes:
@@ -35,7 +34,7 @@ def mulaw8k_to_pcm24k(payload_b64: str) -> bytes:
     raw_mulaw = base64.b64decode(payload_b64)
     pcm8k = audioop.ulaw2lin(raw_mulaw, 2)          # 2 bytes/sample
     arr8k = np.frombuffer(pcm8k, dtype=np.int16)
-    arr24k = resample_poly(arr8k, up=3, down=1).astype(np.int16)
+    arr24k = np.clip(resample_poly(arr8k, up=3, down=1), -32768, 32767).astype(np.int16)
     return arr24k.tobytes()
 
 
@@ -46,7 +45,7 @@ def pcm24k_to_mulaw8k(pcm: bytes) -> str:
     Caller's responsibility to chunk for 20 ms framing; this is stateless.
     """
     arr24k = np.frombuffer(pcm, dtype=np.int16)
-    arr8k = resample_poly(arr24k, up=1, down=3).astype(np.int16)
+    arr8k = np.clip(resample_poly(arr24k, up=1, down=3), -32768, 32767).astype(np.int16)
     pcm8k = arr8k.tobytes()
     raw_mulaw = audioop.lin2ulaw(pcm8k, 2)
     return base64.b64encode(raw_mulaw).decode("ascii")

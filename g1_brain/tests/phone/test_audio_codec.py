@@ -63,7 +63,7 @@ def test_round_trip_1khz_sine_low_distortion():
     # Energy retained within an order of magnitude
     e_in = float(np.mean(in_arr ** 2))
     e_out = float(np.mean(out_arr ** 2))
-    assert e_out > 0.1 * e_in   # μ-law SNR ~38 dB; resampling loses a touch
+    assert e_out > 0.8 * e_in   # μ-law SNR ~38 dB; resampling loses a touch
 
 
 def test_streaming_resampler_pcm24k_partial_frames():

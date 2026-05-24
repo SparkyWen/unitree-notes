@@ -91,3 +91,44 @@ def test_end_call_schema_shape():
     assert END_CALL_SCHEMA["name"] == "end_call"
     assert END_CALL_SCHEMA["type"] == "function"
     assert "description" in END_CALL_SCHEMA
+
+
+@pytest.mark.asyncio
+async def test_handle_event_audio_delta_routes_to_transport():
+    transport = MagicMock()
+    transport.send_outbound_pcm24k = AsyncMock()
+    s = _make_session(transport=transport)
+    # We must call _handle_event with a ws (any object; not used in this branch)
+    # The audio delta event carries base64 audio:
+    import base64
+    payload = base64.b64encode(b"\x00\x01" * 10).decode()
+    await s._handle_event(MagicMock(), {"type": "response.output_audio.delta", "delta": payload})
+    transport.send_outbound_pcm24k.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_event_speech_started_clears_outbound_and_cancels():
+    transport = MagicMock()
+    transport.clear_outbound = AsyncMock()
+    s = _make_session(transport=transport)
+    # patch cancel_in_flight on the instance
+    s.cancel_in_flight = AsyncMock()
+    # super._handle_event may need a real ws to send to. Stub super's handler:
+    import g1_brain.phone.realtime_session as rs_mod
+    # Just verify our override side-effects regardless of super
+    await s._handle_event(MagicMock(), {"type": "input_audio_buffer.speech_started"})
+    transport.clear_outbound.assert_awaited()
+    s.cancel_in_flight.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_event_unrelated_event_delegates_to_super(monkeypatch):
+    s = _make_session()
+    super_called = {"yes": False}
+    async def fake_super(self_arg, ws, evt):
+        super_called["yes"] = True
+    # patch parent's _handle_event in the class
+    import g1_brain.brain.realtime_agent as bra
+    monkeypatch.setattr(bra.BrainRealtimeAgent, "_handle_event", fake_super)
+    await s._handle_event(MagicMock(), {"type": "rate_limits.updated"})
+    assert super_called["yes"] is True

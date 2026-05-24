@@ -11,12 +11,11 @@ va-demo's RealtimeAgent). We override only:
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 from ..brain.realtime_agent import BrainRealtimeAgent
 from ..brain.prompts import PHONE_CALL_PREAMBLE
@@ -99,15 +98,24 @@ class PhoneRealtimeSession(BrainRealtimeAgent):
                 await self.transport.clear_outbound()
             except Exception:
                 log.exception("transport.clear_outbound raised")
-            # fall through to super for cancel handling
+            # Also cancel the in-flight OpenAI response so generation stops.
+            try:
+                await self.cancel_in_flight()
+            except Exception:
+                log.exception("cancel_in_flight raised")
+            # fall through to super for any remaining event handling
         await super()._handle_event(ws, evt)
 
     # ----- audio source override ------------------------------------------
     # Parent's uplink loop reads from self.mic.queue. We provide our own
     # uplink task that reads from the transport instead.
 
-    async def _phone_uplink_loop(self, ws) -> None:
-        """Forward Twilio inbound audio to OpenAI input_audio_buffer.append."""
+    async def _uplink(self, ws) -> None:
+        """Forward Twilio inbound audio to OpenAI input_audio_buffer.append.
+
+        Overrides RealtimeAgent._uplink so that parent's run() picks up this
+        implementation instead of the default mic.queue reader.
+        """
         async for pcm24k in self.transport.iter_inbound_pcm24k():
             payload = base64.b64encode(pcm24k).decode("ascii")
             try:

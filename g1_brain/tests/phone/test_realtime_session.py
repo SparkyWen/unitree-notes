@@ -113,6 +113,8 @@ async def test_handle_event_speech_started_clears_outbound_and_cancels():
     s = _make_session(transport=transport)
     # patch cancel_in_flight on the instance
     s.cancel_in_flight = AsyncMock()
+    # Simulate an in-flight response so the gating logic fires cancel_in_flight.
+    s._current_response_id = "resp_test"
     # super._handle_event may need a real ws to send to. Stub super's handler:
     import g1_brain.phone.realtime_session as rs_mod
     # Just verify our override side-effects regardless of super

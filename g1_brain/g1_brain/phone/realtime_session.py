@@ -98,11 +98,14 @@ class PhoneRealtimeSession(BrainRealtimeAgent):
                 await self.transport.clear_outbound()
             except Exception:
                 log.exception("transport.clear_outbound raised")
-            # Also cancel the in-flight OpenAI response so generation stops.
-            try:
-                await self.cancel_in_flight()
-            except Exception:
-                log.exception("cancel_in_flight raised")
+            # Only cancel in-flight if there is actually an active response.
+            # Sending response.cancel with no active response causes OpenAI to
+            # return a 400 response_cancel_not_active error (non-fatal but noisy).
+            if getattr(self, "_current_response_id", None):
+                try:
+                    await self.cancel_in_flight()
+                except Exception:
+                    log.exception("cancel_in_flight raised")
             # fall through to super for any remaining event handling
         await super()._handle_event(ws, evt)
 

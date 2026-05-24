@@ -131,6 +131,11 @@ class SkillServer:
         # Optional Twilio dialer. None = phone bridge not enabled.
         self._dialer = dialer
         self._default_phone_to = default_phone_to
+        # Whitelist of E.164 numbers the LLM may dial via start_phone_call.
+        # Defends against wake-word ASR misheard digits (a real-world incident
+        # 2026-05-24: model heard +6848 as +6888 and rang a stranger for 3min).
+        # Empty list => only the default operator number is allowed.
+        self._allowed_phone_callers: List[str] = []
 
         # Pre-build the gesture lookup table:
         #   name (str)  ->  ArmAction (with .keyframes)
@@ -716,6 +721,15 @@ class SkillServer:
         if not dest:
             return {"ok": False, "skill": "start_phone_call",
                     "reason": "no destination configured"}
+        # Whitelist-enforce dest. Wake-word ASR can mishear a single digit and
+        # without this gate the LLM happily dials whoever it heard.
+        allowed = set(self._allowed_phone_callers or [])
+        if self._default_phone_to:
+            allowed.add(self._default_phone_to)
+        if allowed and dest not in allowed:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": f"refusing dial: {dest} not in allowed callers "
+                              f"(use the configured operator number)"}
         try:
             sid = await self._dialer.dial(dest)
         except Exception as e:  # noqa: BLE001

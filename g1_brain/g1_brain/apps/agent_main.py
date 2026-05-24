@@ -1075,6 +1075,9 @@ async def _run(args: argparse.Namespace) -> int:
             skill_server._default_phone_to = (
                 phone_cfg.allowed_callers[0] if phone_cfg.allowed_callers else None
             )
+            # Whitelist for start_phone_call dest validation. Prevents
+            # wake-word ASR misheard digits from dialing strangers.
+            skill_server._allowed_phone_callers = list(phone_cfg.allowed_callers)
         lease = VoiceLeaseManager()
         app = _build_bridge_app(
             twilio_cfg=twilio_cfg, phone_cfg=phone_cfg,

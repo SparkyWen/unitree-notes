@@ -1110,6 +1110,7 @@ async def _run(args: argparse.Namespace) -> int:
                 scene_bus=scene_bus,
                 mock_imitate_trigger=None,
                 mock_imitate_enabled=mock_imitation_enabled,
+                phone_enabled=args.enable_phone or cfg.get("phone", {}).get("enabled", False),
                 api_key=api_key,
                 model=os.environ.get(
                     "OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]

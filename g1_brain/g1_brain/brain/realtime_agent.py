@@ -68,6 +68,10 @@ class BrainRealtimeAgent(RealtimeAgent):
     # when mock_imitation.enabled is false in the YAML config so the brain
     # cannot call mock_imitate spontaneously when it sees the user wave.
     mock_imitate_enabled: bool = True
+    # Whether to expose start_phone_call to the LLM. Set True from the apps
+    # wiring when --enable-phone is on (or cfg.phone.enabled=true) so the
+    # local Realtime model can dial out via Twilio.
+    phone_enabled: bool = False
 
     # ---- new hooks consumed by ConversationStateMachine + Logger ----
     # Each is invoked from the asyncio loop thread (we are already inside the
@@ -158,6 +162,7 @@ class BrainRealtimeAgent(RealtimeAgent):
             sim=True,
             vision_only=self.vision_only,
             mock_imitate_enabled=self.mock_imitate_enabled,
+            phone_enabled=self.phone_enabled,
         )
 
     async def _execute_tool(self, name: str, args: Dict[str, Any], *, call_id: str = "") -> Dict[str, Any]:

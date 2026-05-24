@@ -186,6 +186,12 @@ def _build_phone_session(
         transport=transport,
         dialer=dialer,
         call_sid=call_sid,
+        # Defense in depth: phone-side model must not be able to place a
+        # recursive outbound call. The _resolve_tool_schemas filter in
+        # PhoneRealtimeSession also removes start_phone_call from the list,
+        # but passing False here ensures build_tool_schemas never adds it
+        # in the first place.
+        phone_enabled=False,
     )
 
 

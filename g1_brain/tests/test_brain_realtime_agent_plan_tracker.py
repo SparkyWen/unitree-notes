@@ -543,3 +543,41 @@ async def test_cancelled_response_id_set_is_bounded():
     assert agent._cancelled_response_ids == [
         "resp_4", "resp_5", "resp_6", "resp_7",
     ]
+
+
+# --------------------------------------------------------------------------
+# phone_enabled wiring: start_phone_call appears/disappears in tool schemas
+# --------------------------------------------------------------------------
+
+def test_phone_enabled_true_exposes_start_phone_call():
+    """BrainRealtimeAgent(phone_enabled=True) must include start_phone_call
+    in its tool schema list so the local Realtime model can dial out."""
+    agent = BrainRealtimeAgent(
+        api_key="sk-test",
+        model="test-model",
+        voice="verse",
+        mic=_StubMic(),
+        speaker=_StubSpeaker(),
+        camera=None,
+        vision=None,
+        tts=None,
+        skills=None,
+        safety=_StubSafety(),
+        skill_server=_StubSkillServer(),
+        phone_enabled=True,
+    )
+    names = {s["name"] for s in agent._resolve_tool_schemas()}
+    assert "start_phone_call" in names, (
+        "start_phone_call must appear when phone_enabled=True; "
+        "model would refuse 'Hi Sparky, call me' without it"
+    )
+
+
+def test_phone_enabled_false_hides_start_phone_call():
+    """BrainRealtimeAgent(phone_enabled=False, the default) must NOT include
+    start_phone_call so non-phone deployments can't accidentally dial."""
+    agent = _make_agent()  # phone_enabled defaults to False
+    names = {s["name"] for s in agent._resolve_tool_schemas()}
+    assert "start_phone_call" not in names
+
+

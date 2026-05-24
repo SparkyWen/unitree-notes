@@ -165,6 +165,35 @@ async def test_real_robot_only_tool_rejected_in_sim(env):
         assert "sim_only" in reason
 
 
+async def test_ask_human_whitelisted_and_sanitized(env):
+    """Regression: ask_human is exposed in the LLM tool schema and the
+    brain prompt advertises it, but the whitelist used to omit it — every
+    call was rejected as 'unknown tool', and the model would fall back to
+    a plain say() that lost the user's original intent (operator-reported:
+    'walk forward' produced 'how far would you like to walk?' instead of a
+    walk command). Keep this test as the canary that the schema, the
+    skill server's _skill_ask_human, and the supervisor whitelist stay
+    aligned.
+    """
+    sup = env["sup"]
+    ok, reason, sanitized = await sup.validate(
+        "ask_human", {"question": "你想往前走多远？"}
+    )
+    assert ok is True, reason
+    assert sanitized["question"] == "你想往前走多远？"
+    # Truncates to safety.say.max_chars (default 200) without rejecting.
+    long_q = "a" * 500
+    ok, reason, sanitized = await sup.validate(
+        "ask_human", {"question": long_q}
+    )
+    assert ok is True, reason
+    assert len(sanitized["question"]) == 200
+    # Empty / whitespace-only is rejected with a useful reason.
+    ok, reason, _ = await sup.validate("ask_human", {"question": "   "})
+    assert ok is False
+    assert "bad args" in reason
+
+
 # Rule 2: FSM gating
 async def test_motion_rejected_from_boot(env):
     sup = env["sup"]

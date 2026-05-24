@@ -1297,6 +1297,16 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         if sm is not None:
             sm.handle_wake(evt)
 
+    # AEC: subtract recently-played speaker bytes from the mic snapshot
+    # before transcribing. Without this, a long bot reply masks the
+    # user's "Hi Sparky" in the transcribe window and barge-in fails for
+    # the full duration of the reply. Defaults to gain 0.6, delay 0.2 s —
+    # tuned for the laptop mic/speaker pairing on WSL2; operators can
+    # override via wakeword.aec.* in yaml. gain=0 disables.
+    aec_cfg = (wakeword_cfg.get("aec") or {})
+    aec_gain = float(aec_cfg.get("gain", 0.6))
+    aec_delay_s = float(aec_cfg.get("delay_s", 0.2))
+
     wake = WakeWordDetector(
         backend=backend,
         spoken_cache=spoken_cache,
@@ -1308,6 +1318,9 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         cooldown_s=float(wakeword_cfg.get("cooldown_s", 2.0)),
         phrases=wakeword_cfg.get("phrases") or ["hi sparky"],
         selfecho_window_s=float(conv_cfg.get("selfecho_dedup_window_s", 6.0)),
+        speaker_ref=speaker,
+        aec_gain=aec_gain,
+        aec_delay_s=aec_delay_s,
     )
 
     # Bind the stop skill so the state machine can hard-interrupt motion on

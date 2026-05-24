@@ -43,6 +43,7 @@ log = logging.getLogger(__name__)
 # Canonical tool names that brain + SkillServer + supervisor all agree on.
 ALLOWED_TOOLS_NO_MOTION: Set[str] = {
     "say",
+    "ask_human",
     "describe_scene",
     "query_scene_state",
     "recall_history",
@@ -506,6 +507,21 @@ class SafetySupervisor:
             if len(text) > max_chars:
                 text = text[:max_chars]
             return {"text": text}
+        if tool == "ask_human":
+            # ask_human shares the say tool's character budget — both end up
+            # synthesising a single short utterance through OpenAI TTS. The
+            # tool was missing from the whitelist; the brain prompt
+            # advertised it and the LLM would call it for clarifications
+            # ("how far do you want to walk?"), only for the supervisor to
+            # reject it as 'unknown tool' and the user's original intent
+            # ("walk forward") to disappear into a fallback say().
+            question = str(args.get("question", "")).strip()
+            if not question:
+                return None
+            max_chars = int(self._say_cfg.get("max_chars", 200))
+            if len(question) > max_chars:
+                question = question[:max_chars]
+            return {"question": question}
         if tool == "describe_scene":
             # OpenAI's Responses API only accepts these four values for
             # input_image.detail — passing anything else 400's the request.

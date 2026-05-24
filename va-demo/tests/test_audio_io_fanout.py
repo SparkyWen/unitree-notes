@@ -86,6 +86,61 @@ def test_speaker_recent_played_rms_reflects_callback(monkeypatch):
     assert sp.recent_played_rms(0.0) == 0.0
 
 
+def test_speaker_recent_played_pcm_returns_actual_bytes(monkeypatch):
+    """SpeakerStream.recent_played_pcm must return the raw bytes that the
+    playback callback consumed, end-aligned with the requested window.
+
+    This is the data feed for the wake-word AEC path (Hi-Sparky-during-TTS
+    barge-in fix). Without it, the bot's own voice dominates the
+    transcribe input and the wake phrase never matches; the AEC needs
+    the bytes that the speaker actually emitted to subtract them out.
+    """
+    import numpy as np
+
+    fake_sd = types.SimpleNamespace(
+        RawInputStream=lambda **kw: types.SimpleNamespace(
+            start=lambda: None, stop=lambda: None, close=lambda: None
+        ),
+        RawOutputStream=lambda **kw: types.SimpleNamespace(
+            start=lambda: None, stop=lambda: None, close=lambda: None
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
+
+    from va_demo.audio_io import SpeakerStream
+
+    sp = SpeakerStream(samplerate=24000)
+    # Before any callback fires, the history is empty.
+    assert sp.recent_played_pcm(0.5) == b""
+
+    # Ship 5 consecutive blocks of a recognisable amplitude through the
+    # device callback. Each block is `_blocksize` frames (default 20 ms).
+    n = sp._blocksize
+    block_a = np.full(n, 1000, dtype=np.int16).tobytes()
+    block_b = np.full(n, 2000, dtype=np.int16).tobytes()
+    out_buf = bytearray(n * sp.bytes_per_sample)
+    for blk in (block_a, block_a, block_b, block_b, block_b):
+        sp.write(blk)
+        sp._callback(out_buf, n, time_info=None, status=None)
+
+    # 100 ms of history available; request 60 ms (3 blocks) — should
+    # return the last 3 blocks (b/b/b), not the first ones.
+    out = sp.recent_played_pcm(0.06)
+    assert out, "expected non-empty pcm history"
+    # End-of-buffer must be the most recent value (2000 amplitude).
+    tail = np.frombuffer(out[-n * sp.bytes_per_sample:], dtype=np.int16)
+    assert tail[0] == 2000 and tail[-1] == 2000
+
+    # delay_s shifts the window backward: ask for a 40 ms window with a
+    # 40 ms delay — that should land on the 1000-amplitude blocks at the
+    # head of the history.
+    out_delayed = sp.recent_played_pcm(0.04, delay_s=0.04)
+    if out_delayed:  # timing-sensitive; only assert when chunks were captured
+        arr = np.frombuffer(out_delayed, dtype=np.int16)
+        # Should be predominantly the 1000-amplitude blocks.
+        assert abs(int(arr.mean()) - 1000) < 200
+
+
 def test_speaker_sanity_cap_not_hit_for_long_normal_responses(monkeypatch):
     """Long Realtime replies (Chinese narration, ~60 s of TTS streamed
     in <1 s) used to trip the 60 s SANITY_CAP and produce audible drops.

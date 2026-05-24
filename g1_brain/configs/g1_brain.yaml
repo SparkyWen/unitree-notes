@@ -220,6 +220,19 @@ wakeword:
     - "hi sparkie"
     - "嗨 sparky"
     - "你好 sparky"
+  # Time-domain acoustic echo cancellation applied to the mic snapshot
+  # BEFORE the wake-word transcribe. Subtracts gain × (speaker bytes that
+  # played delay_s seconds ago) sample-by-sample, end-aligned with the
+  # mic snapshot. Without this, during a long TTS reply the mic is
+  # dominated by the bot's own narration and the transcribe call returns
+  # the bot's text — "Hi Sparky" never makes it through, so the wake
+  # path cannot interrupt a long reply (operator-reported bug). gain=0
+  # disables; gain ~0.5-1.0 is typical for a laptop with mic+speaker
+  # close together. delay_s is speaker_latency + mic_latency for the
+  # rig (PortAudio defaults: 0.20 + 0.10 ≈ 0.20-0.30 on WSL2).
+  aec:
+    gain: 0.6
+    delay_s: 0.2
 
 utterance:
   silence_threshold_ms: 1500

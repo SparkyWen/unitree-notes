@@ -140,6 +140,9 @@ class WakeWordDetector:
         cooldown_s: float = 2.0,
         phrases: Optional[List[str]] = None,
         selfecho_window_s: float = 6.0,
+        speaker_ref: Optional[object] = None,
+        aec_gain: float = 0.0,
+        aec_delay_s: float = 0.2,
     ):
         self._backend = backend
         self._cache = spoken_cache
@@ -151,6 +154,19 @@ class WakeWordDetector:
         self._cooldown_s = cooldown_s
         self._phrases = [self._normalize(p) for p in (phrases or ["hi sparky"])]
         self._selfecho_window_s = selfecho_window_s
+        # ---- echo subtraction ------------------------------------------
+        # When the bot is talking, the mic captures speaker output much
+        # louder than the user's "Hi Sparky"; the transcribe call returns
+        # mostly the bot's narration and the wake phrase never matches.
+        # If a speaker reference is wired in, we subtract a time-aligned,
+        # scaled copy of the recently-played speaker bytes from the mic
+        # snapshot before transcribing. Gain of 0.0 disables this path
+        # (default — preserves pre-fix behaviour bit-for-bit on call sites
+        # that don't pass a speaker_ref). Gain of ~0.5-1.0 is typical for
+        # a laptop with mic + speaker close together; tune per rig.
+        self._speaker_ref = speaker_ref
+        self._aec_gain = float(aec_gain)
+        self._aec_delay_s = float(aec_delay_s)
 
         self._buf = bytearray()
         self._buf_lock = threading.Lock()
@@ -214,8 +230,9 @@ class WakeWordDetector:
                 log.debug("rms gate: %.0f < %d (skip)", rms_val, self._rms_threshold)
                 continue
             log.debug("rms gate: %.0f >= %d (transcribe)", rms_val, self._rms_threshold)
+            transcribe_input = self._aec_subtract(snapshot)
             try:
-                text = self._backend.transcribe(snapshot, self._samplerate)
+                text = self._backend.transcribe(transcribe_input, self._samplerate)
             except Exception as e:
                 log.warning("wake-word backend error: %s", e)
                 continue
@@ -246,3 +263,51 @@ class WakeWordDetector:
             return 0.0
         arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
         return float(np.sqrt(np.mean(arr * arr)))
+
+    def _aec_subtract(self, mic_pcm: bytes) -> bytes:
+        """Subtract time-aligned speaker output from the mic snapshot.
+
+        Returns ``mic_pcm`` unchanged when no speaker reference is wired
+        (gain stays at 0, or recent_played_pcm is unavailable) — so call
+        sites that don't opt in see no behavioural change.
+
+        When wired and active, retrieves the speaker bytes that drove the
+        device ``aec_delay_s`` seconds ago, end-aligns them with the mic
+        snapshot, and subtracts ``gain * speaker`` sample-by-sample. The
+        intent is to make the bot's own voice quiet enough in the
+        transcribe input that the user's "Hi Sparky" survives — a perfect
+        AEC would need an adaptive filter, but a fixed-delay subtraction
+        is enough for the laptop-mic case where speaker and mic are
+        electrically dry-coupled by the WSL2 PulseAudio bridge.
+
+        Defensive: any exception is logged and the original mic snapshot
+        is returned unchanged so a numeric edge case can never silence
+        wake-word detection entirely.
+        """
+        if self._speaker_ref is None or self._aec_gain <= 0.0:
+            return mic_pcm
+        getter = getattr(self._speaker_ref, "recent_played_pcm", None)
+        if getter is None:
+            return mic_pcm
+        try:
+            window_s = len(mic_pcm) / 2.0 / float(self._samplerate)
+            spk_pcm = getter(window_s, delay_s=self._aec_delay_s)
+            if not spk_pcm:
+                return mic_pcm
+            mic_arr = np.frombuffer(mic_pcm, dtype=np.int16).astype(np.int32)
+            spk_arr = np.frombuffer(spk_pcm, dtype=np.int16).astype(np.int32)
+            n = min(mic_arr.size, spk_arr.size)
+            if n <= 0:
+                return mic_pcm
+            mic_tail = mic_arr[-n:]
+            spk_tail = spk_arr[-n:]
+            cleaned_tail = mic_tail - (self._aec_gain * spk_tail).astype(np.int32)
+            np.clip(cleaned_tail, -32768, 32767, out=cleaned_tail)
+            cleaned_tail = cleaned_tail.astype(np.int16)
+            if mic_arr.size > n:
+                prefix = mic_arr[:-n].astype(np.int16)
+                return prefix.tobytes() + cleaned_tail.tobytes()
+            return cleaned_tail.tobytes()
+        except Exception:  # noqa: BLE001 — never break the wake path
+            log.debug("AEC subtract failed; using raw mic snapshot", exc_info=True)
+            return mic_pcm

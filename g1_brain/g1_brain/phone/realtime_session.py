@@ -106,6 +106,46 @@ class PhoneRealtimeSession(BrainRealtimeAgent):
             # fall through to super for any remaining event handling
         await super()._handle_event(ws, evt)
 
+    # ----- session config override ----------------------------------------
+    # Parent sends turn_detection: None (client drives turns via state
+    # machine). For phone mode the caller's voice IS the turn signal, so
+    # we must enable server VAD.
+
+    async def _session_update(self, ws) -> None:
+        """Same as parent's GA-shape session.update but with server VAD on.
+
+        Phone mode has no client state machine to drive turns — the caller's
+        voice IS the turn signal — so server_vad must be enabled.
+        """
+        evt = {
+            "type": "session.update",
+            "session": {
+                "type": "realtime",
+                "model": self.model,
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "transcription": {"model": "gpt-4o-mini-transcribe"},
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 700,
+                        },
+                    },
+                    "output": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "voice": self.voice,
+                    },
+                },
+                "instructions": self._resolve_instructions(),
+                "tools": self._resolve_tool_schemas(),
+                "tool_choice": "auto",
+            },
+        }
+        await ws.send(json.dumps(evt))
+
     # ----- audio source override ------------------------------------------
     # Parent's uplink loop reads from self.mic.queue. We provide our own
     # uplink task that reads from the transport instead.

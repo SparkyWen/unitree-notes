@@ -24,9 +24,19 @@
 [![Diffusers](https://img.shields.io/badge/🤗_Diffusers-0.35-FFD21E?style=flat-square)](https://huggingface.co/docs/diffusers)
 [![Ultralytics](https://img.shields.io/badge/Ultralytics-YOLO11-042A4D?style=flat-square&logo=ultralytics&logoColor=white)](https://docs.ultralytics.com/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-Pose-00897B?style=flat-square&logo=google&logoColor=white)](https://developers.google.com/mediapipe)
+[![Codex](https://img.shields.io/badge/Codex-mcp--server-000000?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/docs/codex)
 [![License](https://img.shields.io/badge/Code-Apache_2.0-blue.svg?style=flat-square)](#-license)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#-contributing)
 [![Status](https://img.shields.io/badge/status-active-success.svg?style=flat-square)]()
+
+<br/>
+
+[![g1_brain](https://img.shields.io/badge/g1__brain-v1.1.0-7C3AED?style=flat-square&labelColor=2D1B4E)](g1_brain/docs/v1_1_0_runtime.md)
+[![Brains](https://img.shields.io/badge/Brains-3_(fast+slow_online+slow_offline)-EC4899?style=flat-square)](g1_brain/docs/v1_1_0_runtime.md)
+[![LLM Tools](https://img.shields.io/badge/LLM_tools-21-purple?style=flat-square)](#-skill-catalog-g1_brain)
+[![Safety](https://img.shields.io/badge/safety_rules-12_(11+vision_gate)-FF6B35?style=flat-square)](#%EF%B8%8F-safety-supervisor--the-12-rules)
+[![Memory](https://img.shields.io/badge/Memory-Codex--native-1F2937?style=flat-square)](#-memory-subsystem-codex-native-v110)
+[![Pytest](https://img.shields.io/badge/pytest_suites-26+9-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](g1_brain/tests/)
 
 <br/>
 
@@ -42,7 +52,9 @@
 
 ## 🇬🇧 English
 
-> A complete, opinionated workspace for studying, simulating, and deploying control & cognition stacks on the **Unitree G1** humanoid — bundling **eleven upstream reference repos** (SDK · MuJoCo · RL · ROS 1 · ROS 2 · IsaacLab · LeRobot · VLA · WMA · XR teleop · image server) alongside four hand-written deliverables: [`g1_sim_demo/`](g1_sim_demo/) (sim demos from sine wave to RL+gestures), [`g1_real_demo/`](g1_real_demo/) (real-robot deployment), [`va-demo/`](va-demo/) (a voice + vision agent that talks to G1 via OpenAI Realtime), and [`g1_brain/`](g1_brain/) (a Slow-Brain + Fast-Reflex + Safe-Skill three-layer cognitive agent extending va-demo with perception, an **11-rule safety supervisor**, and **17 LLM-callable skills**).
+> A complete, opinionated workspace for studying, simulating, and deploying control & cognition stacks on the **Unitree G1** humanoid — bundling **eleven upstream reference repos** (SDK · MuJoCo · RL · ROS 1 · ROS 2 · IsaacLab · LeRobot · VLA · WMA · XR teleop · image server) alongside four hand-written deliverables: [`g1_sim_demo/`](g1_sim_demo/) (sim demos from sine wave to RL+gestures), [`g1_real_demo/`](g1_real_demo/) (real-robot deployment), [`va-demo/`](va-demo/) (a voice + vision agent that talks to G1 via OpenAI Realtime), and [`g1_brain/`](g1_brain/) **v1.1.0** — a **three-brain cognitive agent** (🧠 Fast Brain · 🐢 Slow Brain online · 💾 Slow Brain offline) with a **12-rule safety supervisor** (including a GPT-5.5 vision risk gate), **21 LLM-callable skills**, and a **Codex-native memory subsystem** that consolidates voice transcripts into a self-updating `MEMORY.md` knowledge base.
+
+> 🆕 **What changed in v1.1.0** (May 2026)?  Three additions reshape the agent from "voice + reflex" into a Claude-Code-style cognitive harness: **(1)** an `ask_slow_brain(query)` tool that hands hard questions to a resident `codex mcp-server` subprocess running at `reasoning_effort=high` + `service_tier=fast`; **(2)** a Phase 1 + Phase 2 offline memory pipeline that distills every voice session's JSONL into `raw_memories.md` / `rollout_summaries/` / `MEMORY.md` / `memory_summary.md` and re-injects the summary into the next session; **(3)** four `recall_*` tools (`grep` / `read` / `glob` / `ask_slow_brain`) the Realtime model can call to introspect past sessions. The full implementation freeze is in [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md); the design spec is in [`docs/harness-design.md`](docs/harness-design.md).
 
 ### 📑 Table of Contents
 
@@ -57,9 +69,10 @@
   - [🎬 `g1_sim_demo/` — MuJoCo demo catalogue](#-g1_sim_demo--mujoco-demo-catalogue)
   - [🦿 `g1_real_demo/` — real-robot deployment](#-g1_real_demo--real-robot-deployment)
   - [🎙️ `va-demo/` — voice + vision agent](#%EF%B8%8F-va-demo--voice--vision-agent)
-  - [🧠 `g1_brain/` — Slow Brain + Fast Reflex + Safe Skill agent](#-g1_brain--slow-brain--fast-reflex--safe-skill-agent)
+  - [🧠 `g1_brain/` v1.1.0 — Three-Brain cognitive agent](#-g1_brain-v110--three-brain-cognitive-agent)
 - [🧰 Skill Catalog (`g1_brain`)](#-skill-catalog-g1_brain)
-- [🛡️ Safety Supervisor — the 11 rules](#%EF%B8%8F-safety-supervisor--the-11-rules)
+- [🛡️ Safety Supervisor — the 12 rules](#%EF%B8%8F-safety-supervisor--the-12-rules)
+- [💾 Memory Subsystem (Codex-native, v1.1.0)](#-memory-subsystem-codex-native-v110)
 - [📡 Upstream Reference Repos](#-upstream-reference-repos)
 - [🧱 Architecture Overview](#-architecture-overview)
 - [🔌 DDS Topic & Joint Reference](#-dds-topic--joint-reference)
@@ -82,7 +95,11 @@
 | 🎮 **Five turn-key G1 sim demos** | From a 70-line "send a sine wave" warm-up to a 1000-line RL+gesture combo controller, every script is heavily commented and runs **out of the box** against the Python MuJoCo bridge. |
 | 🦿 **Real-robot deployment harness** | `g1_real_demo/g1_real_rl_combo.py` adds the `MotionSwitcher` release, bounded `lowstate` wait, and a `lying`-mode CLI for wiring/DDS verification before you ever stand the robot up. |
 | 🎙️ **Voice + Vision Realtime agent** | `va-demo/` ships a wake-word ("Hi Sparky") gated, full-duplex Realtime voice agent that can **describe scenes via vision** *and* tool-call `walk` / `gesture` / `stop` against the running RL policy — confirm / observe / active / vision-only run modes. |
-| 🧠 **Slow Brain + Fast Reflex + Safe Skill** | `g1_brain/` extends `va-demo` with a 3-layer agent — first-person MuJoCo head cam + YOLO11 + MediaPipe-Pose fused into a thread-safe `SceneState`, an **11-rule SafetySupervisor** + 7-state FSM + independent E-stop process, and **17 LLM-callable skills** spanning I/O, motion, and real-only stubs (`walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` · `describe_scene` · `query_scene_state` · `recall_history` · `ask_human` · …). See [`g1_brain/README.md`](g1_brain/README.md). |
+| 🧠 **Three-Brain agent (v1.1.0)** | `g1_brain/` is no longer a single Realtime loop — it's a **three-brain system**: **🧠 Fast Brain** (OpenAI Realtime, persistently online, 0.2–2 Hz turns) decides + talks; **🐢 Slow Brain online** (a resident `codex mcp-server` subprocess at `reasoning_effort=high` + `service_tier=fast`) is on-demand via the `ask_slow_brain(query)` tool; **💾 Slow Brain offline** (`codex exec --json` Phase 1 + Phase 2 workers) distills every voice session into `MEMORY.md`. Plus the existing **Fast Reflex** (50 Hz RL + 20 Hz watchdog + 5 Hz perception, no LLM). Full audit: [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md). |
+| 🛡️ **12-rule safety + GPT-5.5 vision risk gate** | Every tool call walks **12 in-order rules**: whitelist · FSM · run-mode · 4 watchdogs (lowstate / head-cam / RL-active / USB) · pose check · param clamp · obstacle-distance scene-check · person-distance scene-check · **Rule 12 — GPT-5.5-mini Vision Risk Gate** (snapshot + action sentence → `SAFE: …` / `RISK: …`, only the latter falls through to a y/N confirm) · E-stop. Spec: [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md). |
+| 💾 **Codex-native memory subsystem** | Every session writes a Claude-harness-shape JSONL to `g1_brain/logs/conversations/`. Phase 1 distills each into a per-session `rollout_summary` + raw-memory bullets via `codex exec`. Phase 2 (debounced, git-diff-gated) rolls them up into `MEMORY.md` (≤200 lines) + `memory_summary.md` (≤80 lines), the latter auto-injected as developer instructions into the next Realtime session. **4 new recall tools** — `recall_grep` · `recall_read` · `recall_glob` · `ask_slow_brain` — let the LLM introspect past sessions live. SQLite + Markdown only, no embeddings. Design: [`docs/harness-design.md`](docs/harness-design.md). |
+| ⚡ **21 LLM-callable skills** | 8 I/O (`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`) · 4 memory/slow-brain (`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`) · 6 motion (`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`) · 3 real-only stubs (`loco_high`, `arm_action_high`, `audio_tts_robot`). |
+| 🧷 **Process-isolated motor loop** | After **Phase 8** (May 2026), the 50 Hz `ComboController` lives in **its own subprocess** (`g1_brain.safety.combo_proxy`, `isolate_controller=True`) so GIL contention from perception / vision / Realtime never starves the motor PD loop. The agent ↔ controller boundary is a small IPC handshake (zero-copy `rt/lowcmd`). |
 | 🧠 **Real ONNX policy in the loop** | `g1_sim_rl_walk.py`, `g1_sim_rl_combo.py`, and `g1_real_rl_combo.py` all load the official `unitree_rl_mjlab` velocity-tracking ONNX checkpoint and execute the **exact same observation / action pipeline** end-to-end on sim and on hardware. |
 | 🧷 **Sim-friendly fixes baked in** | Upstream `g1_low_level_example.py` deadlocks on `MotionSwitcherClient.CheckMode()` and assumes DDS domain 0 — every script in `g1_sim_demo/` ships with the proven domain-1 + skip-MotionSwitcher patch and a `mode_machine` handshake. |
 | 🐍 **One unified conda env** | The `agi` env reconciles **7 mutually-conflicting upstreams** into **~310 fully-pinned packages** (numpy 1.26.4 + torch 2.11.0+cu130 + mujoco 3.5.0 + tyro 1.0.13 + transformers 4.52 + diffusers 0.35 + tensorflow 2.15 + jax 0.7 + …) — frozen at the repo root in [`requirements.txt`](requirements.txt); per-pin reasoning in [`docs/libs_compatible.md`](docs/libs_compatible.md). A leaner `unitree` env (sim + RL only) is a strict subset. |
@@ -99,8 +116,10 @@
 | 🏢 **Upstream reference repos** | **11** (read-only snapshots) |
 | 🌟 **In-house deliverables** | **4** (`g1_sim_demo` · `g1_real_demo` · `va-demo` · `g1_brain`) |
 | 🎮 **G1 MuJoCo demo scripts** | **5** sim + **1** real ≈ 2 700 LOC of annotated control loops |
-| 🛠️ **LLM-callable skills (`g1_brain`)** | **17** — 7 I/O · 7 motion · 3 real-only stubs |
-| 🛡️ **Safety rules (`g1_brain`)** | **11** — see [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-11-rules) |
+| 🧠 **Brains in `g1_brain` v1.1.0** | **3** — Fast (Realtime, online) + Slow online (codex daemon, on-demand) + Slow offline (codex exec, Phase 1+2 background) |
+| 🛠️ **LLM-callable skills (`g1_brain`)** | **21** — 8 I/O · 4 memory/slow-brain · 6 motion · 3 real-only stubs |
+| 🛡️ **Safety rules (`g1_brain`)** | **12** — 11 static + 1 GPT-5.5-mini Vision Risk Gate (Rule 12) — see [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) |
+| 💾 **Memory artefacts** | `MEMORY.md` (≤200 lines) · `memory_summary.md` (≤80 lines, auto-injected next session) · `raw_memories.md` · `rollout_summaries/*.md` · `state.sqlite` (WAL, jobs/sessions/stage1_outputs) |
 | 🎭 **Built-in arm gestures** | **9** (`wave_right` · `wave_left` · `hands_up` · `t_pose` · `salute` · `clap` · `guard` · `punch_combo` · `hug`) |
 | 🧱 **Static poses** | **2** (`salute` · `hug`) — held until `release_arms()` |
 | 🪞 **Mirrorable user gestures** | **4** (`wave_right` · `wave_left` · `hands_up` · `t_pose`) |
@@ -108,10 +127,10 @@
 | 🐍 **`unitree` env packages (pinned)** | ~**150** (lean sim + RL subset) |
 | 🤖 **G1 actuated DoF** | **29** (12 leg · 3 waist · 14 arm — see [§ DDS & Joint Reference](#-dds-topic--joint-reference)) |
 | 🌐 **DDS domain conventions** | **1** = sim on `lo` · **0** = real robot on `192.168.123.0/24` |
-| 🎤 **Wake word** | "**Hi Sparky**" (`faster-whisper tiny`, local CPU) |
-| 📐 **Realtime cognition rates** | Slow Brain 0.2–2 Hz · Fast Reflex 5–30 Hz · Sim control 50–500 Hz · Bridge `lowstate` 1 kHz |
-| 🧪 **Pytest test suites** | `va-demo/tests/` + `g1_brain/tests/` (FSM · supervisor · scene bus · skill server · vertical slice · …) |
-| 📚 **Curated Chinese deep-dives** | **27 000+** lines across `docs/` and `*/docs/` |
+| 🎤 **Wake word** | "**Hi Sparky**" (`faster-whisper tiny` local CPU + AEC echo-cancellation + cleaned-RMS gate); transcription via `gpt-4o-mini-transcribe` |
+| 📐 **Cognition rates (5 tiers)** | Bridge `lowstate` **1 kHz** · Motor PD **500 Hz** · RL policy **50 Hz** · Fast Reflex perception **5–30 Hz** · Slow Brain **0.2–2 Hz** · Slow Brain offline (Phase 1) **debounced 60 s** |
+| 🧪 **Pytest suites** | **26** in `g1_brain/tests/` + **9** in `va-demo/tests/` — memory pipeline E2E · vision-risk-gate · combo-proxy · 11+1 supervisor · FSM · scene bus · skill server · watchdogs · … |
+| 📚 **Curated Chinese deep-dives** | **27 000+** lines across `docs/` and `*/docs/` (see [§ Documentation Index](#-documentation-index)) |
 | ⚖️ **License** | **Apache 2.0** for in-house code · upstream snapshots retain their own license |
 
 ---
@@ -153,24 +172,43 @@ unitree-notes/
 │   └── requirements.txt             ·  openai · sounddevice · faster-whisper ·
 │                                       webrtcvad-wheels · pyzmq · opencv-python
 │
-├── 📂 g1_brain/                     ← 🧠 Slow Brain + Fast Reflex + Safe Skill agent
+├── 📂 g1_brain/                     ← 🧠 Three-Brain cognitive agent (v1.1.0)
 │   ├── g1_brain/perception/         ·  CameraHub · USB cam · MuJoCo head cam (EGL) ·
-│   │                                   YOLO11 · MediaPipe-Pose · depth · derivations
+│   │                                   YOLO11 (cuda) · MediaPipe-Pose · depth · derivations
 │   ├── g1_brain/scene_state/        ·  SceneState/RobotState dataclasses + RLock bus
-│   ├── g1_brain/safety/             ·  7-state FSM · SafetySupervisor (11 rules) ·
-│   │                                   watchdogs · independent E-stop process
-│   ├── g1_brain/skills/             ·  SkillServer · ~16 OpenAI tool schemas ·
-│   │                                   keyframe_extras · compound_skills
-│   ├── g1_brain/brain/              ·  BrainRealtimeAgent (extends va-demo) +
-│   │                                   scene-aware system prompt
+│   ├── g1_brain/safety/             ·  7-state FSM · SafetySupervisor (12 rules) ·
+│   │                                   watchdogs · vision_risk_gate (Rule 12, GPT-5.5-mini) ·
+│   │                                   combo_proxy (subprocess isolation, Phase 8) ·
+│   │                                   estop_listener + estop_client (independent process)
+│   ├── g1_brain/skills/             ·  SkillServer · 21 OpenAI tool schemas ·
+│   │                                   keyframe_extras · compound_skills · real_robot_adapters
+│   ├── g1_brain/brain/              ·  BrainRealtimeAgent (Fast Brain, extends va-demo) ·
+│   │                                   conversation_logger (jsonl, Claude-harness shape) ·
+│   │                                   scene_summary · prompts · conversation_state
+│   ├── 🆕 g1_brain/memory/          ·  💾 Codex-native memory subsystem (Slow Brain)
+│   │                                   ├ daemon.py         · codex mcp-server subprocess
+│   │                                   ├ codex_client.py   · async codex exec wrapper
+│   │                                   ├ phase1.py         · per-session JSONL → stage1
+│   │                                   ├ phase2.py         · stage1 → MEMORY.md (git-diff gated)
+│   │                                   ├ recall.py         · sandboxed rg/cat/glob
+│   │                                   ├ context.py        · build developer-instructions
+│   │                                   ├ storage.py        · SQLite (WAL) + file tree
+│   │                                   ├ jobs.py           · lease/heartbeat/retry scheduler
+│   │                                   ├ schemas.py        · dataclasses, AskResult, meta types
+│   │                                   └ prompts/          · phase1/phase2/default_agents_md
+│   ├── 🆕 g1_brain/tools/           ·  reset_memory.py CLI — operator-grade memory recovery
 │   ├── g1_brain/mock_imitation/     ·  user gesture → MIRRORABLE robot gesture (Phase 5)
 │   ├── g1_brain/apps/               ·  agent_main + perception/safety/skill/estop debug
-│   ├── configs/g1_brain.yaml        ·  Single source of truth (robot · cameras ·
-│   │                                   perception · safety · openai · audio · wakeword)
-│   ├── docs/                        ·  architecture · how_to_run · extending_skills ·
-│   │                                   g1_brain_QA1 · g1-fix-phase{1,2,3,5}
-│   ├── tests/                       ·  pytest: 11-rule supervisor · FSM · scene bus ·
-│   │                                   skill server · vertical slice · watchdogs · …
+│   ├── configs/g1_brain.yaml        ·  Single source of truth — adds memory · audio_control ·
+│   │                                   safety.vision_gate sections in v1.1.0
+│   ├── docs/                        ·  v1_1_0_runtime · architecture · structure · g1_v1 (VRG spec) ·
+│   │                                   how_to_run · extending_skills · audio-control-update01 ·
+│   │                                   performance-optimization-GPU · stand_balance_root_cause ·
+│   │                                   g1_brain_QA{1,2} · g1-fix-phase{1,2,3,5,6,7,8,9}
+│   ├── tests/                       ·  26 pytest files — memory pipeline E2E · vision_risk_gate ·
+│   │                                   combo_proxy · 11+1 supervisor · FSM · scene bus ·
+│   │                                   conversation_logger · estop_flow · skill_server · …
+│   ├── logs/conversations/          ·  per-process JSONL transcripts (Claude-harness shape)
 │   └── pyproject.toml               ·  ultralytics · mediapipe · openai · pyyaml · pynput
 │
 ├── 📡 Upstream reference repos (read-only snapshots) ─────────────────────
@@ -558,31 +596,50 @@ python -m va_demo.main                    # default: --mode confirm
 >
 > 🔉 WSL2 audio fix: symlink `$CONDA_PREFIX/lib/alsa-lib` → `/usr/lib/x86_64-linux-gnu/alsa-lib` so ALSA finds the pulse plugin — see [`docs/wsl2_audio.md`](docs/wsl2_audio.md).
 
-#### 🧠 `g1_brain/` — Slow Brain + Fast Reflex + Safe Skill agent
+#### 🧠 `g1_brain/` v1.1.0 — Three-Brain cognitive agent
 
-> A new top-level package that **imports** (never modifies) [`va-demo/`](va-demo/) and [`g1_sim_demo/`](g1_sim_demo/) and adds three layers on top: **Perception · Safety · Skills**. The G1 needs three time-scales of cognition simultaneously and OpenAI Realtime alone can't hit all of them — this package separates them cleanly and routes everything through a single safety-validated skill server.
+> A top-level package that **imports** (never modifies) [`va-demo/`](va-demo/) and [`g1_sim_demo/`](g1_sim_demo/) and adds **four** layers on top: **Perception · Memory · Safety · Skills**. In v1.1.0 the original "Slow Brain" was split into **three distinct brains** so the agent can think, plan, and remember on three different time horizons simultaneously without one starving the others.
 
-📂 **Read first:** [`g1_brain/README.md`](g1_brain/README.md) · [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) · [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) · [`docs/g1_plan.md`](docs/g1_plan.md) (full 1500+-line design)
+📂 **Read first:** [`g1_brain/README.md`](g1_brain/README.md) · 🆕 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md) (1300-line v1.1.0 implementation audit) · [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) · [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md) (7-layer system map) · [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) · [`docs/g1_plan.md`](docs/g1_plan.md) (full 1500+ line design) · 🆕 [`docs/harness-design.md`](docs/harness-design.md) (memory subsystem design)
 
-**The three layers**
+##### 🧠 The three brains + the reflex layer
 
 | Layer | Rate | Owner | Job |
 |---|---|---|---|
-| 🧠 **Slow Brain** | 0.2–2 Hz | OpenAI Realtime + GPT-5.5 Vision | Plan, talk, decide which skill to call |
-| 🛡️ **Safe Skill** | per-call | `SafetySupervisor` + `SkillServer` | Validate (11 rules), clamp, route, abort |
-| ⚡ **Fast Reflex** | 5–30 Hz | Cameras + YOLO11 + MediaPipe-Pose + depth | Build a `SceneState` the safety layer reads |
+| 🧠 **Fast Brain** *(online, always)* | 0.2–2 Hz / turn | OpenAI **Realtime** API (`gpt-realtime`) over WebSocket | Listen on mic, talk, decide which tool to call. Sees only `SceneState.summary_for_llm()` snapshots, not raw frames. |
+| 🐢 **Slow Brain** *(online, on-demand)* | per `ask_slow_brain()` call | Resident **`codex mcp-server`** subprocess (`reasoning_effort=high`, `service_tier=fast` = 1.5× priority) | Hard questions the Realtime model can't answer fast enough — multi-step reasoning, cross-session recall, debugging. Persistent MCP stdio link, ping every 30 s, back-off restart. |
+| 💾 **Slow Brain** *(offline, background)* | debounced 60 s (P1) → P2 trigger | One-shot **`codex exec --json`** subprocesses (Phase 1 + Phase 2 workers) | Session → `rollout_summary` + `raw_memory` (Phase 1) → `MEMORY.md` + `memory_summary.md` (Phase 2). Git-diff gated. |
+| ⚡ **Fast Reflex** *(no LLM)* | 50 Hz RL · 20 Hz watchdog · 5 Hz perception · 1 kHz lowstate | Pure Python — cameras, YOLO11 (cuda), MediaPipe-Pose, depth derivations, RL ONNX, motor PD | Builds the `SceneState` + `RobotState` busses the brains and the safety supervisor both read. |
+| 🛡️ **Safe Skill** *(gating)* | per-call | `SafetySupervisor` (**12 rules**) + `SkillServer` (**21 tools**) | Validate · clamp · route · abort. Rule 12 = GPT-5.5-mini Vision Risk Gate. The LLM never touches motors. |
 
-**Skill catalog (17 LLM-callable tools)** — see [§ Skill Catalog](#-skill-catalog-g1_brain) below for full signatures.
+> 🔑 **Critical invariant** — the **Fast Brain** sees only compact textual scene summaries, NOT a continuous video stream. Vision LLM is invoked only on `describe_scene()`, the Rule 12 risk gate, and the optional post-motion `scene_after` annotation. Continuous perception (YOLO/pose/depth) runs reflex-side and feeds the safety layer directly. This is why a single Realtime turn stays at ≤300 ms latency even with full perception on.
 
-| Class | Tools |
-|---|---|
-| 🗣️ I/O — no motion | `say` · `describe_scene` · `query_scene_state` · `recall_history` · `ask_human` · `stop` · `release_arms` |
-| 🦿 Motion (gated by safety + FSM) | `walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` |
-| 🤖 Real-only stubs (rejected in sim) | `loco_high` · `arm_action_high` · `audio_tts_robot` |
+##### 🧷 Process topology (v1.1.0, post Phase 8)
 
-**Three run modes** — `--mode observe` (no motion) · `--mode confirm` *(default — y/N gate)* · `--mode active` (autonomous within safety bounds). Plus `--vision-only` to drop DDS for laptop-only dev.
+```
+T1 (operator)  ─►  MuJoCo simulator              (unitree env)
+T2 (operator)  ─►  teleimager.image_server       (USB head cam, ZMQ PUB)
+T3 (operator)  ─►  g1_brain.safety.estop_listener  ← INDEPENDENT process — ESC = kill
+T4 (operator)  ─►  g1_brain.apps.agent_main
+                    │
+                    ├─[fork]─► ComboController subprocess  (Phase 8 isolation)
+                    │           · 50 Hz RL policy   · 500 Hz motor PD   · DDS rt/lowcmd
+                    │
+                    ├─[asyncio]─► BrainRealtimeAgent  (Fast Brain — OpenAI WS)
+                    ├─[asyncio]─► CodexDaemon         (Slow Brain online — codex mcp-server)
+                    ├─[asyncio]─► Phase1Worker        (debounced 60 s, codex exec per session)
+                    │              └─► triggers Phase2Worker (global lock + git-diff)
+                    │
+                    └─[threads]─► CameraHub · YOLO · Pose · Depth · Watchdogs · MicStream · SpeakerStream
+```
 
-**Run order (4 terminals, `agi` env)**
+> 📐 **Why ComboController in its own process?** Phase 8 root cause: GIL contention from the perception subsystem (YOLO + MediaPipe + cv2) was starving the 50 Hz control thread, producing arm tremors and gait instability under load. Fix: subprocess sibling + 40 s `rt/lowstate` handshake on start. Toggleable via `safety.isolate_controller: true/false` — defaults to **on**. See [`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md).
+
+##### 🎚️ Run modes (unchanged from v1.0)
+
+`--mode observe` (no motion) · `--mode confirm` *(default — y/N gate)* · `--mode active` (autonomous within safety bounds — Rule 12 silently SAFE-clears most actions, only RISK falls through). Plus `--vision-only` to drop DDS for laptop-only dev.
+
+##### 🚀 Run order (4 terminals, `agi` env)
 
 ```bash
 # ── Terminal 1 — MuJoCo simulator ─────────────────────────────────
@@ -600,21 +657,40 @@ python -m teleimager.image_server
 conda activate agi
 python -m g1_brain.safety.estop_listener
 
-# ── Terminal 4 — agent ───────────────────────────────────────────
+# ── Terminal 4 — agent (spawns ComboProxy + CodexDaemon as children) ─
 conda activate agi
 export OPENAI_API_KEY=sk-...
 python -m g1_brain.apps.agent_main --mode confirm
 ```
 
-**Built-in debug entries** — `python -m g1_brain.apps.{perception_debug, safety_debug, skill_debug, estop_test}` — each tests one layer in isolation.
+##### 🐞 Built-in debug entries
 
-> 🛡️ **Key invariant:** every tool call goes through `SafetySupervisor.validate()` (whitelist · FSM gating · run_mode · 4 watchdogs · pose check · param clamp · scene checks · E-stop). The LLM never touches motors. The independent E-stop process keeps a panic-button exit even if the agent deadlocks.
+`python -m g1_brain.apps.{perception_debug, safety_debug, skill_debug, estop_test}` — each tests one layer in isolation, no Realtime / codex / DDS required.
+
+##### 🧰 Operator-grade memory recovery
+
+```bash
+# nuke the SQLite job/session state (keeps Markdown)
+python -m g1_brain.tools.reset_memory --rebuild-state
+
+# reinit the memories/.git Phase-2 baseline (after manual edits)
+python -m g1_brain.tools.reset_memory --rebuild-git
+
+# delete MEMORY.md + memory_summary.md + raw_memories.md + rollout_summaries/
+# (preserves DB stage1_outputs so Phase 2 rebuilds from disk)
+python -m g1_brain.tools.reset_memory --reset-md
+
+# nuclear option — delete the entire memory.root_dir
+python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
+```
+
+> 🛡️ **Key invariant:** every tool call walks `SafetySupervisor.validate()` in order — **whitelist · FSM gating · E-stop · 4 watchdogs · run_mode · pose check · param clamp · obstacle/person scene checks · Rule 12 Vision Risk Gate · confirm prompt**. The LLM never touches motors. The independent E-stop process keeps a panic-button exit even if the agent deadlocks. The ComboController subprocess keeps the motor PD loop alive even if the agent process freezes.
 
 ---
 
 ### 🧰 Skill Catalog (`g1_brain`)
 
-> The 17 OpenAI tool schemas exposed to Slow Brain. Source of truth: [`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py). Every schema is validated against the 11 rules in [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-11-rules) before reaching `SkillServer`.
+> **21 OpenAI tool schemas** (18 in sim, +3 real-only) exposed to the Fast Brain. Source of truth: [`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py). Every schema is validated against the **12 rules** in [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) before reaching `SkillServer`. `--vision-only` mode trims down to the 8 no-motion + no-DDS tools (4 I/O + 4 memory).
 
 #### 🗣️ I/O — no-motion (always allowed outside `BOOT`)
 
@@ -623,10 +699,19 @@ python -m g1_brain.apps.agent_main --mode confirm
 | `say` | `say(text: str ≤ 200 chars)` | Canned OpenAI TTS reply — preferred for short, scripted messages. |
 | `describe_scene` | `describe_scene(question?: str, detail?: "low"\|"high")` | Snapshot the current frame → vision model → text answer. |
 | `query_scene_state` | `query_scene_state(field?: str)` | Read the live `SceneState` (people, gestures, depth, robot pose) without re-running vision. |
-| `recall_history` | `recall_history(turns?: int)` | Replay the last *N* user/assistant turns from the on-disk transcript JSONL. |
+| `recall_history` | `recall_history(turns?: int)` | Replay the last *N* user/assistant turns from the **current-session** JSONL. |
 | `ask_human` | `ask_human(question: str)` | Pause for an explicit human reply before continuing — used when scene/safety is ambiguous. |
 | `stop` | `stop()` | Zero velocity, latch arms back to the policy. Allowed even in `BOOT`. |
 | `release_arms` | `release_arms()` | Hand the upper body back to locomotion (after a gesture/static pose). |
+
+#### 💾 Memory + Slow-Brain — **NEW in v1.1.0** (no motion, no DDS, available in `--vision-only`)
+
+| Tool | Signature | Purpose |
+|---|---|---|
+| `recall_grep` | `recall_grep(query, scope?, max_lines?)` | Sandboxed `rg`/`grep`/Python-re over `memories/` and `logs/conversations/`. Scopes: `registry` (MEMORY.md + raw_memories.md + AGENTS.md), `rollouts` (per-session summaries), `jsonl` (raw transcripts), `all`. Pure Python — **not** an LLM call. |
+| `recall_read` | `recall_read(path, max_bytes?=4096)` | Read a single file under the sandboxed `memories/` or `logs/conversations/` root. Absolute paths and `..` traversal are rejected by `resolve().relative_to(root)`. |
+| `recall_glob` | `recall_glob(pattern)` | List files matching a glob inside the sandbox. |
+| `ask_slow_brain` | `ask_slow_brain(query, timeout_s?)` | Forward `query` to the resident `codex mcp-server` subprocess (Slow Brain online); returns `{status, text}` where status ∈ `{ok, timeout, canceled, daemon_dead, queue_full, quota_exhausted, protocol_error}`. **Default budget**: 30 s reasoning at `service_tier=fast`. |
 
 #### 🦿 Motion (gated by `STANDING/ENGAGED/ACTING` FSM states + run_mode)
 
@@ -650,25 +735,82 @@ python -m g1_brain.apps.agent_main --mode confirm
 
 ---
 
-### 🛡️ Safety Supervisor — the 11 rules
+### 🛡️ Safety Supervisor — the 12 rules
 
-> Source of truth: [`g1_brain/g1_brain/safety/supervisor.py`](g1_brain/g1_brain/safety/supervisor.py) — every rule below runs **in order** for every tool call. Rejection returns `(ok=False, reason, sanitized_args)`; the only side-effect is rule 7 latching the FSM into `EMERGENCY_STOP` because that signals an in-progress fall.
+> Source of truth: [`g1_brain/g1_brain/safety/supervisor.py`](g1_brain/g1_brain/safety/supervisor.py) + [`vision_risk_gate.py`](g1_brain/g1_brain/safety/vision_risk_gate.py). Every rule below runs **in order** for every tool call. Rejection returns `(ok=False, reason, sanitized_args)`; the only side-effect is rule 7 latching the FSM into `EMERGENCY_STOP` because that signals an in-progress fall.
 
 | # | Rule | Trips when… | Effect |
 |:-:|---|---|---|
 | 1 | 🔐 **Whitelist** | tool name ∉ `ALLOWED_TOOLS` | Rejection — prevents the LLM from inventing names. |
 | 2 | 🚦 **FSM gating** | tool not allowed in current `RobotFsmState` (e.g. motion in `BOOT` / `FAULT`) | Rejection — see the per-state allow-lists (`_FSM_MOTION_ALLOWED`, `_FSM_NO_MOTION_ALLOWED`). |
-| 3 | 🎚 **`run_mode`** | mode is `observe` and tool is motion **·** mode is `confirm` and the y/N gate failed | Rejection — `active` mode skips the gate but still passes rules 4-11. |
+| 3 | 🎚 **`run_mode`** | mode is `observe` and tool is motion **·** mode is `confirm` and the y/N gate failed | Rejection — `active` mode skips the gate but still passes rules 4–12. |
 | 4 | ⏱ **`lowstate` watchdog** | no `rt/lowstate` packet in *N* ms (default 250 ms) | Latched trip — only `stop` / `release_arms` / no-motion tools survive. |
 | 5 | 🎥 **head-cam watchdog** | no fresh head-cam frame in *N* ms (default 1000 ms) | Latched trip — vision-dependent tools (`describe_scene`, `look_at`, …) blocked. |
 | 6 | 🦿 **RL-policy-active watchdog** | the locomotion policy hasn't ticked in *N* ms (e.g. backed off mid-boot) | Latched trip — motion tools blocked until the policy resumes. |
 | 7 | 📐 **body pose check** | `gravity_proj_z` from `quat_imu` falls below the upright threshold | Rejection **+** FSM transitions to `EMERGENCY_STOP` (real fall in progress). |
 | 8 | ✂️ **parameter clamp** | `walk(vx, vy, wz, duration)` exceeds the configured envelope | Args are sanitized in-place (clamped) before forwarding. |
-| 9 | 🚧 **scene check (`walk`)** | clear-path / nearest-obstacle / nearest-person fails the configured thresholds | Rejection — `approach` and `walk` only. |
+| 9 | 🚧 **scene check (`walk` / `approach`)** | clear-path / nearest-obstacle / nearest-person fails the configured thresholds | Rejection. |
 | 10 | 👤 **scene check (`gesture`)** | a person is closer than `safety.gesture_min_person_m` | Rejection — protects bystanders from `t_pose` / `punch_combo` etc. |
 | 11 | 🛑 **E-stop flag** | the independent `estop_listener` process has set its IPC flag | Rejection of *every* tool — only via process exit can it be cleared. |
+| 🆕 12 | 🔍 **Vision Risk Gate** *(v1.1.0)* | GPT-5.5-mini scores the head-cam frame + action sentence → returns `RISK: <reason>` instead of `SAFE: <reason>` | `RISK` falls through to the `run_mode` y/N confirm with reason inlined; `SAFE` auto-clears in `active` mode. Pre-filters: frame age > 2 s → RISK; brightness ∉ [30, 235] → RISK. **Bypass set** (always SAFE): `say / stop / release_arms / describe_scene / query_scene_state / recall_history`. Configurable via `safety.vision_gate.enabled` (default `true`). |
 
-> 🎯 **Independent E-stop process.** `python -m g1_brain.safety.estop_listener` runs in its own terminal, listens for <kbd>Esc</kbd>, and writes a watchdog flag the supervisor polls every tick. It survives the main agent deadlocking — by design, the panic button is **not** a thread inside the same process it has to kill.
+> 🎯 **Independent E-stop process.** `python -m g1_brain.safety.estop_listener` runs in its own terminal, listens for <kbd>Esc</kbd>, and writes a watchdog flag the supervisor polls every tick. It survives the main agent deadlocking — by design, the panic button is **not** a thread inside the same process it has to kill. The listener also publishes ~30 zero-torque `rt/lowcmd` frames straight to DDS so motors actively soften, not just stop receiving updates.
+>
+> 🔍 **Why a vision risk gate?** In `--mode active`, asking the operator y/N on every motion call defeats autonomy. Rule 12 inserts a GPT-5.5-mini check **between** the cheap deterministic rules and the human-in-the-loop gate: if the model sees a clearly empty hallway, it returns `SAFE: clear corridor` and the action executes silently. If it sees a person 1 m ahead during a `walk(1.0, 0, 0, 3.0)`, it returns `RISK: person directly in path`, and the y/N prompt now carries that reason. Full spec: [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md).
+
+---
+
+### 💾 Memory Subsystem (Codex-native, v1.1.0)
+
+> A **Claude-Code-style memory harness** added in v1.1.0 — every voice session is persisted as a Claude-harness-shape JSONL, distilled offline by two `codex exec` workers, and re-injected as developer instructions into the next Realtime session. Source-of-truth files: [`g1_brain/g1_brain/memory/`](g1_brain/g1_brain/memory/) · design freeze: [`docs/harness-design.md`](docs/harness-design.md) · runtime audit: [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md) · operator guide: [`docs/harness_g1.md`](docs/harness_g1.md).
+
+#### 📐 On-disk layout (defaults to `~/.unitree/g1_brain/`)
+
+```text
+~/.unitree/g1_brain/                       ← memory.root_dir
+├── memories/                              ← Markdown knowledge base
+│   ├── AGENTS.md                          ·  versioned, shipped from prompts/default_agents_md.md
+│   │                                         (defines the recall procedure for the Slow Brain)
+│   ├── MEMORY.md                          ·  ≤200 lines / 25 KB, Phase 2 output, the "current model of the world"
+│   ├── memory_summary.md                  ·  ≤80 lines / 8 KB, auto-injected into next session
+│   ├── raw_memories.md                    ·  concatenated stage1 raw_memory bullets (append-only)
+│   ├── rollout_summaries/
+│   │   └── <sid8>-<ts>-<slug>.md          ·  per-session digest (Phase 1)
+│   └── .git/                              ·  Phase 2 diff baseline (auto-init)
+├── state.sqlite                           ·  WAL — sessions · stage1_outputs · jobs
+└── .codex_runtime/                        ·  CODEX_HOME (config.toml, auth.json, sessions)
+
+g1_brain/logs/conversations/<ISO>-<uuid>.jsonl   ← raw per-process transcripts
+                                                  (separate from memory root; Phase 1 source)
+```
+
+#### 🔁 Two-phase pipeline
+
+| Phase | Trigger | Tool | What it produces |
+|---|---|---|---|
+| **Phase 1** *(per-session)* | debounced 60 s after each session JSONL grows (cap 80 KB) | `codex exec --json` with `prompts/phase1_system.md` | `{raw_memory, rollout_summary, rollout_slug}` JSON → upsert `stage1_outputs` row + write `rollout_summaries/<sid8>-<ts>-<slug>.md` |
+| **Phase 2** *(global)* | Phase 1 done → claim global lock | reads all stage1, runs `codex exec --json` with `prompts/phase2_system.md` **only if** `git diff HEAD memories/` is dirty | `{memory_md, memory_summary_md}` JSON → rewrite `MEMORY.md` + `memory_summary.md`, then `git commit` the new baseline |
+
+> 📐 No periodic Phase 2 ticks. Phase 2 fires only when Phase 1 produced new content that materially changed `raw_memories.md` — git is the cheapest possible change detector.
+
+#### 🧠 Two brains, two tool surfaces
+
+The **Fast Brain** uses the four `recall_*` tools as **pure Python skills** (`rg` / `cat` / `glob` in a sandbox). The **Slow Brain online** (the codex daemon spawned via `ask_slow_brain`) gets its own MCP-side shell + filesystem tools — it operates on the same `memories/` tree but through codex's native sandbox, not through our skill server. Don't confuse the two: telling codex about `recall_grep` is wrong, because codex has `rg` natively.
+
+#### 🛠️ Operator-grade recovery
+
+```bash
+python -m g1_brain.tools.reset_memory --rebuild-state   # backup + recreate sqlite
+python -m g1_brain.tools.reset_memory --rebuild-git     # rm + reinit memories/.git baseline
+python -m g1_brain.tools.reset_memory --reset-md        # delete Markdown; Phase 2 rebuilds from DB
+python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete entire root
+```
+
+#### 🔌 Configuration knobs (`configs/g1_brain.yaml::memory`)
+
+`enabled` · `root_dir` · `phase1_model` · `phase2_model` · `phase1_debounce_s` · `phase1_max_jsonl_bytes` · `phase2_max_raw_memories` · `phase2_max_unused_days` · `slow_brain_model` · `ask_default_timeout_s` · `ask_queue_max` · `daemon_ping_interval_s` · `daemon_restart_max_attempts` · `passive_summary_max_tokens` · `passive_agents_md_max_tokens` · `recall_grep_default_max_lines` · `recall_read_max_bytes`.
+
+> 🧪 **Tested.** `g1_brain/tests/test_memory_*` covers `codex_client`, `context`, `daemon`, `jobs`, `phase1`, `phase2`, `pipeline_e2e`, `recall`, `storage` — 9 dedicated test files. The `pipeline_e2e` test exercises a complete JSONL → stage1 → MEMORY.md → developer-instructions roundtrip using a stub codex client (no API calls).
 
 ---
 
@@ -734,20 +876,24 @@ python -m g1_brain.apps.agent_main --mode confirm
 
 🔁 **Why the same script runs on the real robot:** swap the `lo` argument for the robot's NIC name; the script flips to DDS domain 0 and the rest of the pipeline (`unitree_sdk2py` → `rt/lowcmd` → joint controllers) is identical. This is the entire point of MuJoCo "as a fake robot."
 
-#### `va-demo` agent loop
+#### `va-demo` agent loop *(updated for AEC + cleaned-RMS gate, May 2026)*
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                                  va-demo                                │
 │                                                                          │
-│   🎤 mic                                                                 │
+│   🎤 mic                       ┌─── speaker echo (recent_played_pcm) ────┘
 │   sounddevice ─► MicStream.subscribe() ──┬─► WakeWordDetector            │
-│                                          │       (faster-whisper tiny)   │
+│                                          │       ├─ AEC subtract         │
+│                                          │       │  (cleaned RMS gate)   │
+│                                          │       └─ faster-whisper tiny  │
+│                                          │       └─ "Hi Sparky" barge-in │
+│                                          │          allowed in ANY state │
 │                                          │                               │
 │                                          └─► UtteranceVAD (webrtcvad)    │
 │                                                  │                       │
 │                                                  ▼                       │
-│                                       gpt-4o-transcribe                  │
+│                                    gpt-4o-mini-transcribe (cloud)        │
 │                                                  │                       │
 │                                                  ▼                       │
 │   📝 prompt + tools  ─►  OpenAI Realtime API (websocket, full-duplex)    │
@@ -757,18 +903,85 @@ python -m g1_brain.apps.agent_main --mode confirm
 │       ┌──────────────────────────┼───────────────────────────────┐       │
 │       ▼                          ▼                               ▼       │
 │  walk / gesture /         describe_scene                       say        │
-│  stop / release_arms     (snapshot ─► gpt-5.x vision)          (TTS)      │
-│       │                          │                               │       │
+│  stop / release_arms     (snapshot ─► gpt-5.5 vision)          (TTS)      │
 │       │                          │                               │       │
 │       ▼                          ▼                               ▼       │
 │  Safety supervisor      teleimager (ZMQ frame)            speaker out    │
-│       │                                                                  │
-│       ▼                                                                  │
+│       │                                                          │       │
+│       ▼                                                          │       │
 │  ComboController  ─►  rt/lowcmd  (same DDS path as g1_sim_rl_combo.py)   │
+│                                                                  │       │
+│                                                                  ▼       │
+│   📓  ConversationLogger ─► g1_brain/logs/conversations/*.jsonl          │
+│   (Claude-harness shape — typed content blocks, uuid, session_id)        │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 📐 Full design: [`docs/va-demo-design.md`](docs/va-demo-design.md) · run guide: [`docs/va-demo-use.md`](docs/va-demo-use.md).
+> 📐 Full design: [`docs/va-demo-design.md`](docs/va-demo-design.md) · run guide: [`docs/va-demo-use.md`](docs/va-demo-use.md) · audio-control deltas: [`g1_brain/docs/audio-control-update01.md`](g1_brain/docs/audio-control-update01.md).
+
+#### `g1_brain` v1.1.0 — three-brain process model
+
+```
+                ┌─────────────────────────────────────────────────────────┐
+                │         🧠 FAST BRAIN  (OpenAI Realtime WS)             │
+                │  · gpt-realtime · 0.2–2 Hz/turn · 21 tools              │
+                │  · sees only SceneState.summary_for_llm()               │
+                │  · NEVER touches motors — all calls go via SkillServer  │
+                └─────────────────────────────────────────────────────────┘
+                       │ ask_slow_brain(q)              │ recall_grep/read/glob
+                       ▼                                ▼ (pure Python, no LLM)
+        ┌─────────────────────────────────┐   ┌────────────────────────────────┐
+        │   🐢 SLOW BRAIN (online)        │   │  💾  Sandboxed rg/cat/glob     │
+        │   codex mcp-server subprocess   │   │  scopes: registry · rollouts · │
+        │   · reasoning_effort=high       │   │  jsonl · all                   │
+        │   · service_tier=fast (1.5×)    │   └────────────────────────────────┘
+        │   · MCP stdio · 30s ping        │
+        │   · 5-attempt back-off          │
+        └─────────────────────────────────┘
+                       ▲
+                       │  (also writes JSONL turns)
+                       │
+                ┌─────────────────────────────────────────────────────────┐
+                │  📓 ConversationLogger ─► logs/conversations/*.jsonl    │
+                └─────────────────────────────────────────────────────────┘
+                       │
+                       ▼ (debounced 60 s, cap 80 KB)
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  💾 SLOW BRAIN (offline) — Phase 1 → Phase 2 codex exec workers    │
+        │                                                                    │
+        │  Phase 1: JSONL → {raw_memory, rollout_summary, slug} → SQLite     │
+        │  Phase 2: stage1 → MEMORY.md + memory_summary.md (git-diff gated)  │
+        │                                                                    │
+        │  memory_summary.md auto-injected as developer instructions         │
+        │  into the NEXT session's Realtime context.                         │
+        └────────────────────────────────────────────────────────────────────┘
+                       │
+                       ▼ (sibling subprocess; Phase 8 isolation)
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  🦿 ComboController subprocess   ▶  rt/lowcmd  (DDS, 500 Hz PD)    │
+        │  · 50 Hz RL ONNX policy   · keyframe arm-gesture overlay (15–28)   │
+        │  · GIL-isolated from Fast Brain / perception / vision              │
+        └────────────────────────────────────────────────────────────────────┘
+                       ▲
+                       │  rt/lowstate (1 kHz)
+                       │
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  ⚡ FAST REFLEX (threads, no LLM)                                  │
+        │  · MicStream · SpeakerStream · CameraHub (USB + MuJoCo head EGL)  │
+        │  · YOLO11 (cuda) 15 Hz · MediaPipe-Pose 15 Hz · depth 5 Hz        │
+        │  · 4 watchdogs · RobotStateProducer 20 Hz                          │
+        │  · EstopClient ← independent estop_listener process                │
+        └────────────────────────────────────────────────────────────────────┘
+                       ▲
+                       │  ESC = panic
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  🛑 g1_brain.safety.estop_listener   (separate process, T3)        │
+        │  · publishes ~30 zero-torque rt/lowcmd frames on ESC               │
+        │  · sets IPC flag the supervisor polls every tick (Rule 11)         │
+        └────────────────────────────────────────────────────────────────────┘
+```
+
+> 📐 The 7-layer reference is in [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md); the per-line implementation audit (with file:line citations) is in [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md).
 
 ---
 
@@ -832,8 +1045,17 @@ python -m g1_brain.apps.agent_main --mode confirm
 | [`docs/wsl2_audio.md`](docs/wsl2_audio.md) | How to fix `sounddevice`/PortAudio under WSL2 + conda. |
 | [`docs/camera_ui_demo.md`](docs/camera_ui_demo.md) | `usbipd` → WSL2 → `teleimager.image_server` → live video. |
 | [`docs/ros2_sdk.md`](docs/ros2_sdk.md) | The ROS / ROS 2 vs Unitree SDK lineage, and how `unitree_ros2` plugs in. |
+| 🆕 [`docs/distance_risk1.md`](docs/distance_risk1.md) | **Distance-aware risk modelling via ROS 2 / Nav2** — proposal to replace g1_brain's binary `front_has_obstacle` with Nav2 Costmap layers (`ObstacleLayer` · `VoxelLayer` · `STVL` · `SemanticSegmentationLayer` · `InflationLayer`) + `Collision Monitor` 4-stage policy (stop / slowdown / velocity-limit / approach=TTC) + Regulated Pure Pursuit / DWB / MPPI controllers. Includes 5 routes to plug a vision/depth model into the costmap. |
+| 🆕 [`docs/harness-design.md`](docs/harness-design.md) | **Codex-native memory subsystem design freeze** — dual-brain rationale, 6-layer module table, three data flows (write/read/deep-think), file+SQLite (no embeddings), JSONL meta extensions, Phase 1/2 contracts, `ask_slow_brain` MCP/stdio plumbing, AGENTS.md recall procedure. |
+| [`docs/harness_g1.md`](docs/harness_g1.md) | End-to-end memory-harness run instructions (operator-facing, 2-terminal flow). |
 | [`docs/vla_wma.md`](docs/vla_wma.md) | One-page primer: VLA vs WMA vs SLAM. |
 | [`docs/vlm_audio_mock.md`](docs/vlm_audio_mock.md) · [`vlm_audio_mock_deep.md`](docs/vlm_audio_mock_deep.md) | The full G1 VLM + audio + human-mimic research plan that motivated `va-demo`. |
+| [`docs/terrain_how_to_use.md`](docs/terrain_how_to_use.md) | Switching `unitree_mujoco` between flat and terrain MJCF scenes (head-cam must match). |
+| [`docs/eval_unitree.md`](docs/eval_unitree.md) · [`docs/eval_unitree_g1_23dof.md`](docs/eval_unitree_g1_23dof.md) | Evaluation matrices for the 29 / 23-DoF G1 RL deployments. |
+| [`docs/train_unitree.md`](docs/train_unitree.md) | Training-side notes for `unitree_rl_mjlab` (mjlab + rsl_rl + MuJoCo Warp). |
+| [`docs/g1_arm_aware_policy_plan.md`](docs/g1_arm_aware_policy_plan.md) | Arm-aware locomotion policy plan (legs + arms jointly trained). |
+| [`docs/branch_diff_main_23dof.md`](docs/branch_diff_main_23dof.md) | Branch diff log for the 23-DoF variant. |
+| [`docs/left_sidebar_unitree.md`](docs/left_sidebar_unitree.md) | One-page navigation index of the workspace. |
 | [`instructions.md`](instructions.md) | Curated run-orders for `mujoco rl_combo` and `mujoco + va-demo` with WSL2 USB-camera attach. |
 
 #### 🎮 In-house demos
@@ -867,16 +1089,26 @@ python -m g1_brain.apps.agent_main --mode confirm
 | Doc | Scope |
 |---|---|
 | [`g1_brain/README.md`](g1_brain/README.md) | 📍 Package landing page — highlights, layout, install, run, modes, skills, safety, perception, mock imitation, configuration, debug entries, tests, troubleshooting. |
-| [`docs/g1_plan.md`](docs/g1_plan.md) | The full 1500+-line design that motivated `g1_brain` (Slow Brain + Fast Reflex + Safe Skill, Phases 0–7). |
+| 🆕 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md) | **v1.1.0 runtime audit (1300 lines, May 2026)** — three-brain architecture, full process/thread/asyncio task tree, 7-stage startup, SceneStateBus + RobotStateBus contracts, codex daemon lifecycle, memory pipeline, 18-tool matrix, **11+1 rules**, audio FSM, single-turn end-to-end sequence diagram. Every claim cites `file:line`. |
+| 🆕 [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md) | **7-layer reference system map** (L7 operator → L6 sensor input → L5 perception → L4 scene/state busses → L3 reasoning → L2 safety+skills → L1 runtime → L0 hardware), frequency table, hard rules. |
+| 🆕 [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md) | **Vision Risk Gate spec** — Rule 12 design, A–G hazard categories, SAFE/RISK strict-output contract, bypass set, failure handling. |
+| [`docs/g1_plan.md`](docs/g1_plan.md) | The original 1500+-line design that motivated `g1_brain` (Phases 0–7). |
 | [`docs/vlm_audio_mock.md`](docs/vlm_audio_mock.md) · [`vlm_audio_mock_deep.md`](docs/vlm_audio_mock_deep.md) | Architecture-level research notes that fed the design — VLM + audio + human-mimic primer. |
-| [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) | ~330-line cliffs-notes architecture (3 layers, frequency table, FSM, perception threading, process model). |
+| [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) | ~330-line cliffs-notes architecture (layer table, frequency table, FSM, perception threading, process model). |
 | [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) | Operator guide — prereqs, 4-terminal startup, debug entries, run modes, common errors, sim → real switch, WSL2 specifics. |
 | [`g1_brain/docs/extending_skills.md`](g1_brain/docs/extending_skills.md) | The 4 places to touch when adding a new tool, plus a checklist. |
-| [`g1_brain/docs/g1_brain_QA1.md`](g1_brain/docs/g1_brain_QA1.md) | Q&A round 1 — gotchas around `how_to_run.md`. |
+| 🆕 [`g1_brain/docs/audio-control-update01.md`](g1_brain/docs/audio-control-update01.md) | **Wake-word barge-in always-on** + idle-after-plan mic-uplink gate + per-process JSONL transcripts. New `audio_control` yaml block (barge_in / voice_barge_in / idle_after_plan / plan_watchdog_s / transcript). |
+| 🆕 [`g1_brain/docs/performance-optimization-GPU.md`](g1_brain/docs/performance-optimization-GPU.md) | **GPU/perf debug session (706 lines)** — YOLO silently CPU-bound (8× fix), MuJoCo head-cam two-Renderer collapse, CPU thread caps (LP/OMP/MKL), counterintuitive Mesa-llvmpipe-beats-D3D12 finding on WSL2. |
+| 🆕 [`g1_brain/docs/stand_balance_root_cause.md`](g1_brain/docs/stand_balance_root_cause.md) | RL-stand instability root cause + 50 Hz hysteresis fix. |
+| [`g1_brain/docs/g1_brain_QA1.md`](g1_brain/docs/g1_brain_QA1.md) · 🆕 [`g1_brain_QA2.md`](g1_brain/docs/g1_brain_QA2.md) | Q&A rounds 1 & 2. |
 | [`g1_brain/docs/g1-fix-phase1.md`](g1_brain/docs/g1-fix-phase1.md) | Fix log: post-boot pose oscillation. |
 | [`g1_brain/docs/g1-fix-phase2.md`](g1_brain/docs/g1-fix-phase2.md) | Fix log: RL ramp + watchdog grace + recovery hold. |
 | [`g1_brain/docs/g1-fix-phase3.md`](g1_brain/docs/g1-fix-phase3.md) | Fix log: head-cam EGL threading + DDS subscription order. |
 | [`g1_brain/docs/g1-fix-phase5.md`](g1_brain/docs/g1-fix-phase5.md) | Fix log: USB watchdog locking gestures even when USB cam disabled. |
+| 🆕 [`g1_brain/docs/g1-fix-phase6.md`](g1_brain/docs/g1-fix-phase6.md) | Fix log: collapsed startup pose · "flying robot" · static-gesture balance. |
+| 🆕 [`g1_brain/docs/g1-fix-phase7.md`](g1_brain/docs/g1-fix-phase7.md) | Fix log: stand-still bypass with 50 Hz hysteresis; mock_imitation auto-trigger off. |
+| 🆕 [`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md) | Fix log: **ComboController subprocess isolation** — GIL contention root-causing arm tremor + falls. |
+| 🆕 [`g1_brain/docs/g1-fix-phase9.md`](g1_brain/docs/g1-fix-phase9.md) | Fix log: WSL2 + Pulse audio — choppy TTS, LISTENING_WINDOW capture, ALSA underrun spam. |
 
 #### 📡 Upstream deep-dives
 
@@ -905,11 +1137,16 @@ python -m g1_brain.apps.agent_main --mode confirm
 | Loop | Where | Typical rate | Comment |
 |---|---|:-:|---|
 | 🦴 Bridge `rt/lowstate` | `unitree_mujoco` | **1 kHz** | Set by the MuJoCo step + bridge loop; matches the real robot. |
+| ⚙️ Motor PD | `ComboController` subprocess | **500 Hz** | Isolated from the agent process by Phase 8 `combo_proxy`. |
 | 🚶 RL policy inference | `g1_sim_rl_*.py` | **50 Hz** | ONNX Runtime CPU is usually faster than this — bottleneck is the publish cadence we choose. |
 | 🤹 Combo upper-body override | `g1_sim_rl_combo.py` | **50 Hz** (same loop) | Single publisher → no DDS races. |
-| 🧠 Slow Brain (Realtime API) | `g1_brain` | **0.2–2 Hz** | Bounded by network round-trip + LLM thinking. |
-| ⚡ Fast Reflex (perception) | `g1_brain.perception` | **5–30 Hz** | YOLO11 + MediaPipe-Pose + depth fusion; capped by camera FPS. |
-| 🎤 Wake-word check | `va-demo.wake_word` | **8–16 Hz** | `faster-whisper tiny` on CPU; ~50–100 ms per shot. |
+| 🧠 Fast Brain (Realtime API) | `g1_brain.brain` | **0.2–2 Hz / turn** | Bounded by network round-trip + LLM thinking. |
+| 🐢 Slow Brain (online — codex daemon) | `g1_brain.memory.daemon` | on-demand | Per `ask_slow_brain()` call; 30 s default budget at `service_tier=fast` (1.5× priority). |
+| 💾 Slow Brain (offline — Phase 1) | `g1_brain.memory.phase1` | debounced 60 s | Per session JSONL grow. Cap 80 KB / call. |
+| 💾 Slow Brain (offline — Phase 2) | `g1_brain.memory.phase2` | Phase 1 done + git-dirty | Global lock; rewrites `MEMORY.md` + `memory_summary.md`, then `git commit`. |
+| ⚡ Fast Reflex perception | `g1_brain.perception` | **5–30 Hz** | YOLO11 (cuda) 15 Hz + MediaPipe-Pose 15 Hz + depth 5 Hz + ground constraint 5 Hz. |
+| 📡 RobotStateProducer / Watchdogs | `g1_brain.scene_state` / `safety.watchdogs` | **20 Hz / 10 Hz** | Push to RobotStateBus; supervisor polls every tick. |
+| 🎤 Wake-word check | `va-demo.wake_word` | **8–16 Hz** | `faster-whisper tiny` on CPU + AEC subtract + cleaned-RMS gate (300+ on raw, 600+ on cleaned). |
 
 #### 💾 Memory & disk
 
@@ -924,8 +1161,20 @@ python -m g1_brain.apps.agent_main --mode confirm
 #### 🌡 Common bottlenecks
 
 - 🥵 **WSL2 + sounddevice CPU spike** when `audio.input_block_ms < 20` — keep ≥ 20 ms.
-- 🌐 **Realtime websocket latency** dominates Slow Brain perceived latency; nearby OpenAI region helps more than any local optimization.
+- 🌐 **Realtime websocket latency** dominates Fast Brain perceived latency; nearby OpenAI region helps more than any local optimization.
 - 🧊 **First MuJoCo step** under WSL2's D3D12 GL path takes 1–2 s; subsequent steps are < 0.5 ms. Don't put the `np.set_printoptions` style warm-up inside the control loop.
+
+#### 🚀 GPU / perf wins from the May-2026 debug pass
+
+> Source: [`g1_brain/docs/performance-optimization-GPU.md`](g1_brain/docs/performance-optimization-GPU.md).
+
+| Bug | Root cause | Fix | Result |
+|---|---|---|---|
+| 🐢 **YOLO silently CPU-bound** | `device: "auto"` never resolved to `cuda:0`; `.predict()` ran on CPU even with a 4060 in the box. | Explicit `cuda:0` resolution + `.to(device)` + `device=` passed on **every** `predict()` call in `perception/object_detector.py`. | **~8×** speedup (99 → 13 ms / call). |
+| 🪞 **Head-cam ran two `Renderer` instances** | One for RGB + one for depth → doubled GL state + memory. | Collapsed into one Renderer with runtime `enable_depth_rendering()` toggle in `perception/mujoco_head_cam.py`. | 270 → **167 ms** per cycle (on llvmpipe). |
+| 🧵 **Unbounded CPU thread sprawl** | torch / mkl / openmp each spawning a thread-per-core stack → CPU starvation. | `LP_NUM_THREADS=3`, `OMP_NUM_THREADS=3`, `MKL_NUM_THREADS=3` set at the **top** of `apps/agent_main.py` before any other import. | Steady CPU; no more interrupted perception. |
+| 🐌 **WSL2 GPU rendering counterintuitive** | No `libGL_nvidia.so` in WSL2 — D3D12 translation layer is slower than Mesa llvmpipe (CPU) for offscreen MuJoCo. | Default to llvmpipe; only switch to D3D12 if there's a known scenario where it helps. CUDA itself (torch/yolo) is unaffected and runs at full speed. | ~2× faster head-cam rendering in WSL2. |
+| 🖱️ **MuJoCo viewer mouse-rotation lag** | Per-frame cost in the C++ `render_loop` (vsync-bound) — not the Python publisher. | Cut shadows / reflections / MSAA at the MJCF level + 30 fps cap (`unitree_mujoco/simulate_python/run_sim.sh`). | Smooth mouse-rotation, no Python-side change needed. |
 
 ---
 
@@ -938,23 +1187,25 @@ python -m g1_brain.apps.agent_main --mode confirm
 - `g1_sim_demo/g1_sim_low_level.py` · `g1_sim_interactive.py` · `g1_sim_keyboard.py` — sine-wave + keyframe playgrounds.
 - `g1_sim_demo/g1_sim_rl_walk.py` · `g1_sim_rl_combo.py` — RL walk + arm-gesture combo.
 - `g1_real_demo/g1_real_rl_combo.py` — real-robot port (with `lying` test mode).
-- `va-demo/` — wake-word-gated Realtime voice + vision agent (4 run modes).
-- `g1_brain/` — Slow-Brain + Fast-Reflex + Safe-Skill agent: 11-rule supervisor · 7-state FSM · independent E-stop · 17 LLM-callable skills · MuJoCo head-cam perception · `mock_imitate` (Phase 5).
+- `va-demo/` — wake-word-gated Realtime voice + vision agent (4 run modes) — Hi-Sparky barge-in in any state, AEC-cleaned RMS gate, per-process JSONL transcripts.
+- `g1_brain/` **v1.1.0** — three-brain agent: **12-rule** supervisor (incl. GPT-5.5-mini Vision Risk Gate) · 7-state FSM · independent E-stop · ComboController subprocess isolation (Phase 8) · **21 LLM-callable skills** · MuJoCo head-cam perception · `mock_imitate` (Phase 5, opt-in).
+- 🆕 **Memory subsystem** — Codex-native (codex daemon + Phase 1 + Phase 2 workers) · SQLite + Markdown (no embeddings) · `recall_grep/read/glob` + `ask_slow_brain` tools · session-summary auto-injection · `tools/reset_memory.py` CLI · 9 dedicated test files.
 - `requirements.txt` — frozen `agi` env reproducible from `python=3.11` + `pip install -r requirements.txt`.
 
 #### 🚧 In progress / refining
 
-- 🧠 Persistent voice transcript schema for future SQLite + FTS5 ingest (typed content blocks, `uuid`, `session_id`).
-- 🎯 Vision-risk-gate (`g1_brain/safety/vision_risk_gate.py`) — additional checks beyond the 11 rules, for ambiguous human-proximity cases.
+- 🚧 **Distance-aware risk model** — replace binary `front_has_obstacle` with Nav2 Costmap layers + Collision Monitor 4-stage policy. Phased proposal in [`docs/distance_risk1.md`](docs/distance_risk1.md): stage 1 minimal, stage 2 PointCloud2 → Nav2, stage 3 Collision Monitor with footprint corridor + TTC.
 - 🦿 Real-robot validation of `mock_imitate` end-to-end (sim works; real-robot mirror loop is being tuned).
 - 📷 Stereo / RealSense head-cam path for true depth (currently uses MuJoCo monocular with derivation).
+- 🧠 Promoting `MEMORY.md` to a structured plan store (sections People / Places / Skills learned / Safety lessons are stable; richer cross-session linking is being tested).
 
 #### 🌱 Wishlist
 
-- 🤗 Bridging `unitree_lerobot` ACT / Diffusion / π₀ policies into the `g1_brain` skill server.
-- 🌐 ROS 2 Jazzy bridge for the `g1_brain` `SceneState` so other ROS nodes can subscribe to fused perception.
-- 🧬 World-model rollouts via `unifolm-world-model-action` as a planning aid before `walk` is dispatched.
+- 🤗 Bridging `unitree_lerobot` ACT / Diffusion / π₀ policies into the `g1_brain` skill server (as a new tool family alongside `walk`/`gesture`).
+- 🌐 ROS 2 Jazzy bridge for the `g1_brain` `SceneState` so other ROS nodes can subscribe to fused perception — companion to the distance-risk Nav2 plan.
+- 🧬 World-model rollouts via `unifolm-world-model-action` as a planning aid before `walk` is dispatched — Slow-Brain-side, behind `ask_slow_brain()`.
 - 🧤 Dex-hand teleop loop — `xr_teleoperate` → `g1_brain` skills → real Dex3 / Inspire / Brainco hand.
+- 🔌 Pluggable Realtime backend (Claude / Gemini / local) behind the `BrainRealtimeAgent` abstraction.
 
 > 🤝 **Want to help?** [§ Contributing](#-contributing) lists the kinds of PRs that fit best.
 
@@ -1099,6 +1350,59 @@ Two follow-ups after `ReleaseMode()`:
 Full incident log: [`g1_real_demo/issue/realmachine.md`](g1_real_demo/issue/realmachine.md).
 </details>
 
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>: <code>ask_slow_brain</code> returns <code>{status: "daemon_dead"}</code></b></summary>
+
+The `codex mcp-server` subprocess died. Common causes:
+
+1. `codex` binary not on `$PATH`. Verify with `which codex` and re-install per OpenAI Codex docs.
+2. Auth missing — the codex daemon shares `CODEX_HOME=$memory.root_dir/.codex_runtime`. Run `codex auth login` once in your shell with `CODEX_HOME` set to that path so the daemon picks it up.
+3. Quota exhausted — daemon enters a 30-minute cool-down on rate-limit detection. Either wait, or check `OPENAI_API_KEY` billing.
+4. `service_tier: "fast"` not authorised on your key — change `memory.slow_brain_model` config or drop the tier override.
+
+Logs: `g1_brain/logs/conversations/` for the user-visible tool result; `~/.unitree/g1_brain/.codex_runtime/sessions/` for codex-side traces.
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>: <code>MEMORY.md</code> never gets written</b></summary>
+
+Phase 2 is **git-diff gated** — it only fires when `git diff HEAD memories/` is dirty, i.e. when Phase 1 actually changed something. Walk through:
+
+1. `cat state.sqlite` via `sqlite3 state.sqlite "SELECT * FROM stage1_outputs LIMIT 5;"` — is Phase 1 producing rows?
+2. `ls -la ~/.unitree/g1_brain/memories/rollout_summaries/` — are per-session files appearing?
+3. `cd ~/.unitree/g1_brain/memories && git status` — is there an actual diff?
+
+If everything's empty: Phase 1 is debounced 60 s after JSONL grow — if your session is < 60 s of speech, you'll never trigger it. To force-run, write a longer test session or temporarily lower `memory.phase1_debounce_s` in `configs/g1_brain.yaml`.
+
+Hard reset for a corrupted memory dir: `python -m g1_brain.tools.reset_memory --rebuild-state --rebuild-git --reset-md`.
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>: Vision Risk Gate (Rule 12) flags every action as RISK</b></summary>
+
+Three pre-filter failure modes return RISK before even contacting GPT-5.5-mini:
+
+1. **Frame age > 2 s** — head-cam isn't refreshing. See "head-cam stuck at 0 FPS" troubleshooting above.
+2. **Brightness ∉ [30, 235]** — overexposed (white wall) or underexposed (dark room). Reposition the camera or tweak `safety.vision_gate.{min,max}_brightness`.
+3. **Vision LLM timeout** — `gpt-5.5-mini` slow path. Bump `safety.vision_gate.timeout_s` (default 30 s).
+
+To disable the gate temporarily: `safety.vision_gate.enabled: false` in `configs/g1_brain.yaml`. Spec: [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md).
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>: arm tremor / gait instability under load</b></summary>
+
+Almost certainly the **Phase 8 root cause**: the 50 Hz `ComboController` was running in the same process as perception (YOLO + MediaPipe + cv2) and the Realtime WebSocket, getting starved by the GIL. Verify isolation is on:
+
+```yaml
+# configs/g1_brain.yaml
+safety:
+  isolate_controller: true   # default; turning off restores the bug
+```
+
+When isolation is on, `agent_main` spawns a sibling subprocess running `g1_brain.safety.combo_proxy`. Look for `[combo_proxy] started, waiting for rt/lowstate` in stdout. Full incident log: [`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md).
+</details>
+
 ---
 
 ### ❓ FAQ
@@ -1222,7 +1526,9 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 
 ## 🇨🇳 简体中文
 
-> 一个为 **宇树 G1 人形机器人** 量身打造的、完整的、有观点的研究 / 仿真 / 真机部署工作区。仓库里同时包含 **十一份上游参考代码快照**（SDK · MuJoCo · RL · ROS 1 · ROS 2 · IsaacLab · LeRobot · VLA · WMA · XR 遥操 · 图像服务器）和四套自研交付物：[`g1_sim_demo/`](g1_sim_demo/)（从正弦波到 RL+手势的仿真 demo）、[`g1_real_demo/`](g1_real_demo/)（真机部署）、[`va-demo/`](va-demo/)（基于 OpenAI Realtime 的语音 + 视觉智能体）和 [`g1_brain/`](g1_brain/)（在 va-demo 之上叠加感知 / **11 条安全规则** / **17 个 LLM 工具**的"慢脑 + 快反射 + 安全技能"三层认知智能体）。
+> 一个为 **宇树 G1 人形机器人** 量身打造的、完整的、有观点的研究 / 仿真 / 真机部署工作区。仓库里同时包含 **十一份上游参考代码快照**（SDK · MuJoCo · RL · ROS 1 · ROS 2 · IsaacLab · LeRobot · VLA · WMA · XR 遥操 · 图像服务器）和四套自研交付物：[`g1_sim_demo/`](g1_sim_demo/)（从正弦波到 RL+手势的仿真 demo）、[`g1_real_demo/`](g1_real_demo/)（真机部署）、[`va-demo/`](va-demo/)（基于 OpenAI Realtime 的语音 + 视觉智能体）和 [`g1_brain/`](g1_brain/) **v1.1.0** —— "**三脑认知智能体**"（🧠 快脑 · 🐢 在线慢脑 · 💾 离线慢脑），配备 **12 条安全规则**（含 GPT-5.5 视觉风险门）、**21 个 LLM 可调用技能**，以及一套 **Codex 原生记忆子系统**，能把每次语音对话沉淀为自更新的 `MEMORY.md` 知识库。
+
+> 🆕 **v1.1.0（2026 年 5 月）带来了什么？** 三项关键改动把智能体从"语音 + 反射"升级为类 Claude-Code 的认知 harness：**(1)** 新增 `ask_slow_brain(query)` 工具，把难题甩给一个常驻 `codex mcp-server` 子进程（`reasoning_effort=high` + `service_tier=fast`）来思考；**(2)** Phase 1 + Phase 2 离线记忆流水线把每次语音 session 的 JSONL 提炼成 `raw_memories.md` / `rollout_summaries/` / `MEMORY.md` / `memory_summary.md`，并把 summary 自动注入到下一次 session 的开发者指令里；**(3)** 新增 4 个 `recall_*` 工具（`grep` / `read` / `glob` / `ask_slow_brain`），让 Realtime 模型可以主动回看历史 session。完整实现冻结见 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)；设计稿见 [`docs/harness-design.md`](docs/harness-design.md)。
 
 ### 📑 目录
 
@@ -1237,9 +1543,10 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
   - [🎬 `g1_sim_demo/` — MuJoCo Demo 一览](#-g1_sim_demo--mujoco-demo-一览)
   - [🦿 `g1_real_demo/` — 真机部署](#-g1_real_demo--真机部署)
   - [🎙️ `va-demo/` — 语音 + 视觉智能体](#%EF%B8%8F-va-demo--语音--视觉智能体)
-  - [🧠 `g1_brain/` — 慢脑 + 快反射 + 安全技能 智能体](#-g1_brain--慢脑--快反射--安全技能-智能体)
+  - [🧠 `g1_brain/` v1.1.0 — 三脑认知智能体](#-g1_brain-v110--三脑认知智能体)
 - [🧰 技能目录（`g1_brain`）](#-技能目录g1_brain)
-- [🛡️ 安全监督器 — 11 条规则](#%EF%B8%8F-安全监督器--11-条规则)
+- [🛡️ 安全监督器 — 12 条规则](#%EF%B8%8F-安全监督器--12-条规则)
+- [💾 记忆子系统（Codex 原生，v1.1.0）](#-记忆子系统codex-原生v110)
 - [📡 上游参考仓库](#-上游参考仓库)
 - [🧱 架构总览](#-架构总览)
 - [🔌 DDS Topic 与关节速查](#-dds-topic-与关节速查)
@@ -1262,7 +1569,11 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🎮 **五个开箱即用的 G1 仿真 demo** | 从 70 行的"发一段正弦波"热身脚本，到 1000 行的 RL+手势 combo 控制器，每个脚本都写满了 inline 注释，对着 Python MuJoCo 桥接器 **直接就能跑**。 |
 | 🦿 **真机部署脚手架** | `g1_real_demo/g1_real_rl_combo.py` 在 sim 版本基础上加了 `MotionSwitcher` 释放、有界 `lowstate` 等待和 `lying` 检线模式——在让机器人站起来之前就能验证 DDS 通路。 |
 | 🎙️ **语音 + 视觉 Realtime 智能体** | `va-demo/` 自带"嗨 Sparky"唤醒词的 OpenAI Realtime 全双工语音智能体，可以**调用视觉**描述场景，也能**工具调用** `walk` / `gesture` / `stop` 直接驱动 RL 策略——支持 confirm / observe / active / vision-only 四种运行模式。 |
-| 🧠 **慢脑 + 快反射 + 安全技能** | `g1_brain/` 在 `va-demo` 之上加 3 层智能体——MuJoCo 头摄第一视角 + YOLO11 + MediaPipe-Pose 融合成线程安全的 `SceneState`；**11 条安全规则**的 SafetySupervisor + 7 状态 FSM + 独立进程 E-stop；以及 **17 个 LLM 可调用技能**，覆盖 I/O、运动、仅真机三大类（`walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` · `describe_scene` · `query_scene_state` · `recall_history` · `ask_human` · …）。详见 [`g1_brain/README.md`](g1_brain/README.md)。 |
+| 🧠 **三脑认知智能体（v1.1.0）** | `g1_brain/` 不再是单一 Realtime 回路，而是 **三脑系统**：**🧠 快脑**（OpenAI Realtime 长连接，0.2–2 Hz / turn）做决策与对话；**🐢 在线慢脑**（常驻 `codex mcp-server` 子进程，`reasoning_effort=high` + `service_tier=fast` 1.5× 优先级）通过 `ask_slow_brain(query)` 工具按需触发；**💾 离线慢脑**（一次性 `codex exec --json` 跑 Phase 1 + Phase 2 worker）把每次 session 提炼到 `MEMORY.md`。外加既有的 **快反射**（50 Hz RL + 20 Hz watchdog + 5 Hz 感知，纯 Python 无 LLM）。完整审计：[`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)。 |
+| 🛡️ **12 条安全规则 + GPT-5.5 视觉风险门** | 每次工具调用都按顺序过 **12 条规则**：白名单 · FSM 关卡 · run_mode · 4 个 watchdog（lowstate / 头摄 / RL-active / USB）· 姿态检查 · 参数裁剪 · 障碍距离场景检查 · 人体距离场景检查 · **规则 12 —— GPT-5.5-mini 视觉风险门**（抓帧 + 动作语句 → `SAFE: …` / `RISK: …`，只有后者才落到 y/N 提示）· E-stop。规格见 [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md)。 |
+| 💾 **Codex 原生记忆子系统** | 每次 session 都把对话写成 Claude-harness 风格 JSONL 到 `g1_brain/logs/conversations/`。Phase 1 通过 `codex exec` 把每条 session 提炼成 `rollout_summary` + raw-memory bullets。Phase 2（去抖动 + git diff 触发）把它们汇总成 `MEMORY.md`（≤200 行）+ `memory_summary.md`（≤80 行），后者下一次 session 自动注入为开发者指令。**4 个新 recall 工具** —— `recall_grep` · `recall_read` · `recall_glob` · `ask_slow_brain` —— 让 LLM 实时回看历史。SQLite + Markdown，**不用任何 embedding / 向量库**。设计稿：[`docs/harness-design.md`](docs/harness-design.md)。 |
+| ⚡ **21 个 LLM 可调用技能** | 8 I/O（`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`）+ 4 记忆/慢脑（`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`）+ 6 运动（`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`）+ 3 仅真机（`loco_high`, `arm_action_high`, `audio_tts_robot`）。 |
+| 🧷 **电机回路进程级隔离** | **Phase 8**（2026 年 5 月）之后，50 Hz `ComboController` 跑在**独立子进程**里（`g1_brain.safety.combo_proxy`，`isolate_controller=True`）——感知 / 视觉 / Realtime 这些重活儿引起的 GIL 抢占再也压不住电机 PD 回路了。智能体 ↔ 控制器之间只剩一个小型 IPC 握手（零拷贝 `rt/lowcmd`）。 |
 | 🧠 **真 ONNX 策略闭环跑** | `g1_sim_rl_walk.py`、`g1_sim_rl_combo.py`、`g1_real_rl_combo.py` 全部直接加载 `unitree_rl_mjlab` 官方的速度跟踪 ONNX checkpoint——sim 和真机走的是同一条 obs/action 流水线。 |
 | 🧷 **针对仿真的修复内置** | 上游 `g1_low_level_example.py` 在仿真里会卡死在 `MotionSwitcherClient.CheckMode()`，且 DDS domain 写死为 0。本仓库脚本默认走 domain 1、跳过 MotionSwitcher、并补上 `mode_machine` 握手。 |
 | 🐍 **统一的一份 conda 环境** | `agi` env 把 **7 个互相冲突的上游** 调和成 **~310 个完全锁定版本的依赖包**（numpy 1.26.4 + torch 2.11.0+cu130 + mujoco 3.5.0 + tyro 1.0.13 + transformers 4.52 + diffusers 0.35 + tensorflow 2.15 + jax 0.7 + …），全量冻结在仓库根的 [`requirements.txt`](requirements.txt)；逐 pin 推理见 [`docs/libs_compatible.md`](docs/libs_compatible.md)。只跑 sim+RL 时可用更精简的 `unitree` env（严格子集）。 |
@@ -1279,8 +1590,10 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🏢 **上游参考仓库** | **11**（只读快照） |
 | 🌟 **自研交付物** | **4**（`g1_sim_demo` · `g1_real_demo` · `va-demo` · `g1_brain`） |
 | 🎮 **G1 MuJoCo demo 脚本** | 仿真 **5** + 真机 **1** ≈ 2 700 行带注释控制环 |
-| 🛠️ **LLM 可调用技能（`g1_brain`）** | **17**——7 I/O + 7 运动 + 3 仅真机 |
-| 🛡️ **安全规则（`g1_brain`）** | **11**——见 [§ 安全监督器](#%EF%B8%8F-安全监督器--11-条规则) |
+| 🧠 **`g1_brain` v1.1.0 的脑数** | **3**——快脑（Realtime 在线）+ 在线慢脑（codex daemon 按需）+ 离线慢脑（codex exec Phase 1+2 后台） |
+| 🛠️ **LLM 可调用技能（`g1_brain`）** | **21**——8 I/O + 4 记忆/慢脑 + 6 运动 + 3 仅真机 |
+| 🛡️ **安全规则（`g1_brain`）** | **12**——11 条静态规则 + 1 条 GPT-5.5-mini 视觉风险门（规则 12），见 [§ 安全监督器](#%EF%B8%8F-安全监督器--12-条规则) |
+| 💾 **记忆产物** | `MEMORY.md`（≤200 行）· `memory_summary.md`（≤80 行，下一 session 自动注入）· `raw_memories.md` · `rollout_summaries/*.md` · `state.sqlite`（WAL；sessions / stage1_outputs / jobs） |
 | 🎭 **内置上肢手势** | **9**（`wave_right` · `wave_left` · `hands_up` · `t_pose` · `salute` · `clap` · `guard` · `punch_combo` · `hug`） |
 | 🧱 **静态姿态** | **2**（`salute` · `hug`）——保持到 `release_arms()` |
 | 🪞 **可被镜像的用户手势** | **4**（`wave_right` · `wave_left` · `hands_up` · `t_pose`） |
@@ -1288,10 +1601,10 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🐍 **`unitree` env 锁定包数** | ~**150**（精简的 sim + RL 子集） |
 | 🤖 **G1 主动自由度** | **29**（12 腿 · 3 腰 · 14 上肢——见 [§ DDS 与关节](#-dds-topic-与关节速查)） |
 | 🌐 **DDS domain 约定** | **1** = `lo` 上的仿真 · **0** = `192.168.123.0/24` 上的真机 |
-| 🎤 **唤醒词** | "**嗨 Sparky**"（本地 CPU 上的 `faster-whisper tiny`） |
-| 📐 **Realtime 三层频率** | 慢脑 0.2–2 Hz · 快反射 5–30 Hz · 仿真控制 50–500 Hz · 桥接 `lowstate` 1 kHz |
-| 🧪 **pytest 测试** | `va-demo/tests/` + `g1_brain/tests/`（FSM · supervisor · scene bus · skill server · 端到端纵切片 · …） |
-| 📚 **中文深度笔记** | **27 000+** 行，分布在 `docs/` 与 `*/docs/` |
+| 🎤 **唤醒词** | "**嗨 Sparky**"（本地 CPU `faster-whisper tiny` + AEC 回声抵消 + 清洁 RMS 门）；正式转写走 `gpt-4o-mini-transcribe` |
+| 📐 **认知频率（5 档）** | 桥接 `lowstate` **1 kHz** · 电机 PD **500 Hz** · RL 策略 **50 Hz** · 快反射感知 **5–30 Hz** · 快脑 **0.2–2 Hz** · 离线慢脑（Phase 1）**60 s 去抖** |
+| 🧪 **Pytest 测试** | `g1_brain/tests/` **26 个** + `va-demo/tests/` **9 个**——memory pipeline E2E · vision-risk-gate · combo-proxy · 11+1 supervisor · FSM · scene bus · skill server · watchdog · … |
+| 📚 **中文深度笔记** | **27 000+** 行，分布在 `docs/` 与 `*/docs/`（见 [§ 文档索引](#-文档索引)） |
 | ⚖️ **许可证** | 自研代码 **Apache 2.0** · 上游快照保留各自许可证 |
 
 ---
@@ -1333,24 +1646,43 @@ unitree-notes/
 │   └── requirements.txt             ·  openai · sounddevice · faster-whisper ·
 │                                       webrtcvad-wheels · pyzmq · opencv-python
 │
-├── 📂 g1_brain/                     ← 🧠 慢脑 + 快反射 + 安全技能 智能体
+├── 📂 g1_brain/                     ← 🧠 三脑认知智能体（v1.1.0）
 │   ├── g1_brain/perception/         ·  CameraHub · USB 摄像头 · MuJoCo 头摄（EGL）·
-│   │                                   YOLO11 · MediaPipe-Pose · 深度 · 派生量
+│   │                                   YOLO11（cuda）· MediaPipe-Pose · 深度 · 派生量
 │   ├── g1_brain/scene_state/        ·  SceneState/RobotState 数据类 + RLock 共享总线
-│   ├── g1_brain/safety/             ·  7 状态 FSM · SafetySupervisor（11 条规则）·
-│   │                                   watchdog · 独立进程 E-stop
-│   ├── g1_brain/skills/             ·  SkillServer · ~16 个 OpenAI 工具 schema ·
-│   │                                   keyframe_extras · compound_skills
-│   ├── g1_brain/brain/              ·  BrainRealtimeAgent（继承 va-demo）+
-│   │                                   场景感知 system prompt
+│   ├── g1_brain/safety/             ·  7 状态 FSM · SafetySupervisor（12 条规则）·
+│   │                                   watchdog · vision_risk_gate（规则 12，GPT-5.5-mini）·
+│   │                                   combo_proxy（子进程隔离，Phase 8）·
+│   │                                   estop_listener + estop_client（独立进程）
+│   ├── g1_brain/skills/             ·  SkillServer · 21 个 OpenAI 工具 schema ·
+│   │                                   keyframe_extras · compound_skills · real_robot_adapters
+│   ├── g1_brain/brain/              ·  BrainRealtimeAgent（快脑，继承 va-demo）·
+│   │                                   conversation_logger（jsonl，Claude-harness 形状）·
+│   │                                   scene_summary · prompts · conversation_state
+│   ├── 🆕 g1_brain/memory/          ·  💾 Codex 原生记忆子系统（慢脑）
+│   │                                   ├ daemon.py         · codex mcp-server 子进程
+│   │                                   ├ codex_client.py   · 异步 codex exec 封装
+│   │                                   ├ phase1.py         · 每 session JSONL → stage1
+│   │                                   ├ phase2.py         · stage1 → MEMORY.md（git-diff 门控）
+│   │                                   ├ recall.py         · sandbox 内的 rg/cat/glob
+│   │                                   ├ context.py        · 构造开发者指令注入
+│   │                                   ├ storage.py        · SQLite（WAL）+ 文件树
+│   │                                   ├ jobs.py           · lease / heartbeat / retry 调度
+│   │                                   ├ schemas.py        · dataclass、AskResult、meta 类型
+│   │                                   └ prompts/          · phase1/phase2/default_agents_md
+│   ├── 🆕 g1_brain/tools/           ·  reset_memory.py CLI —— operator 级记忆恢复
 │   ├── g1_brain/mock_imitation/     ·  用户手势 → MIRRORABLE 机器人手势（Phase 5）
 │   ├── g1_brain/apps/               ·  agent_main + perception/safety/skill/estop debug
-│   ├── configs/g1_brain.yaml        ·  唯一配置（机器人 · 摄像头 · 感知 ·
-│   │                                   安全 · openai · 音频 · 唤醒词）
-│   ├── docs/                        ·  architecture · how_to_run · extending_skills ·
-│   │                                   g1_brain_QA1 · g1-fix-phase{1,2,3,5}
-│   ├── tests/                       ·  pytest：11 条规则 · FSM · 场景总线 ·
-│   │                                   skill server · 端到端纵切片 · watchdog · …
+│   ├── configs/g1_brain.yaml        ·  唯一配置 —— v1.1.0 新增 memory · audio_control ·
+│   │                                   safety.vision_gate 三个 section
+│   ├── docs/                        ·  v1_1_0_runtime · architecture · structure · g1_v1（VRG 规格）·
+│   │                                   how_to_run · extending_skills · audio-control-update01 ·
+│   │                                   performance-optimization-GPU · stand_balance_root_cause ·
+│   │                                   g1_brain_QA{1,2} · g1-fix-phase{1,2,3,5,6,7,8,9}
+│   ├── tests/                       ·  26 个 pytest 文件 —— memory pipeline E2E · vision_risk_gate ·
+│   │                                   combo_proxy · 11+1 supervisor · FSM · scene bus ·
+│   │                                   conversation_logger · estop_flow · skill_server · …
+│   ├── logs/conversations/          ·  按进程一个 JSONL 的对话日志（Claude-harness 形状）
 │   └── pyproject.toml               ·  ultralytics · mediapipe · openai · pyyaml · pynput
 │
 ├── 📡 上游参考仓库（只读快照）─────────────────────────────────────────────
@@ -1737,31 +2069,50 @@ python -m va_demo.main                    # 默认 --mode confirm
 >
 > 🔉 WSL2 音频修复：把 `$CONDA_PREFIX/lib/alsa-lib` 软链到 `/usr/lib/x86_64-linux-gnu/alsa-lib`，让 ALSA 能找到 pulse 插件——见 [`docs/wsl2_audio.md`](docs/wsl2_audio.md)。
 
-#### 🧠 `g1_brain/` — 慢脑 + 快反射 + 安全技能 智能体
+#### 🧠 `g1_brain/` v1.1.0 — 三脑认知智能体
 
-> 一个新建的顶层包，**只 import 不修改** [`va-demo/`](va-demo/) 与 [`g1_sim_demo/`](g1_sim_demo/)，在它们之上叠加 **感知 · 安全 · 技能** 三层。OpenAI Realtime 一个回路无法同时覆盖三个时间尺度，本包把它们彻底分开，并把所有下行命令统一过一道安全验证后路由到唯一的技能服务器。
+> 顶层包，**只 import 不修改** [`va-demo/`](va-demo/) 与 [`g1_sim_demo/`](g1_sim_demo/)，在它们之上叠加 **感知 · 记忆 · 安全 · 技能** 四层。v1.1.0 把原本单一的 "Slow Brain" 拆成**三个不同的脑**，使智能体可以在三个不同时间尺度上同时思考、规划、记忆，互不饿死。
 
-📂 **必读：** [`g1_brain/README.md`](g1_brain/README.md) · [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) · [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) · [`docs/g1_plan.md`](docs/g1_plan.md)（完整 1500+ 行设计稿）
+📂 **必读：** [`g1_brain/README.md`](g1_brain/README.md) · 🆕 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)（1300 行 v1.1.0 运行时实证审计）· [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) · [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md)（7 层系统全景）· [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) · [`docs/g1_plan.md`](docs/g1_plan.md)（原始 1500+ 行设计）· 🆕 [`docs/harness-design.md`](docs/harness-design.md)（记忆子系统设计）
 
-**三层心智模型**
+##### 🧠 三脑 + 反射层
 
 | 层级 | 频率 | 谁来做 | 做什么 |
 |---|---|---|---|
-| 🧠 **慢脑（Slow Brain）** | 0.2–2 Hz | OpenAI Realtime + GPT-5.5 Vision | 规划、对话、决定调用哪个技能 |
-| 🛡️ **安全技能（Safe Skill）** | 每次调用 | `SafetySupervisor` + `SkillServer` | 验证（11 条规则）、裁剪、路由、中止 |
-| ⚡ **快反射（Fast Reflex）** | 5–30 Hz | 摄像头 + YOLO11 + MediaPipe-Pose + 深度 | 构建供安全层读取的 `SceneState` |
+| 🧠 **快脑（Fast Brain，在线常驻）** | 0.2–2 Hz / turn | OpenAI **Realtime** API（`gpt-realtime`，WebSocket） | 监听麦克风、对话、决定调用哪个工具。只看 `SceneState.summary_for_llm()` 文本快照，不见原始图像。 |
+| 🐢 **慢脑（Slow Brain 在线，按需）** | 每次 `ask_slow_brain()` | 常驻 **`codex mcp-server`** 子进程（`reasoning_effort=high` + `service_tier=fast` 1.5× 优先级） | 快脑搞不定的难题——多步推理、跨 session 回想、debug。MCP stdio 长连接、30 s ping 保活、5 次回退重启。 |
+| 💾 **慢脑（Slow Brain 离线，后台）** | Phase 1 去抖 60 s → 触发 Phase 2 | 一次性 **`codex exec --json`** 子进程（Phase 1 + Phase 2 worker） | session → `rollout_summary` + `raw_memory`（Phase 1）→ `MEMORY.md` + `memory_summary.md`（Phase 2）。git-diff 门控。 |
+| ⚡ **快反射（Fast Reflex，无 LLM）** | RL 50 Hz · watchdog 20 Hz · 感知 5 Hz · lowstate 1 kHz | 纯 Python —— 摄像头、YOLO11（cuda）、MediaPipe-Pose、深度派生、RL ONNX、电机 PD | 构建 `SceneState` + `RobotState` 总线，供快脑与安全监督器同时读取。 |
+| 🛡️ **安全技能（Safe Skill，关卡）** | 每次调用 | `SafetySupervisor`（**12 条规则**）+ `SkillServer`（**21 个工具**） | 验证 · 裁剪 · 路由 · 中止。规则 12 = GPT-5.5-mini 视觉风险门。LLM 永远碰不到电机。 |
 
-**技能目录（17 个 LLM 可调用工具）** —— 完整签名见下方 [§ 技能目录](#-技能目录g1_brain)。
+> 🔑 **关键不变量** —— **快脑**只看到压缩后的文本场景摘要，**不接收**任何连续视频流。视觉 LLM 仅在 `describe_scene()`、规则 12 风险门、可选的动作后 `scene_after` 注入处被调用。连续感知（YOLO / pose / depth）跑在反射侧，直接喂给安全层。这是单次 Realtime turn 在开了全部感知时也能稳定在 ≤300 ms 延迟的原因。
 
-| 类别 | 工具 |
-|---|---|
-| 🗣️ I/O —— 不涉及运动 | `say` · `describe_scene` · `query_scene_state` · `recall_history` · `ask_human` · `stop` · `release_arms` |
-| 🦿 运动（受安全 + FSM 关卡） | `walk` · `turn` · `gesture` · `static_pose` · `look_at` · `approach` · `mock_imitate` |
-| 🤖 仅真机（仿真直接拒绝） | `loco_high` · `arm_action_high` · `audio_tts_robot` |
+##### 🧷 进程拓扑（v1.1.0，Phase 8 之后）
 
-**三种运行模式** — `--mode observe`（禁动）· `--mode confirm`（默认 — y/N 关卡）· `--mode active`（在安全包络内自主执行）。`--vision-only` 跳过 DDS 用作笔记本独立开发。
+```
+终端 1（操作员）  ─►  MuJoCo 仿真器              （unitree env）
+终端 2（操作员）  ─►  teleimager.image_server     （USB 头摄，ZMQ PUB）
+终端 3（操作员）  ─►  g1_brain.safety.estop_listener  ← 独立进程 —— ESC 即灭车
+终端 4（操作员）  ─►  g1_brain.apps.agent_main
+                     │
+                     ├─[fork]─► ComboController 子进程  （Phase 8 隔离）
+                     │           · 50 Hz RL 策略   · 500 Hz 电机 PD   · DDS rt/lowcmd
+                     │
+                     ├─[asyncio]─► BrainRealtimeAgent  （快脑 —— OpenAI WS）
+                     ├─[asyncio]─► CodexDaemon         （在线慢脑 —— codex mcp-server）
+                     ├─[asyncio]─► Phase1Worker        （去抖 60 s，per-session codex exec）
+                     │              └─► 触发 Phase2Worker（全局锁 + git-diff）
+                     │
+                     └─[threads]─► CameraHub · YOLO · Pose · Depth · Watchdog · MicStream · SpeakerStream
+```
 
-**启动顺序（4 个终端，全部 `agi` env）**
+> 📐 **为什么 ComboController 要独立进程？** Phase 8 的根因：感知子系统（YOLO + MediaPipe + cv2）的 GIL 抢占会饿死 50 Hz 控制线程，负载上来后会出现手臂抖动 + 步态不稳。修复：兄弟子进程 + 启动时等 40 s 拿到首个 `rt/lowstate` 才进入策略循环。可通过 `safety.isolate_controller: true/false` 切换，**默认开**。完整事件日志：[`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md)。
+
+##### 🎚️ 运行模式（与 v1.0 一致）
+
+`--mode observe`（禁动）· `--mode confirm`（默认 — y/N 关卡）· `--mode active`（在安全包络内自主执行 —— 规则 12 在大多数动作上会默默判 SAFE 放行，只有 RISK 才落到 y/N）。`--vision-only` 跳过 DDS，纯笔记本开发。
+
+##### 🚀 启动顺序（4 个终端，全部 `agi` env）
 
 ```bash
 # ── 终端 1：MuJoCo 仿真器 ──────────────────────────────────────
@@ -1775,25 +2126,44 @@ conda activate unitree
 cd ~/unitree/unitree-notes/teleimager
 python -m teleimager.image_server
 
-# ── 终端 3：独立 E-stop 监听（按 ESC 即灭车） ───────────────────
+# ── 终端 3：独立 E-stop 监听（按 ESC 即灭车）───────────────────
 conda activate agi
 python -m g1_brain.safety.estop_listener
 
-# ── 终端 4：智能体本体 ─────────────────────────────────────────
+# ── 终端 4：智能体本体（自动派生 ComboProxy + CodexDaemon）──────
 conda activate agi
 export OPENAI_API_KEY=sk-...
 python -m g1_brain.apps.agent_main --mode confirm
 ```
 
-**内置调试入口** — `python -m g1_brain.apps.{perception_debug, safety_debug, skill_debug, estop_test}`，每个都把一层独立验出来。
+##### 🐞 内置调试入口
 
-> 🛡️ **关键不变量：** 每一次工具调用都要过 `SafetySupervisor.validate()`（白名单 · FSM 关卡 · run_mode · 4 个 watchdog · 姿态检查 · 参数裁剪 · 场景检查 · E-stop）。LLM 永远碰不到电机；独立的 E-stop 进程保证就算主进程死锁也能切电。
+`python -m g1_brain.apps.{perception_debug, safety_debug, skill_debug, estop_test}`——每个把一层独立验出来，不需要 Realtime / codex / DDS。
+
+##### 🧰 Operator 级记忆恢复
+
+```bash
+# 把 SQLite job/session 状态干掉重建（Markdown 保留）
+python -m g1_brain.tools.reset_memory --rebuild-state
+
+# 重新初始化 memories/.git Phase 2 baseline（手动改过文件后用）
+python -m g1_brain.tools.reset_memory --rebuild-git
+
+# 删 MEMORY.md + memory_summary.md + raw_memories.md + rollout_summaries/
+# （DB 里的 stage1_outputs 保留，下次 Phase 2 自动重建）
+python -m g1_brain.tools.reset_memory --reset-md
+
+# 核选项 —— 删整个 memory.root_dir
+python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
+```
+
+> 🛡️ **关键不变量：** 每一次工具调用都要按顺序过 `SafetySupervisor.validate()`——**白名单 · FSM 关卡 · E-stop · 4 个 watchdog · run_mode · 姿态检查 · 参数裁剪 · 障碍/人体场景检查 · 规则 12 视觉风险门 · 确认提示**。LLM 永远碰不到电机；独立 E-stop 进程保证主进程死锁也能切电；ComboController 子进程保证主进程冻住时电机 PD 回路仍然存活。
 
 ---
 
 ### 🧰 技能目录（`g1_brain`）
 
-> 暴露给慢脑的 17 个 OpenAI 工具 schema。权威源：[`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py)。每条 schema 在到达 `SkillServer` 之前都要先过 [§ 安全监督器](#%EF%B8%8F-安全监督器--11-条规则) 的 11 条规则。
+> 暴露给快脑的 **21 个 OpenAI 工具 schema**（仿真 18 个 + 仅真机 3 个）。权威源：[`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py)。每条 schema 在到达 `SkillServer` 之前都要先过 [§ 安全监督器](#%EF%B8%8F-安全监督器--12-条规则) 的 **12 条规则**。`--vision-only` 模式会裁到 8 个无动作 + 无 DDS 工具（4 I/O + 4 记忆）。
 
 #### 🗣️ I/O —— 不涉及运动（除 `BOOT` 外永远允许）
 
@@ -1802,10 +2172,19 @@ python -m g1_brain.apps.agent_main --mode confirm
 | `say` | `say(text: str ≤ 200 字符)` | 走 OpenAI TTS 直接合成的短回复（适合标准化、固定话术）。 |
 | `describe_scene` | `describe_scene(question?: str, detail?: "low"\|"high")` | 抓当前一帧 → 视觉模型 → 文字描述。 |
 | `query_scene_state` | `query_scene_state(field?: str)` | 直接读 `SceneState`（人、手势、深度、机器人姿态）—— 不重跑视觉。 |
-| `recall_history` | `recall_history(turns?: int)` | 从落盘 transcript JSONL 取最近 *N* 轮对话回放。 |
+| `recall_history` | `recall_history(turns?: int)` | 从**本次** session 的落盘 transcript JSONL 取最近 *N* 轮对话回放。 |
 | `ask_human` | `ask_human(question: str)` | 在场景/安全有歧义时，停下等人类明确回答再继续。 |
 | `stop` | `stop()` | 速度归零、上肢交回策略；`BOOT` 状态下也允许。 |
 | `release_arms` | `release_arms()` | 把上肢交回 locomotion 策略（手势/静态姿后调用）。 |
+
+#### 💾 记忆 + 慢脑 —— **v1.1.0 新增**（不涉运动、不依赖 DDS，`--vision-only` 模式也可用）
+
+| 工具 | 签名 | 作用 |
+|---|---|---|
+| `recall_grep` | `recall_grep(query, scope?, max_lines?)` | 在 `memories/` 与 `logs/conversations/` 内用 `rg`/`grep`/Python-re 做 sandbox 搜索。Scope 可选：`registry`（MEMORY.md + raw_memories.md + AGENTS.md）· `rollouts`（per-session 摘要）· `jsonl`（原始 transcript）· `all`。纯 Python，**不**走任何 LLM。 |
+| `recall_read` | `recall_read(path, max_bytes?=4096)` | 在 sandbox 内读一个 `memories/` 或 `logs/conversations/` 下的文件。绝对路径与 `..` 越界一律 `resolve().relative_to(root)` 拒绝。 |
+| `recall_glob` | `recall_glob(pattern)` | 在 sandbox 内 glob 匹配文件列表。 |
+| `ask_slow_brain` | `ask_slow_brain(query, timeout_s?)` | 把 `query` 转发给常驻 `codex mcp-server`（在线慢脑），返回 `{status, text}`，status ∈ `{ok, timeout, canceled, daemon_dead, queue_full, quota_exhausted, protocol_error}`。**默认预算**：30 s 思考 + `service_tier=fast`。 |
 
 #### 🦿 运动（受 `STANDING/ENGAGED/ACTING` FSM + run_mode 双重关卡）
 
@@ -1829,25 +2208,82 @@ python -m g1_brain.apps.agent_main --mode confirm
 
 ---
 
-### 🛡️ 安全监督器 —— 11 条规则
+### 🛡️ 安全监督器 —— 12 条规则
 
-> 权威源：[`g1_brain/g1_brain/safety/supervisor.py`](g1_brain/g1_brain/safety/supervisor.py)。每次工具调用都按下表**顺序**走完 11 条；拒绝时返回 `(ok=False, reason, sanitized_args)`，**不**主动产生副作用——唯一例外是规则 7 触发时把 FSM 锁到 `EMERGENCY_STOP`，因为那意味着真摔了。
+> 权威源：[`g1_brain/g1_brain/safety/supervisor.py`](g1_brain/g1_brain/safety/supervisor.py) + [`vision_risk_gate.py`](g1_brain/g1_brain/safety/vision_risk_gate.py)。每次工具调用都按下表**顺序**走完 12 条；拒绝时返回 `(ok=False, reason, sanitized_args)`，**不**主动产生副作用——唯一例外是规则 7 触发时把 FSM 锁到 `EMERGENCY_STOP`，因为那意味着真摔了。
 
 | # | 规则 | 触发条件 | 效果 |
 |:-:|---|---|---|
 | 1 | 🔐 **白名单** | 工具名 ∉ `ALLOWED_TOOLS` | 拒绝 —— 杜绝 LLM 自创工具名。 |
 | 2 | 🚦 **FSM 关卡** | 当前 `RobotFsmState` 不允许该工具（例如 `BOOT` / `FAULT` 中调运动） | 拒绝 —— 详见 `_FSM_MOTION_ALLOWED` / `_FSM_NO_MOTION_ALLOWED` 每态白名单。 |
-| 3 | 🎚 **`run_mode`** | `observe` 模式调运动 **·** `confirm` 模式 y/N 关卡未通过 | 拒绝；`active` 模式跳过 y/N，但仍要过规则 4-11。 |
+| 3 | 🎚 **`run_mode`** | `observe` 模式调运动 **·** `confirm` 模式 y/N 关卡未通过 | 拒绝；`active` 模式跳过 y/N，但仍要过规则 4–12。 |
 | 4 | ⏱ **`lowstate` watchdog** | 超过 *N* ms（默认 250 ms）没收到 `rt/lowstate` | 锁定式 trip —— 仅 `stop` / `release_arms` / 不涉运动工具能过。 |
 | 5 | 🎥 **头摄 watchdog** | 超过 *N* ms（默认 1000 ms）没拿到新头摄帧 | 锁定式 trip —— 视觉相关工具（`describe_scene`、`look_at`…）封禁。 |
 | 6 | 🦿 **RL 策略活跃 watchdog** | locomotion 策略超过 *N* ms 没 tick（例如启动期回退） | 锁定式 trip —— 运动工具封禁，直到策略恢复。 |
 | 7 | 📐 **姿态检查** | 由 IMU `quat_imu` 推出的 `gravity_proj_z` 跌破直立阈值 | 拒绝 + FSM 转入 `EMERGENCY_STOP`（真摔进行中）。 |
 | 8 | ✂️ **参数裁剪** | `walk(vx, vy, wz, duration)` 超出配置包络 | 在转发前就地裁剪 sanitized_args。 |
-| 9 | 🚧 **场景检查（`walk`）** | 净空 / 最近障碍 / 最近行人 任一不达阈 | 拒绝 —— 影响 `walk` / `approach`。 |
+| 9 | 🚧 **场景检查（`walk` / `approach`）** | 净空 / 最近障碍 / 最近行人 任一不达阈 | 拒绝。 |
 | 10 | 👤 **场景检查（`gesture`）** | 有人比 `safety.gesture_min_person_m` 更近 | 拒绝 —— 防止 `t_pose` / `punch_combo` 等动作伤到旁人。 |
 | 11 | 🛑 **E-stop 标志** | 独立 `estop_listener` 进程已置位 IPC 标志 | 所有工具一律拒绝；唯有杀掉 listener 进程才能解除。 |
+| 🆕 12 | 🔍 **视觉风险门** *(v1.1.0)* | GPT-5.5-mini 评估"头摄帧 + 动作语句"——返回 `RISK: <reason>` 而非 `SAFE: <reason>` | `RISK` 落到 `run_mode` 的 y/N 提示并把理由内联到提示里；`SAFE` 在 `active` 模式下自动放行。预过滤：帧龄 > 2 s → RISK；亮度 ∉ [30, 235] → RISK。**Bypass 集**（一律 SAFE）：`say / stop / release_arms / describe_scene / query_scene_state / recall_history`。可通过 `safety.vision_gate.enabled`（默认 `true`）切换。 |
 
-> 🎯 **独立 E-stop 进程。** `python -m g1_brain.safety.estop_listener` 单开一个终端，监听 <kbd>Esc</kbd>，把一个 watchdog 标志写到 supervisor 每帧轮询的 IPC 通道。它**不是**主进程里的某个线程 —— 设计上"急停按钮不能装在它要切掉的那个进程里"。
+> 🎯 **独立 E-stop 进程。** `python -m g1_brain.safety.estop_listener` 单开一个终端，监听 <kbd>Esc</kbd>，把一个 watchdog 标志写到 supervisor 每帧轮询的 IPC 通道。它**不是**主进程里的某个线程 —— 设计上"急停按钮不能装在它要切掉的那个进程里"。listener 还会主动往 DDS 发 ~30 帧零力矩 `rt/lowcmd`，让电机主动卸力，而不只是停发指令。
+>
+> 🔍 **为什么要加视觉风险门？** 在 `--mode active` 下，要求操作员对每条运动调用都按 y/N 等于把"自主"杀死。规则 12 把一道 GPT-5.5-mini 检查**插在**廉价确定性规则和 human-in-the-loop 之间：如果模型看到的就是一条空走廊，它会返回 `SAFE: clear corridor` 然后动作静默执行；如果它看到 1 m 前站着个人而你要 `walk(1.0, 0, 0, 3.0)`，它会返回 `RISK: person directly in path`，y/N 提示里同时打出这条理由。完整规格：[`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md)。
+
+---
+
+### 💾 记忆子系统（Codex 原生，v1.1.0）
+
+> v1.1.0 新增的 **类 Claude-Code 记忆 harness** —— 每次语音 session 都被持久化为 Claude-harness 形状的 JSONL，由两个 `codex exec` worker 离线提炼后，作为开发者指令重新注入到下一次 Realtime session。权威源文件：[`g1_brain/g1_brain/memory/`](g1_brain/g1_brain/memory/)；设计冻结：[`docs/harness-design.md`](docs/harness-design.md)；运行时审计：[`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)；操作手册：[`docs/harness_g1.md`](docs/harness_g1.md)。
+
+#### 📐 落盘结构（默认 `~/.unitree/g1_brain/`）
+
+```text
+~/.unitree/g1_brain/                       ← memory.root_dir
+├── memories/                              ← Markdown 知识库
+│   ├── AGENTS.md                          ·  受版本控制，由 prompts/default_agents_md.md 派发
+│   │                                         （定义慢脑的 recall 程序）
+│   ├── MEMORY.md                          ·  ≤200 行 / 25 KB，Phase 2 输出，"当前对世界的认知"
+│   ├── memory_summary.md                  ·  ≤80 行 / 8 KB，下次 session 自动注入
+│   ├── raw_memories.md                    ·  stage1 raw_memory bullets 累积（append-only）
+│   ├── rollout_summaries/
+│   │   └── <sid8>-<ts>-<slug>.md          ·  per-session 摘要（Phase 1）
+│   └── .git/                              ·  Phase 2 diff baseline（自动初始化）
+├── state.sqlite                           ·  WAL —— sessions · stage1_outputs · jobs
+└── .codex_runtime/                        ·  CODEX_HOME（config.toml、auth.json、sessions）
+
+g1_brain/logs/conversations/<ISO>-<uuid>.jsonl   ← per-process 原始 transcript
+                                                  （与 memory root 分离；Phase 1 的数据源）
+```
+
+#### 🔁 两阶段流水线
+
+| 阶段 | 触发 | 工具 | 产出 |
+|---|---|---|---|
+| **Phase 1** *(per-session)* | session JSONL 增长后去抖 60 s（cap 80 KB） | `codex exec --json` + `prompts/phase1_system.md` | `{raw_memory, rollout_summary, rollout_slug}` JSON → upsert `stage1_outputs` 行 + 写 `rollout_summaries/<sid8>-<ts>-<slug>.md` |
+| **Phase 2** *(global)* | Phase 1 完成 → 抢全局锁 | 读所有 stage1，跑 `codex exec --json` + `prompts/phase2_system.md`，**仅当** `git diff HEAD memories/` 有变化 | `{memory_md, memory_summary_md}` JSON → 重写 `MEMORY.md` + `memory_summary.md`，然后 `git commit` 新 baseline |
+
+> 📐 没有周期性 Phase 2 tick。只有当 Phase 1 真的让 `raw_memories.md` 变化时 Phase 2 才会跑 —— git 是最便宜的变更检测器。
+
+#### 🧠 两个脑、两套工具表面
+
+**快脑**通过 4 个 `recall_*` 工具调用的是**纯 Python 技能**（sandbox 里的 `rg` / `cat` / `glob`）。**在线慢脑**（由 `ask_slow_brain` 触发的 codex daemon）有自己的 MCP-side shell + 文件系统工具 —— 它操作的是同一份 `memories/` 目录，但走 codex 的原生 sandbox，**不走**我们的 skill server。不要混淆：给 codex 介绍 `recall_grep` 是错的，因为 codex 原生就有 `rg`。
+
+#### 🛠️ Operator 级恢复
+
+```bash
+python -m g1_brain.tools.reset_memory --rebuild-state   # 备份 + 重建 sqlite
+python -m g1_brain.tools.reset_memory --rebuild-git     # 删并重建 memories/.git baseline
+python -m g1_brain.tools.reset_memory --reset-md        # 删 Markdown；Phase 2 从 DB 重建
+python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # 删整个 root
+```
+
+#### 🔌 配置旋钮（`configs/g1_brain.yaml::memory`）
+
+`enabled` · `root_dir` · `phase1_model` · `phase2_model` · `phase1_debounce_s` · `phase1_max_jsonl_bytes` · `phase2_max_raw_memories` · `phase2_max_unused_days` · `slow_brain_model` · `ask_default_timeout_s` · `ask_queue_max` · `daemon_ping_interval_s` · `daemon_restart_max_attempts` · `passive_summary_max_tokens` · `passive_agents_md_max_tokens` · `recall_grep_default_max_lines` · `recall_read_max_bytes`。
+
+> 🧪 **有测试。** `g1_brain/tests/test_memory_*` 覆盖 `codex_client` · `context` · `daemon` · `jobs` · `phase1` · `phase2` · `pipeline_e2e` · `recall` · `storage` 共 9 个专门测试文件。`pipeline_e2e` 用 stub codex client 跑完整的 JSONL → stage1 → MEMORY.md → 开发者指令注入往返（不调用真实 API）。
 
 ---
 
@@ -1913,20 +2349,24 @@ python -m g1_brain.apps.agent_main --mode confirm
 
 🔁 **同一份脚本为什么能上真机：** 把命令行的 `lo` 换成实际网卡名，脚本自动切到 DDS domain 0；后面 `unitree_sdk2py → rt/lowcmd → 关节控制器` 这一段是完全一样的。这就是"用 MuJoCo 当一只假机器人"的全部意义。
 
-#### `va-demo` 智能体回路
+#### `va-demo` 智能体回路 *(2026 年 5 月 AEC + 清洁 RMS 门更新)*
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                                  va-demo                                │
 │                                                                          │
-│   🎤 麦克风                                                              │
+│   🎤 麦克风                    ┌─── 扬声器回声 (recent_played_pcm) ─────┘
 │   sounddevice ─► MicStream.subscribe() ──┬─► WakeWordDetector            │
-│                                          │       (faster-whisper tiny)   │
+│                                          │       ├─ AEC subtract         │
+│                                          │       │  （cleaned RMS 门）   │
+│                                          │       └─ faster-whisper tiny  │
+│                                          │       └─ "嗨 Sparky" 任意状态 │
+│                                          │          均可 barge-in        │
 │                                          │                               │
 │                                          └─► UtteranceVAD (webrtcvad)    │
 │                                                  │                       │
 │                                                  ▼                       │
-│                                       gpt-4o-transcribe                  │
+│                                gpt-4o-mini-transcribe（云端）            │
 │                                                  │                       │
 │                                                  ▼                       │
 │   📝 prompt + tools  ─►  OpenAI Realtime API（websocket，全双工）        │
@@ -1936,17 +2376,84 @@ python -m g1_brain.apps.agent_main --mode confirm
 │       ┌──────────────────────────┼───────────────────────────────┐       │
 │       ▼                          ▼                               ▼       │
 │  walk / gesture /         describe_scene                       say        │
-│  stop / release_arms     (一帧画面 ─► gpt-5.x vision)         (TTS)       │
+│  stop / release_arms     (一帧画面 ─► gpt-5.5 vision)         (TTS)       │
 │       │                          │                               │       │
 │       ▼                          ▼                               ▼       │
 │  Safety supervisor        teleimager（ZMQ 帧）             扬声器输出    │
-│       │                                                                  │
-│       ▼                                                                  │
-│  ComboController  ─►  rt/lowcmd（与 g1_sim_rl_combo.py 同一条 DDS 路径）│
+│       │                                                          │       │
+│       ▼                                                          │       │
+│  ComboController  ─►  rt/lowcmd（与 g1_sim_rl_combo.py 同一 DDS 路径）   │
+│                                                                  │       │
+│                                                                  ▼       │
+│   📓  ConversationLogger ─► g1_brain/logs/conversations/*.jsonl          │
+│   （Claude-harness 形状 —— typed content blocks · uuid · session_id）    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 📐 完整设计：[`docs/va-demo-design.md`](docs/va-demo-design.md) · 运行指南：[`docs/va-demo-use.md`](docs/va-demo-use.md)。
+> 📐 完整设计：[`docs/va-demo-design.md`](docs/va-demo-design.md) · 运行指南：[`docs/va-demo-use.md`](docs/va-demo-use.md) · 音频控制改动：[`g1_brain/docs/audio-control-update01.md`](g1_brain/docs/audio-control-update01.md)。
+
+#### `g1_brain` v1.1.0 —— 三脑进程模型
+
+```
+                ┌─────────────────────────────────────────────────────────┐
+                │         🧠 快脑（OpenAI Realtime WS）                    │
+                │  · gpt-realtime · 0.2–2 Hz/turn · 21 个工具             │
+                │  · 只看 SceneState.summary_for_llm() 文本快照           │
+                │  · 永远碰不到电机 —— 一切调用走 SkillServer             │
+                └─────────────────────────────────────────────────────────┘
+                       │ ask_slow_brain(q)              │ recall_grep/read/glob
+                       ▼                                ▼ （纯 Python，无 LLM）
+        ┌─────────────────────────────────┐   ┌────────────────────────────────┐
+        │   🐢 慢脑（在线）               │   │  💾  sandbox 内 rg/cat/glob   │
+        │   codex mcp-server 子进程       │   │  scopes: registry · rollouts ·│
+        │   · reasoning_effort=high       │   │  jsonl · all                  │
+        │   · service_tier=fast（1.5×）   │   └────────────────────────────────┘
+        │   · MCP stdio · 30s ping        │
+        │   · 5 次回退重启                │
+        └─────────────────────────────────┘
+                       ▲
+                       │  （同时写 JSONL 轮）
+                       │
+                ┌─────────────────────────────────────────────────────────┐
+                │  📓 ConversationLogger ─► logs/conversations/*.jsonl    │
+                └─────────────────────────────────────────────────────────┘
+                       │
+                       ▼ （去抖 60 s，cap 80 KB）
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  💾 慢脑（离线）—— Phase 1 → Phase 2 codex exec worker             │
+        │                                                                    │
+        │  Phase 1: JSONL → {raw_memory, rollout_summary, slug} → SQLite     │
+        │  Phase 2: stage1 → MEMORY.md + memory_summary.md（git-diff 门控）  │
+        │                                                                    │
+        │  memory_summary.md 作为开发者指令自动注入到下一 session 的 Realtime context │
+        └────────────────────────────────────────────────────────────────────┘
+                       │
+                       ▼ （兄弟子进程；Phase 8 隔离）
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  🦿 ComboController 子进程   ▶  rt/lowcmd（DDS，500 Hz PD）        │
+        │  · 50 Hz RL ONNX 策略   · keyframe 上肢手势叠加 (15–28)            │
+        │  · 与快脑 / 感知 / 视觉的 GIL 隔离                                 │
+        └────────────────────────────────────────────────────────────────────┘
+                       ▲
+                       │  rt/lowstate (1 kHz)
+                       │
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  ⚡ 快反射（线程，无 LLM）                                         │
+        │  · MicStream · SpeakerStream · CameraHub（USB + MuJoCo 头摄 EGL）  │
+        │  · YOLO11（cuda）15 Hz · MediaPipe-Pose 15 Hz · depth 5 Hz         │
+        │  · 4 个 watchdog · RobotStateProducer 20 Hz                        │
+        │  · EstopClient ← 独立 estop_listener 进程                          │
+        └────────────────────────────────────────────────────────────────────┘
+                       ▲
+                       │  ESC = panic
+        ┌────────────────────────────────────────────────────────────────────┐
+        │  🛑 g1_brain.safety.estop_listener  （独立进程，T3）                │
+        │  · ESC 后往 DDS 发约 30 帧零力矩 rt/lowcmd                          │
+        │  · 同时置位 supervisor 每 tick 轮询的 IPC 标志（规则 11）           │
+        └────────────────────────────────────────────────────────────────────┘
+```
+
+> 📐 7 层参考见 [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md)；逐行实现审计（带 file:line 引用）见 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)。
 
 ---
 
@@ -2010,8 +2517,17 @@ python -m g1_brain.apps.agent_main --mode confirm
 | [`docs/wsl2_audio.md`](docs/wsl2_audio.md) | WSL2 + conda 下修 `sounddevice`/PortAudio。 |
 | [`docs/camera_ui_demo.md`](docs/camera_ui_demo.md) | `usbipd` → WSL2 → `teleimager.image_server` → 实时图传。 |
 | [`docs/ros2_sdk.md`](docs/ros2_sdk.md) | ROS / ROS 2 与 Unitree SDK 的关系，以及 `unitree_ros2` 的位置。 |
+| 🆕 [`docs/distance_risk1.md`](docs/distance_risk1.md) | **基于 ROS 2 / Nav2 的距离感知风险建模** —— 用来取代当前 g1_brain 二元 `front_has_obstacle` 的方案：Nav2 Costmap layer（`ObstacleLayer` · `VoxelLayer` · `STVL` · `SemanticSegmentationLayer` · `InflationLayer`）+ `Collision Monitor` 四级策略（stop / slowdown / velocity-limit / approach=TTC）+ Regulated Pure Pursuit / DWB / MPPI 控制器。文末给出 5 条把视觉/深度模型挂进 costmap 的路线。 |
+| 🆕 [`docs/harness-design.md`](docs/harness-design.md) | **Codex 原生记忆子系统设计冻结** —— 双脑动机、6 层模块责任表、三种数据流（写/读/深思）、文件+SQLite（无 embedding）、JSONL meta 扩展、Phase 1/2 契约、`ask_slow_brain` MCP/stdio 管线、AGENTS.md 召回程序。 |
+| [`docs/harness_g1.md`](docs/harness_g1.md) | 记忆 harness 端到端操作手册（operator-facing，2 终端流）。 |
 | [`docs/vla_wma.md`](docs/vla_wma.md) | 一页入门：VLA vs WMA vs SLAM。 |
 | [`docs/vlm_audio_mock.md`](docs/vlm_audio_mock.md) · [`vlm_audio_mock_deep.md`](docs/vlm_audio_mock_deep.md) | 推动 `va-demo` 落地的完整 G1 VLM + 音频 + human-mimic 研究方案。 |
+| [`docs/terrain_how_to_use.md`](docs/terrain_how_to_use.md) | 在 `unitree_mujoco` 中切换平地 / terrain MJCF 场景（头摄要保持一致）。 |
+| [`docs/eval_unitree.md`](docs/eval_unitree.md) · [`docs/eval_unitree_g1_23dof.md`](docs/eval_unitree_g1_23dof.md) | 29 / 23 DoF G1 RL 部署评估矩阵。 |
+| [`docs/train_unitree.md`](docs/train_unitree.md) | `unitree_rl_mjlab` 训练侧笔记（mjlab + rsl_rl + MuJoCo Warp）。 |
+| [`docs/g1_arm_aware_policy_plan.md`](docs/g1_arm_aware_policy_plan.md) | 上肢感知 locomotion 策略训练方案（腿臂联合训练）。 |
+| [`docs/branch_diff_main_23dof.md`](docs/branch_diff_main_23dof.md) | 23-DoF 变体的分支 diff 日志。 |
+| [`docs/left_sidebar_unitree.md`](docs/left_sidebar_unitree.md) | 工作区一页导航索引。 |
 | [`instructions.md`](instructions.md) | "mujoco rl_combo" 与 "mujoco + va-demo + WSL2 USB 摄像头" 的精选启动顺序。 |
 
 #### 🎮 自研 demo
@@ -2045,16 +2561,26 @@ python -m g1_brain.apps.agent_main --mode confirm
 | 文档 | 内容 |
 |---|---|
 | [`g1_brain/README.md`](g1_brain/README.md) | 📍 包总览——亮点、目录、安装、运行、模式、技能、安全、感知、模仿、配置、调试、测试、故障排查。 |
-| [`docs/g1_plan.md`](docs/g1_plan.md) | 推动 `g1_brain` 落地的 1500+ 行设计稿（慢脑 + 快反射 + 安全技能，Phase 0–7）。 |
+| 🆕 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md) | **v1.1.0 运行时审计（1300 行，2026 年 5 月）**——三脑架构、完整进程/线程/asyncio task 树、7 阶段启动、SceneStateBus + RobotStateBus 契约、codex daemon 生命周期、记忆流水线、18 个工具矩阵、**11+1 规则**、音频 FSM、单 turn 端到端时序图。每条结论都附 `file:line`。 |
+| 🆕 [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md) | **7 层参考系统全景**（L7 操作员 → L6 传感输入 → L5 感知 → L4 场景/状态总线 → L3 推理 → L2 安全+技能 → L1 runtime → L0 硬件）、频率表、硬性规则。 |
+| 🆕 [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md) | **视觉风险门规格**——规则 12 设计、A–G 七类危险定义、SAFE/RISK 严格输出契约、bypass 集、失败处理。 |
+| [`docs/g1_plan.md`](docs/g1_plan.md) | 推动 `g1_brain` 落地的原始 1500+ 行设计稿（Phase 0–7）。 |
 | [`docs/vlm_audio_mock.md`](docs/vlm_audio_mock.md) · [`vlm_audio_mock_deep.md`](docs/vlm_audio_mock_deep.md) | 设计前置的架构级研究笔记——VLM + 音频 + human-mimic 入门。 |
-| [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) | ~330 行的精简架构（三层、频率表、FSM、感知线程、进程模型）。 |
+| [`g1_brain/docs/architecture.md`](g1_brain/docs/architecture.md) | ~330 行的精简架构（层表、频率表、FSM、感知线程、进程模型）。 |
 | [`g1_brain/docs/how_to_run.md`](g1_brain/docs/how_to_run.md) | 操作员手册——前置依赖、4 个终端启动、调试入口、运行模式、常见错误、sim → real 切换、WSL2 注意。 |
 | [`g1_brain/docs/extending_skills.md`](g1_brain/docs/extending_skills.md) | 加新工具时要改的 4 个地方 + checklist。 |
-| [`g1_brain/docs/g1_brain_QA1.md`](g1_brain/docs/g1_brain_QA1.md) | Q&A 第一轮——`how_to_run.md` 周边的疑问。 |
+| 🆕 [`g1_brain/docs/audio-control-update01.md`](g1_brain/docs/audio-control-update01.md) | **唤醒词 barge-in 永远在线** + plan 完成后麦上行关阀 + per-process JSONL transcript。新增 `audio_control` yaml 配置（barge_in / voice_barge_in / idle_after_plan / plan_watchdog_s / transcript）。 |
+| 🆕 [`g1_brain/docs/performance-optimization-GPU.md`](g1_brain/docs/performance-optimization-GPU.md) | **GPU / 性能调优 debug 笔记（706 行）**——YOLO 默默回 CPU 的 8× 修复、MuJoCo 头摄两个 Renderer 合并、CPU 线程封顶（LP/OMP/MKL）、WSL2 Mesa llvmpipe 比 D3D12 快的反直觉发现。 |
+| 🆕 [`g1_brain/docs/stand_balance_root_cause.md`](g1_brain/docs/stand_balance_root_cause.md) | RL 站立不稳的根因 + 50 Hz hysteresis 修复。 |
+| [`g1_brain/docs/g1_brain_QA1.md`](g1_brain/docs/g1_brain_QA1.md) · 🆕 [`g1_brain_QA2.md`](g1_brain/docs/g1_brain_QA2.md) | Q&A 第一轮 & 第二轮。 |
 | [`g1_brain/docs/g1-fix-phase1.md`](g1_brain/docs/g1-fix-phase1.md) | 修复日志：启动后姿态震荡。 |
 | [`g1_brain/docs/g1-fix-phase2.md`](g1_brain/docs/g1-fix-phase2.md) | 修复日志：RL ramp + watchdog 宽限期 + 恢复 hold。 |
 | [`g1_brain/docs/g1-fix-phase3.md`](g1_brain/docs/g1-fix-phase3.md) | 修复日志：头摄 EGL 线程 + DDS 订阅时序。 |
 | [`g1_brain/docs/g1-fix-phase5.md`](g1_brain/docs/g1-fix-phase5.md) | 修复日志：USB watchdog 在 USB 关闭时仍锁住手势。 |
+| 🆕 [`g1_brain/docs/g1-fix-phase6.md`](g1_brain/docs/g1-fix-phase6.md) | 修复日志：启动姿态塌陷 · "飞行机器人" · 静态手势平衡。 |
+| 🆕 [`g1_brain/docs/g1-fix-phase7.md`](g1_brain/docs/g1-fix-phase7.md) | 修复日志：50 Hz hysteresis 的 stand-still bypass；关闭 mock_imitation auto-trigger。 |
+| 🆕 [`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md) | 修复日志：**ComboController 子进程隔离** —— GIL 抢占引发手臂抖动 + 摔倒的根因。 |
+| 🆕 [`g1_brain/docs/g1-fix-phase9.md`](g1_brain/docs/g1-fix-phase9.md) | 修复日志：WSL2 + Pulse 音频——TTS 断续、LISTENING_WINDOW 采集、ALSA underrun 刷屏。 |
 
 #### 📡 上游深度笔记
 
@@ -2083,11 +2609,16 @@ python -m g1_brain.apps.agent_main --mode confirm
 | 回路 | 在哪 | 典型频率 | 备注 |
 |---|---|:-:|---|
 | 🦴 桥接器 `rt/lowstate` | `unitree_mujoco` | **1 kHz** | 由 MuJoCo step + 桥接循环决定；和真机对齐。 |
+| ⚙️ 电机 PD | `ComboController` 子进程 | **500 Hz** | Phase 8 `combo_proxy` 已与智能体进程隔离。 |
 | 🚶 RL 策略推理 | `g1_sim_rl_*.py` | **50 Hz** | ONNX Runtime 在 CPU 上比这个快得多 —— 瓶颈是我们选择的发布频率。 |
 | 🤹 Combo 上肢覆盖 | `g1_sim_rl_combo.py` | **50 Hz**（同回路） | 单一 publisher，不存在 DDS 竞争。 |
-| 🧠 慢脑（Realtime API） | `g1_brain` | **0.2–2 Hz** | 由网络往返 + LLM 思考时间决定。 |
-| ⚡ 快反射（感知） | `g1_brain.perception` | **5–30 Hz** | YOLO11 + MediaPipe-Pose + 深度融合；摄像头帧率封顶。 |
-| 🎤 唤醒词 | `va-demo.wake_word` | **8–16 Hz** | CPU 上的 `faster-whisper tiny`；约 50–100 ms / 次。 |
+| 🧠 快脑（Realtime API） | `g1_brain.brain` | **0.2–2 Hz / turn** | 由网络往返 + LLM 思考时间决定。 |
+| 🐢 在线慢脑（codex daemon） | `g1_brain.memory.daemon` | 按需 | 每次 `ask_slow_brain()`；默认预算 30 s，`service_tier=fast`（1.5× 优先级）。 |
+| 💾 离线慢脑（Phase 1） | `g1_brain.memory.phase1` | 60 s 去抖 | 每次 session JSONL 增长触发，单次 cap 80 KB。 |
+| 💾 离线慢脑（Phase 2） | `g1_brain.memory.phase2` | Phase 1 完成 + git-dirty | 全局锁；重写 `MEMORY.md` + `memory_summary.md`，再 `git commit`。 |
+| ⚡ 快反射感知 | `g1_brain.perception` | **5–30 Hz** | YOLO11（cuda）15 Hz + MediaPipe-Pose 15 Hz + depth 5 Hz + ground_constraint 5 Hz。 |
+| 📡 RobotStateProducer / Watchdog | `g1_brain.scene_state` / `safety.watchdogs` | **20 Hz / 10 Hz** | 推到 RobotStateBus；supervisor 每 tick 轮询。 |
+| 🎤 唤醒词 | `va-demo.wake_word` | **8–16 Hz** | CPU 上的 `faster-whisper tiny` + AEC subtract + 清洁 RMS 门（raw ≥ 300、cleaned ≥ 600）。 |
 
 #### 💾 内存与磁盘
 
@@ -2102,8 +2633,20 @@ python -m g1_brain.apps.agent_main --mode confirm
 #### 🌡 常见瓶颈
 
 - 🥵 WSL2 + sounddevice 在 `audio.input_block_ms < 20` 时 CPU 飙升 —— 别低于 20 ms。
-- 🌐 Realtime websocket 的 RTT 是慢脑感知延迟的大头；选离 OpenAI 区域近的网络比任何本地优化都更划算。
+- 🌐 Realtime websocket 的 RTT 是快脑感知延迟的大头；选离 OpenAI 区域近的网络比任何本地优化都更划算。
 - 🧊 WSL2 的 D3D12 GL 路径，第一帧 MuJoCo step 要 1–2 s；之后每步 < 0.5 ms。`np.set_printoptions` 这种暖机别放进控制循环。
+
+#### 🚀 2026 年 5 月调优收益
+
+> 来源：[`g1_brain/docs/performance-optimization-GPU.md`](g1_brain/docs/performance-optimization-GPU.md)。
+
+| Bug | 根因 | 修复 | 收益 |
+|---|---|---|---|
+| 🐢 **YOLO 默默回到 CPU** | `device: "auto"` 始终没解到 `cuda:0`；机器里有 4060 但 `.predict()` 还是 CPU 跑。 | `perception/object_detector.py` 里**每次** `predict()` 都显式 `cuda:0` + `.to(device)` + 显式传 `device=`。 | **~8×** 加速（99 → 13 ms / 次）。 |
+| 🪞 **头摄跑了两个 `Renderer`** | 一个 RGB + 一个深度 → GL 状态翻倍 + 显存翻倍。 | 合并成一个 Renderer，运行时切 `enable_depth_rendering()`（在 `perception/mujoco_head_cam.py`）。 | 270 → **167 ms** / 周期（llvmpipe 下测）。 |
+| 🧵 **CPU 线程无限蔓延** | torch / mkl / openmp 各自按核数派线程 → 互相饿死。 | 在 `apps/agent_main.py` **最顶部** —— 任何 import 之前 —— `LP_NUM_THREADS=3`、`OMP_NUM_THREADS=3`、`MKL_NUM_THREADS=3`。 | CPU 稳定，不再有感知被打断。 |
+| 🐌 **WSL2 GPU 渲染反直觉** | WSL2 里没有 `libGL_nvidia.so`，D3D12 翻译层比 Mesa llvmpipe（CPU）跑离屏 MuJoCo 还慢。 | 默认 llvmpipe；只有真的有场景能从 D3D12 受益时才切。CUDA 本身（torch/yolo）不受影响。 | WSL2 下头摄渲染 ~2× 加速。 |
+| 🖱️ **MuJoCo viewer 鼠标旋转卡顿** | 是 C++ `render_loop` per-frame 成本（vsync-bound），**不是** Python 发布线程。 | MJCF 级别砍 shadow / reflection / MSAA，加 30 fps 上限（`unitree_mujoco/simulate_python/run_sim.sh`）。 | 鼠标旋转顺滑，Python 侧不用改。 |
 
 ---
 
@@ -2116,23 +2659,25 @@ python -m g1_brain.apps.agent_main --mode confirm
 - `g1_sim_demo/g1_sim_low_level.py` · `g1_sim_interactive.py` · `g1_sim_keyboard.py` —— 正弦 + 关键帧 playground。
 - `g1_sim_demo/g1_sim_rl_walk.py` · `g1_sim_rl_combo.py` —— RL 行走 + 上肢手势 combo。
 - `g1_real_demo/g1_real_rl_combo.py` —— 真机版（含 `lying` 检线模式）。
-- `va-demo/` —— 唤醒词门控的 Realtime 语音 + 视觉智能体（4 种运行模式）。
-- `g1_brain/` —— 慢脑 + 快反射 + 安全技能：11 条规则 supervisor · 7 状态 FSM · 独立 E-stop · 17 个 LLM 工具 · MuJoCo 头摄感知 · `mock_imitate`（Phase 5）。
+- `va-demo/` —— 唤醒词门控的 Realtime 语音 + 视觉智能体（4 种运行模式）—— Hi-Sparky 任意状态可 barge-in、AEC 清洁 RMS 门、per-process JSONL transcript。
+- `g1_brain/` **v1.1.0** —— 三脑智能体：**12 条规则** supervisor（含 GPT-5.5-mini 视觉风险门）· 7 状态 FSM · 独立 E-stop · ComboController 子进程隔离（Phase 8）· **21 个 LLM 工具** · MuJoCo 头摄感知 · `mock_imitate`（Phase 5，可选）。
+- 🆕 **记忆子系统** —— Codex 原生（codex daemon + Phase 1 + Phase 2 worker）· SQLite + Markdown（无 embedding）· `recall_grep/read/glob` + `ask_slow_brain` 工具 · session 摘要自动注入 · `tools/reset_memory.py` CLI · 9 个专门测试文件。
 - `requirements.txt` —— `agi` env 的逐字冻结，`python=3.11` + `pip install -r requirements.txt` 一键复现。
 
 #### 🚧 进行中 / 打磨中
 
-- 🧠 长期对话日志 schema（typed content blocks、`uuid`、`session_id`）—— 为后续 SQLite + FTS5 摄入做准备。
-- 🎯 视觉风险门（`g1_brain/safety/vision_risk_gate.py`）—— 在 11 条规则之外补一层针对 ambiguous human-proximity 的检查。
+- 🚧 **距离感知风险模型** —— 用 Nav2 Costmap layer + Collision Monitor 四级策略取代当前二元 `front_has_obstacle`。分阶段方案见 [`docs/distance_risk1.md`](docs/distance_risk1.md)：stage 1 最小可用、stage 2 PointCloud2 → Nav2、stage 3 接 Collision Monitor + footprint 路径走廊 + TTC。
 - 🦿 `mock_imitate` 端到端真机验证（仿真已通；真机镜像回路在调）。
 - 📷 立体 / RealSense 头摄的真深度通路（当前用 MuJoCo 单目 + 深度派生）。
+- 🧠 把 `MEMORY.md` 升级到一个有结构的 plan store（People / Places / Skills learned / Safety lessons 几个章节已稳定，更丰富的跨 session 关联还在测）。
 
 #### 🌱 愿望清单
 
-- 🤗 把 `unitree_lerobot` 的 ACT / Diffusion / π₀ 策略接进 `g1_brain` 的 SkillServer。
-- 🌐 给 `g1_brain` 的 `SceneState` 写一个 ROS 2 Jazzy 桥，让其它 ROS 节点也能订阅融合后的感知。
-- 🧬 用 `unifolm-world-model-action` 做世界模型 rollout，在 `walk` 实际下发前做规划性预演。
+- 🤗 把 `unitree_lerobot` 的 ACT / Diffusion / π₀ 策略接进 `g1_brain` 的 SkillServer（与 `walk` / `gesture` 平级的新工具族）。
+- 🌐 给 `g1_brain` 的 `SceneState` 写一个 ROS 2 Jazzy 桥，让其它 ROS 节点也能订阅融合后的感知——和上面的距离风险 Nav2 方案配套。
+- 🧬 用 `unifolm-world-model-action` 做世界模型 rollout，在 `walk` 实际下发前做规划性预演 —— 走慢脑侧，藏在 `ask_slow_brain()` 后面。
 - 🧤 灵巧手遥操闭环：`xr_teleoperate` → `g1_brain` 技能 → 真机 Dex3 / Inspire / Brainco。
+- 🔌 在 `BrainRealtimeAgent` 抽象后面支持可插拔的 Realtime 后端（Claude / Gemini / 本地模型）。
 
 > 🤝 **想帮忙？** 见 [§ 参与贡献](#-参与贡献)，里面列了最匹配的 PR 类型。
 
@@ -2275,6 +2820,59 @@ CycloneDDS 的 Python 绑定只有 Linux x86_64 + CPython 3.10/3.11 的 prebuilt
 2. 机器人本体的 e-stop 按键按下时，任何 lowcmd 都不会执行。先看本体 LED 状态，再怀疑软件。
 
 完整事件日志：[`g1_real_demo/issue/realmachine.md`](g1_real_demo/issue/realmachine.md)。
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>：<code>ask_slow_brain</code> 返回 <code>{status: "daemon_dead"}</code></b></summary>
+
+`codex mcp-server` 子进程挂了。常见原因：
+
+1. `codex` 没在 `$PATH` 里 —— `which codex` 检查，按 OpenAI Codex 文档重装。
+2. 缺鉴权 —— codex daemon 共用 `CODEX_HOME=$memory.root_dir/.codex_runtime`；在 shell 里 `CODEX_HOME=...` 然后跑一次 `codex auth login`，让 daemon 能复用。
+3. 配额超额 —— daemon 检测到 rate-limit 字符串后会进入 30 分钟冷却。要么等，要么查 `OPENAI_API_KEY` 账单。
+4. `service_tier: "fast"` 你的 key 不可用 —— 改 `memory.slow_brain_model` 配置或去掉 tier override。
+
+日志：用户可见的工具结果在 `g1_brain/logs/conversations/`；codex 侧 trace 在 `~/.unitree/g1_brain/.codex_runtime/sessions/`。
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>：<code>MEMORY.md</code> 一直不被写入</b></summary>
+
+Phase 2 是 **git-diff 门控**的 —— 只有当 `git diff HEAD memories/` 真的有变化（也就是 Phase 1 真的产出了新东西）才会跑。逐项排查：
+
+1. `sqlite3 state.sqlite "SELECT * FROM stage1_outputs LIMIT 5;"` —— Phase 1 是不是在产出行？
+2. `ls -la ~/.unitree/g1_brain/memories/rollout_summaries/` —— per-session 文件有出来吗？
+3. `cd ~/.unitree/g1_brain/memories && git status` —— 真有 diff 吗？
+
+如果全空：Phase 1 是 JSONL 增长后去抖 60 s 触发的——session 不到 60 s 不会触发。要强测就把 session 录长一点，或临时把 `configs/g1_brain.yaml::memory.phase1_debounce_s` 调小。
+
+记忆目录损坏后的硬重置：`python -m g1_brain.tools.reset_memory --rebuild-state --rebuild-git --reset-md`。
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>：视觉风险门（规则 12）把每条动作都判 RISK</b></summary>
+
+三种预过滤失败会在还没问 GPT-5.5-mini 之前就直接返回 RISK：
+
+1. **帧龄 > 2 s** —— 头摄没在刷新。看上面"头摄一直 0 FPS"那条。
+2. **亮度 ∉ [30, 235]** —— 过曝（白墙）或欠曝（暗房）。挪相机或调 `safety.vision_gate.{min,max}_brightness`。
+3. **视觉 LLM 超时** —— `gpt-5.5-mini` 慢路径。把 `safety.vision_gate.timeout_s`（默认 30 s）调大。
+
+暂时关闭这道门：`configs/g1_brain.yaml::safety.vision_gate.enabled: false`。规格：[`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md)。
+</details>
+
+<details>
+<summary><b>🆕 🔴 <code>g1_brain</code>：负载上来后手臂抖动 / 步态不稳</b></summary>
+
+几乎一定是 **Phase 8 的根因**：50 Hz `ComboController` 当时还跟感知（YOLO + MediaPipe + cv2）和 Realtime WebSocket 在同一进程里跑，被 GIL 抢死了。确认隔离开了：
+
+```yaml
+# configs/g1_brain.yaml
+safety:
+  isolate_controller: true   # 默认；改 false 会复现 bug
+```
+
+开启后 `agent_main` 会派生一个兄弟子进程跑 `g1_brain.safety.combo_proxy`。stdout 里会看到 `[combo_proxy] started, waiting for rt/lowstate`。完整事件日志：[`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md)。
 </details>
 
 ---

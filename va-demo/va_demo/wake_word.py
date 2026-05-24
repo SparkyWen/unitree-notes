@@ -143,6 +143,7 @@ class WakeWordDetector:
         speaker_ref: Optional[object] = None,
         aec_gain: float = 0.0,
         aec_delay_s: float = 0.2,
+        cleaned_rms_threshold: float = 0.0,
     ):
         self._backend = backend
         self._cache = spoken_cache
@@ -154,6 +155,31 @@ class WakeWordDetector:
         self._cooldown_s = cooldown_s
         self._phrases = [self._normalize(p) for p in (phrases or ["hi sparky"])]
         self._selfecho_window_s = selfecho_window_s
+        # Post-AEC RMS gate. Raw mic RMS is dominated by the bot's speaker
+        # echo during SPEAKING, so the raw `rms_threshold` is permanently
+        # tripped open while TTS plays — every loop iteration sends a
+        # transcribe call to the network even when the user is silent. The
+        # synchronous transcribe (200–500 ms per call on the OpenAI route)
+        # holds the worker thread, so by the time the user actually says
+        # "Hi Sparky" the loop is mid-call on a bot-only snapshot and the
+        # NEXT iteration is the one that finally looks at the user's audio.
+        # That race is the bulk of the operator-reported "first miss,
+        # second hit" pattern.
+        #
+        # The fix: after AEC subtracts the speaker bytes, gate the
+        # transcribe call by the *cleaned* signal's RMS. When the user is
+        # silent the cleaned signal is just AEC residual (small); when the
+        # user is talking it spikes (user voice survives the subtraction
+        # because it's uncorrelated with the bot's output). Skipping the
+        # silent-user transcribes keeps the worker thread responsive and
+        # focuses each network call on a snapshot likely to contain real
+        # user speech — both of which directly raise first-attempt hit
+        # rate during TTS playback.
+        #
+        # Default 0 disables the gate (preserves bit-for-bit behaviour on
+        # call sites that don't opt in, including the existing test
+        # suite). The yaml config sets a meaningful production value.
+        self._cleaned_rms_threshold = float(cleaned_rms_threshold)
         # ---- echo subtraction ------------------------------------------
         # When the bot is talking, the mic captures speaker output much
         # louder than the user's "Hi Sparky"; the transcribe call returns
@@ -231,6 +257,31 @@ class WakeWordDetector:
                 continue
             log.debug("rms gate: %.0f >= %d (transcribe)", rms_val, self._rms_threshold)
             transcribe_input = self._aec_subtract(snapshot)
+            # Post-AEC gate: if the cleaned signal is below threshold the
+            # snapshot is bot-residual only (or silence); transcribing it
+            # just burns network round-trip on a result that can't match
+            # the wake phrase and starves the next snapshot — which is the
+            # one that finally has the user's voice. Skip and loop again.
+            # Only applied when the threshold is configured AND AEC is
+            # actually active; otherwise the cleaned signal equals the raw
+            # mic and the gate would be redundant with the raw RMS gate.
+            if (
+                self._cleaned_rms_threshold > 0.0
+                and self._speaker_ref is not None
+                and self._aec_gain > 0.0
+                and transcribe_input is not snapshot
+            ):
+                cleaned_rms = self._rms(transcribe_input)
+                if cleaned_rms < self._cleaned_rms_threshold:
+                    log.debug(
+                        "cleaned rms gate: %.0f < %.0f (skip; raw was %.0f)",
+                        cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                    )
+                    continue
+                log.debug(
+                    "cleaned rms gate: %.0f >= %.0f (transcribe; raw %.0f)",
+                    cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                )
             try:
                 text = self._backend.transcribe(transcribe_input, self._samplerate)
             except Exception as e:

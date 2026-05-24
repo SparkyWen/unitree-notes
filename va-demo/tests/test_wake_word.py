@@ -246,3 +246,111 @@ def test_aec_robust_to_speaker_ref_exception():
     assert backend.received, "AEC exception must NOT silence the wake path"
     # Falls back to raw mic on exception.
     assert backend.received[0][:200] == chunk[:200]
+
+
+# ---- cleaned-RMS gate -----------------------------------------------------
+#
+# Regression for operator-reported "Hi Sparky misses on the first attempt
+# during TTS, second attempt interrupts". Root cause: during SPEAKING the
+# raw mic is always above `rms_threshold` (the bot's own echo) so every
+# loop iteration sends a synchronous OpenAI transcribe — most return the
+# bot's narration and the worker thread is blocked on those when the
+# user actually says the wake phrase, dropping the user's voice into the
+# NEXT iteration's window. The post-AEC gate skips iterations where the
+# cleaned signal is dominated by AEC residual (i.e. no user voice
+# survived the subtraction), so each network round-trip lands on a
+# snapshot the user actually spoke into.
+
+
+def test_cleaned_rms_gate_skips_silent_speaker_residual():
+    """Cleaned RMS below threshold → no transcribe call.
+
+    Simulates the silent-user-during-SPEAKING case: mic captures only
+    the bot's echo (≈ speaker output), AEC subtracts it nearly to zero,
+    cleaned signal is small. The gate must skip — otherwise the worker
+    thread burns a network round-trip on a bot-only snapshot.
+
+    Note: AEC end-aligns the speaker bytes against the LAST n samples of
+    the mic snapshot. The rolling window in this test is 1.0 s so the
+    stub speaker pcm must also span that window for the residual to be
+    near-zero across the whole snapshot.
+    """
+    backend = _CapturingBackend("hi sparky")
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    # Mic == speaker, both spanning the full rolling window — AEC will
+    # cancel to near zero everywhere.
+    mic_chunk = loud_audio_chunk(500)
+    spk_full_window = loud_audio_chunk(1000)
+    spk_ref = _StubSpeakerRef(spk_full_window)
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.0, inference_rate_hz=50.0,
+        rms_threshold=1000, cooldown_s=0.05,
+        phrases=["hi sparky"],
+        speaker_ref=spk_ref, aec_gain=1.0, aec_delay_s=0.0,
+        cleaned_rms_threshold=500.0,
+    )
+    _drive(d, n_chunks=5, chunk=mic_chunk)
+    # AEC asked for speaker bytes (it ran), but the cleaned signal was
+    # near-silence so the gate blocked every transcribe call.
+    assert spk_ref.calls, "AEC path should have queried speaker history"
+    assert backend.received == [], (
+        "cleaned RMS gate should have skipped all transcribes; "
+        f"got {len(backend.received)} calls"
+    )
+    assert received == [], "no wake events should fire"
+
+
+def test_cleaned_rms_gate_passes_when_user_voice_survives():
+    """User voice (uncorrelated with speaker) → gate passes → wake fires.
+
+    The complementary case to the test above: the user is actually
+    speaking, so the cleaned signal still has loud audio after AEC
+    (user voice doesn't correlate with the speaker bytes). Gate must
+    let the transcribe through and the wake event must fire.
+    """
+    backend = _CapturingBackend("hi sparky")
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    mic_chunk = loud_audio_chunk(500)
+    # Speaker pcm is silent — AEC subtracts ~0, cleaned == mic == loud.
+    spk_ref = _StubSpeakerRef(quiet_audio_chunk(500))
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.0, inference_rate_hz=50.0,
+        rms_threshold=1000, cooldown_s=0.05,
+        phrases=["hi sparky"],
+        speaker_ref=spk_ref, aec_gain=1.0, aec_delay_s=0.0,
+        cleaned_rms_threshold=500.0,
+    )
+    _drive(d, n_chunks=5, chunk=mic_chunk)
+    assert backend.received, "user-voice case must NOT be gated out"
+    assert received, "wake should fire on user-voice case"
+
+
+def test_cleaned_rms_gate_disabled_by_default():
+    """threshold=0 must preserve pre-fix behaviour bit-for-bit.
+
+    Existing call sites that don't opt in to the gate must continue to
+    behave exactly as before (every raw-RMS-passing iteration produces
+    a transcribe call). This is what keeps `va-demo` (which doesn't
+    wire the gate) and the older tests on the same code path.
+    """
+    backend = _CapturingBackend("hi sparky")
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    mic_chunk = loud_audio_chunk(500)
+    spk_ref = _StubSpeakerRef(mic_chunk)  # perfect echo, would gate at >0
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.0, inference_rate_hz=50.0,
+        rms_threshold=1000, cooldown_s=0.05,
+        phrases=["hi sparky"],
+        speaker_ref=spk_ref, aec_gain=1.0, aec_delay_s=0.0,
+        # threshold not passed → defaults to 0 → gate disabled
+    )
+    _drive(d, n_chunks=5, chunk=mic_chunk)
+    assert backend.received, (
+        "with gate disabled, every raw-RMS-passing iteration must transcribe"
+    )

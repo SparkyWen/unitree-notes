@@ -197,12 +197,17 @@ wakeword:
   openai_model: "gpt-4o-mini-transcribe"
   openai_prompt: "Sparky"
   rolling_window_s: 1.5
-  # Bumped from 2.0 to 3.0 Hz: at 2 Hz the worst-case wait between speaking
-  # "hi sparky" and the transcribe call running was ~500 ms before transport
-  # latency, which the operator perceived as the terminal "freezing" until
-  # something happened. 3 Hz cuts that to ~333 ms while still amortising
-  # OpenAI per-second transcription billing.
-  inference_rate_hz: 3.0
+  # Bumped from 3 → 5 Hz to address operator-reported "first Hi-Sparky
+  # misses during TTS, second one interrupts". A "Hi Sparky" utterance
+  # is ~500-700 ms; at 3 Hz the user got 1-2 transcribe attempts that
+  # overlapped their phrase (and remember the synchronous OpenAI call
+  # itself adds 200-500 ms, so 3 Hz nominal is closer to 1.2 Hz
+  # effective during SPEAKING). With the post-AEC `cleaned_rms_threshold`
+  # gate below skipping silent-user iterations, the worker thread is
+  # no longer blocked on bot-only transcribes, so 5 Hz here actually
+  # delivers ~5 real attempts per user utterance without inflating
+  # OpenAI cost (the gate filters out the calls that produced no value).
+  inference_rate_hz: 5.0
   # 300 is the operator-preferred gate: 100 was too lax — ambient room
   # noise / keyboard / fan kept opening the transcribe gate, which is
   # both a billing cost (every gate-open is one OpenAI transcribe call)
@@ -228,11 +233,40 @@ wakeword:
   # the bot's text — "Hi Sparky" never makes it through, so the wake
   # path cannot interrupt a long reply (operator-reported bug). gain=0
   # disables; gain ~0.5-1.0 is typical for a laptop with mic+speaker
-  # close together. delay_s is speaker_latency + mic_latency for the
-  # rig (PortAudio defaults: 0.20 + 0.10 ≈ 0.20-0.30 on WSL2).
+  # close together.
+  #
+  # delay_s = speaker_latency + mic_latency for the rig. On WSL2 with
+  # the PulseAudio bridge the SpeakerStream default is 0.20 s and the
+  # MicStream default is 0.10 s — total round-trip ≈ 0.30 s.
+  # PREVIOUS VALUE 0.20 was undercounting by one mic-latency (~100 ms),
+  # which at voice frequencies (200 Hz–4 kHz) is many waveform periods:
+  # the subtraction was uncorrelated with the actual echo and was
+  # ADDING noise instead of removing it. 0.30 matches the audio_io
+  # latency sum and produces real cancellation.
   aec:
     gain: 0.6
-    delay_s: 0.2
+    delay_s: 0.3
+  # Post-AEC RMS gate: skip the synchronous transcribe call when the
+  # AEC-cleaned snapshot is below this threshold. Raw mic RMS is always
+  # ≥ rms_threshold during SPEAKING (bot's echo dominates), so without
+  # this gate every loop iteration sends one OpenAI transcribe — the
+  # worker thread is permanently blocked on bot-only network calls, and
+  # the user's "Hi Sparky" lands inside a snapshot that the loop hasn't
+  # finished processing yet. The cleaned RMS, by contrast, is small
+  # when the user is silent (just AEC residual) and spikes when the
+  # user speaks (their voice is uncorrelated with the bot output and
+  # survives the subtraction). Gating on cleaned RMS focuses each
+  # transcribe call on snapshots that actually contain user voice,
+  # which is what fixes the operator-reported "first Hi-Sparky misses,
+  # second interrupts" pattern during TTS playback.
+  #
+  # 600 is calibrated for a desk mic with the AEC defaults above:
+  # idle SPEAKING cleaned RMS measured at ~300-500, user-talking
+  # cleaned RMS at ~1500-3000. Drop toward 300 if "Hi Sparky" gets
+  # gated out (mic unusually quiet); raise toward 900 if too many
+  # idle-SPEAKING transcribes still leak through. 0 disables the
+  # gate (pre-fix behaviour, useful for A/B comparison).
+  cleaned_rms_threshold: 600
 
 utterance:
   silence_threshold_ms: 1500

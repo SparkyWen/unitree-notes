@@ -374,11 +374,30 @@ def _audio_tts_robot() -> Dict[str, Any]:
     }
 
 
+START_PHONE_CALL_SCHEMA = {
+    "type": "function",
+    "name": "start_phone_call",
+    "description": (
+        "Place an outbound phone call so the operator can talk to Sparky "
+        "from anywhere. Returns when the call is dialled (not when answered)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "to": {
+                "type": "string",
+                "description": "E.164 number (e.g. +14155550199). If omitted, defaults to the configured operator number.",
+            }
+        },
+    },
+}
+
+
 # ---------- Public builder --------------------------------------------------
 
 def build_tool_schemas(
     *, sim: bool = True, vision_only: bool = False,
-    mock_imitate_enabled: bool = True,
+    mock_imitate_enabled: bool = True, phone_enabled: bool = False,
 ) -> List[Dict[str, Any]]:
     """Return the OpenAI Realtime function schemas for the g1_brain catalog.
 
@@ -397,6 +416,10 @@ def build_tool_schemas(
         spontaneously when it sees the user wave on camera. Other gesture
         skills (``gesture``, ``static_pose``) remain available for explicit
         voice commands like "wave at me".
+    phone_enabled : bool
+        When True, appends ``START_PHONE_CALL_SCHEMA`` so the LLM can
+        initiate outbound calls via the Twilio bridge. Defaults to False so
+        existing callers see no change.
     """
     # L1 first (the LLM should prefer these), then L2 primitives.
     l1 = [
@@ -423,6 +446,9 @@ def build_tool_schemas(
         keep = {"say", "describe_scene", "query_scene_state", "recall_history",
                 "recall_grep", "recall_read", "recall_glob", "ask_slow_brain"}
         schemas = [s for s in schemas if s["name"] in keep]
+
+    if phone_enabled:
+        schemas.append(START_PHONE_CALL_SCHEMA)
 
     return schemas
 

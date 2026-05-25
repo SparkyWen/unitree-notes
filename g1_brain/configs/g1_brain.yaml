@@ -398,3 +398,13 @@ memory:
   passive_agents_md_max_tokens: 1500
   recall_grep_default_max_lines: 50
   recall_read_max_bytes: 4096
+
+phone:
+  enabled: false              # set true OR pass --enable-phone on agent_main
+  bind_host: "127.0.0.1"      # public path is via reverse tunnel only
+  bind_port: 8787
+  call_idle_timeout_s: 30
+  tool_timeout_s: 5.0
+  realtime_model: "gpt-realtime"
+  realtime_voice: "alloy"
+  greeting: "Hi, this is Sparky. What would you like me to do?"

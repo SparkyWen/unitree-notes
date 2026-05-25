@@ -53,6 +53,8 @@ ALLOWED_TOOLS_NO_MOTION: Set[str] = {
     "ask_slow_brain",
     "stop",
     "release_arms",
+    "start_phone_call",
+    "end_call",
 }
 ALLOWED_MOTION_TOOLS: Set[str] = {
     "walk",
@@ -606,6 +608,15 @@ class SafetySupervisor:
             except (TypeError, ValueError):
                 pass
             return sanitized
+        if tool == "start_phone_call":
+            sanitized: Dict[str, Any] = {}
+            to = args.get("to")
+            if isinstance(to, str) and to.strip():
+                sanitized["to"] = to.strip()
+            return sanitized
+        if tool == "end_call":
+            # end_call takes no parameters.
+            return {}
         return None
 
     def _sanitize_motion(

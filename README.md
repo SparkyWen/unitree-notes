@@ -33,7 +33,7 @@
 
 [![g1_brain](https://img.shields.io/badge/g1__brain-v1.1.0-7C3AED?style=flat-square&labelColor=2D1B4E)](g1_brain/docs/v1_1_0_runtime.md)
 [![Brains](https://img.shields.io/badge/Brains-3_(fast+slow_online+slow_offline)-EC4899?style=flat-square)](g1_brain/docs/v1_1_0_runtime.md)
-[![LLM Tools](https://img.shields.io/badge/LLM_tools-21-purple?style=flat-square)](#-skill-catalog-g1_brain)
+[![LLM Tools](https://img.shields.io/badge/LLM_tools-23-purple?style=flat-square)](#-skill-catalog-g1_brain)
 [![Safety](https://img.shields.io/badge/safety_rules-12_(11+vision_gate)-FF6B35?style=flat-square)](#%EF%B8%8F-safety-supervisor--the-12-rules)
 [![Memory](https://img.shields.io/badge/Memory-Codex--native-1F2937?style=flat-square)](#-memory-subsystem-codex-native-v110)
 [![Pytest](https://img.shields.io/badge/pytest_suites-26+9-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](g1_brain/tests/)
@@ -52,7 +52,7 @@
 
 ## 🇬🇧 English
 
-> A complete, opinionated workspace for studying, simulating, and deploying control & cognition stacks on the **Unitree G1** humanoid — bundling **eleven upstream reference repos** (SDK · MuJoCo · RL · ROS 1 · ROS 2 · IsaacLab · LeRobot · VLA · WMA · XR teleop · image server) alongside four hand-written deliverables: [`g1_sim_demo/`](g1_sim_demo/) (sim demos from sine wave to RL+gestures), [`g1_real_demo/`](g1_real_demo/) (real-robot deployment), [`va-demo/`](va-demo/) (a voice + vision agent that talks to G1 via OpenAI Realtime), and [`g1_brain/`](g1_brain/) **v1.1.0** — a **three-brain cognitive agent** (🧠 Fast Brain · 🐢 Slow Brain online · 💾 Slow Brain offline) with a **12-rule safety supervisor** (including a GPT-5.5 vision risk gate), **21 LLM-callable skills**, and a **Codex-native memory subsystem** that consolidates voice transcripts into a self-updating `MEMORY.md` knowledge base.
+> A complete, opinionated workspace for studying, simulating, and deploying control & cognition stacks on the **Unitree G1** humanoid — bundling **eleven upstream reference repos** (SDK · MuJoCo · RL · ROS 1 · ROS 2 · IsaacLab · LeRobot · VLA · WMA · XR teleop · image server) alongside four hand-written deliverables: [`g1_sim_demo/`](g1_sim_demo/) (sim demos from sine wave to RL+gestures), [`g1_real_demo/`](g1_real_demo/) (real-robot deployment), [`va-demo/`](va-demo/) (a voice + vision agent that talks to G1 via OpenAI Realtime), and [`g1_brain/`](g1_brain/) **v1.1.0** — a **three-brain cognitive agent** (🧠 Fast Brain · 🐢 Slow Brain online · 💾 Slow Brain offline) with a **12-rule safety supervisor** (including a GPT-5.5 vision risk gate), **23 LLM-callable skills** (incl. a Twilio + Realtime phone bridge), and a **Codex-native memory subsystem** that consolidates voice transcripts into a self-updating `MEMORY.md` knowledge base.
 
 > 🆕 **What changed in v1.1.0** (May 2026)?  Three additions reshape the agent from "voice + reflex" into a Claude-Code-style cognitive harness: **(1)** an `ask_slow_brain(query)` tool that hands hard questions to a resident `codex mcp-server` subprocess running at `reasoning_effort=high` + `service_tier=fast`; **(2)** a Phase 1 + Phase 2 offline memory pipeline that distills every voice session's JSONL into `raw_memories.md` / `rollout_summaries/` / `MEMORY.md` / `memory_summary.md` and re-injects the summary into the next session; **(3)** four `recall_*` tools (`grep` / `read` / `glob` / `ask_slow_brain`) the Realtime model can call to introspect past sessions. The full implementation freeze is in [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md); the design spec is in [`docs/harness-design.md`](docs/harness-design.md).
 
@@ -70,6 +70,7 @@
   - [🦿 `g1_real_demo/` — real-robot deployment](#-g1_real_demo--real-robot-deployment)
   - [🎙️ `va-demo/` — voice + vision agent](#%EF%B8%8F-va-demo--voice--vision-agent)
   - [🧠 `g1_brain/` v1.1.0 — Three-Brain cognitive agent](#-g1_brain-v110--three-brain-cognitive-agent)
+  - [📞 `g1_brain/phone/` — Twilio + Realtime phone bridge](#-g1_brainphone--twilio--realtime-phone-bridge)
 - [🧰 Skill Catalog (`g1_brain`)](#-skill-catalog-g1_brain)
 - [🛡️ Safety Supervisor — the 12 rules](#%EF%B8%8F-safety-supervisor--the-12-rules)
 - [💾 Memory Subsystem (Codex-native, v1.1.0)](#-memory-subsystem-codex-native-v110)
@@ -96,9 +97,10 @@
 | 🦿 **Real-robot deployment harness** | `g1_real_demo/g1_real_rl_combo.py` adds the `MotionSwitcher` release, bounded `lowstate` wait, and a `lying`-mode CLI for wiring/DDS verification before you ever stand the robot up. |
 | 🎙️ **Voice + Vision Realtime agent** | `va-demo/` ships a wake-word ("Hi Sparky") gated, full-duplex Realtime voice agent that can **describe scenes via vision** *and* tool-call `walk` / `gesture` / `stop` against the running RL policy — confirm / observe / active / vision-only run modes. |
 | 🧠 **Three-Brain agent (v1.1.0)** | `g1_brain/` is no longer a single Realtime loop — it's a **three-brain system**: **🧠 Fast Brain** (OpenAI Realtime, persistently online, 0.2–2 Hz turns) decides + talks; **🐢 Slow Brain online** (a resident `codex mcp-server` subprocess at `reasoning_effort=high` + `service_tier=fast`) is on-demand via the `ask_slow_brain(query)` tool; **💾 Slow Brain offline** (`codex exec --json` Phase 1 + Phase 2 workers) distills every voice session into `MEMORY.md`. Plus the existing **Fast Reflex** (50 Hz RL + 20 Hz watchdog + 5 Hz perception, no LLM). Full audit: [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md). |
+| 📞 **Phone bridge — talk to the robot from anywhere** | `g1_brain/phone/` (NEW, May 2026) bridges **Twilio Voice Media Streams** ⇄ a dedicated **OpenAI Realtime** session ⇄ the existing **`SafetySupervisor` + `vision_risk_gate` + `SkillServer`** chain. Operator dials in (CLI `python -m g1_brain.phone.call_me` or by saying *"Hi Sparky, call me"* to the local mic) — the phone Realtime gets the **same tool schemas, safety rules and DDS pipe** as the laptop mic path. No code duplication: `PhoneRealtimeSession` is a 200-line subclass of `BrainRealtimeAgent` overriding only the audio transport. Voice lease (`/tmp/g1_brain_voice_lease`) ensures the laptop mic and the phone can't both drive the robot at once. Full design: [`mcp_twilio_design.md`](mcp_twilio_design.md). |
 | 🛡️ **12-rule safety + GPT-5.5 vision risk gate** | Every tool call walks **12 in-order rules**: whitelist · FSM · run-mode · 4 watchdogs (lowstate / head-cam / RL-active / USB) · pose check · param clamp · obstacle-distance scene-check · person-distance scene-check · **Rule 12 — GPT-5.5-mini Vision Risk Gate** (snapshot + action sentence → `SAFE: …` / `RISK: …`, only the latter falls through to a y/N confirm) · E-stop. Spec: [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md). |
 | 💾 **Codex-native memory subsystem** | Every session writes a Claude-harness-shape JSONL to `g1_brain/logs/conversations/`. Phase 1 distills each into a per-session `rollout_summary` + raw-memory bullets via `codex exec`. Phase 2 (debounced, git-diff-gated) rolls them up into `MEMORY.md` (≤200 lines) + `memory_summary.md` (≤80 lines), the latter auto-injected as developer instructions into the next Realtime session. **4 new recall tools** — `recall_grep` · `recall_read` · `recall_glob` · `ask_slow_brain` — let the LLM introspect past sessions live. SQLite + Markdown only, no embeddings. Design: [`docs/harness-design.md`](docs/harness-design.md). |
-| ⚡ **21 LLM-callable skills** | 8 I/O (`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`) · 4 memory/slow-brain (`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`) · 6 motion (`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`) · 3 real-only stubs (`loco_high`, `arm_action_high`, `audio_tts_robot`). |
+| ⚡ **23 LLM-callable skills** | 8 I/O (`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`) · 4 memory/slow-brain (`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`) · 6 motion (`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`) · 2 phone bridge (`start_phone_call`, `end_call`) · 3 real-only stubs (`loco_high`, `arm_action_high`, `audio_tts_robot`). |
 | 🧷 **Process-isolated motor loop** | After **Phase 8** (May 2026), the 50 Hz `ComboController` lives in **its own subprocess** (`g1_brain.safety.combo_proxy`, `isolate_controller=True`) so GIL contention from perception / vision / Realtime never starves the motor PD loop. The agent ↔ controller boundary is a small IPC handshake (zero-copy `rt/lowcmd`). |
 | 🧠 **Real ONNX policy in the loop** | `g1_sim_rl_walk.py`, `g1_sim_rl_combo.py`, and `g1_real_rl_combo.py` all load the official `unitree_rl_mjlab` velocity-tracking ONNX checkpoint and execute the **exact same observation / action pipeline** end-to-end on sim and on hardware. |
 | 🧷 **Sim-friendly fixes baked in** | Upstream `g1_low_level_example.py` deadlocks on `MotionSwitcherClient.CheckMode()` and assumes DDS domain 0 — every script in `g1_sim_demo/` ships with the proven domain-1 + skip-MotionSwitcher patch and a `mode_machine` handshake. |
@@ -117,7 +119,7 @@
 | 🌟 **In-house deliverables** | **4** (`g1_sim_demo` · `g1_real_demo` · `va-demo` · `g1_brain`) |
 | 🎮 **G1 MuJoCo demo scripts** | **5** sim + **1** real ≈ 2 700 LOC of annotated control loops |
 | 🧠 **Brains in `g1_brain` v1.1.0** | **3** — Fast (Realtime, online) + Slow online (codex daemon, on-demand) + Slow offline (codex exec, Phase 1+2 background) |
-| 🛠️ **LLM-callable skills (`g1_brain`)** | **21** — 8 I/O · 4 memory/slow-brain · 6 motion · 3 real-only stubs |
+| 🛠️ **LLM-callable skills (`g1_brain`)** | **23** — 8 I/O · 4 memory/slow-brain · 6 motion · 3 real-only stubs · 2 phone bridge (`start_phone_call`, `end_call`) |
 | 🛡️ **Safety rules (`g1_brain`)** | **12** — 11 static + 1 GPT-5.5-mini Vision Risk Gate (Rule 12) — see [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) |
 | 💾 **Memory artefacts** | `MEMORY.md` (≤200 lines) · `memory_summary.md` (≤80 lines, auto-injected next session) · `raw_memories.md` · `rollout_summaries/*.md` · `state.sqlite` (WAL, jobs/sessions/stage1_outputs) |
 | 🎭 **Built-in arm gestures** | **9** (`wave_right` · `wave_left` · `hands_up` · `t_pose` · `salute` · `clap` · `guard` · `punch_combo` · `hug`) |
@@ -180,7 +182,7 @@ unitree-notes/
 │   │                                   watchdogs · vision_risk_gate (Rule 12, GPT-5.5-mini) ·
 │   │                                   combo_proxy (subprocess isolation, Phase 8) ·
 │   │                                   estop_listener + estop_client (independent process)
-│   ├── g1_brain/skills/             ·  SkillServer · 21 OpenAI tool schemas ·
+│   ├── g1_brain/skills/             ·  SkillServer · 23 OpenAI tool schemas ·
 │   │                                   keyframe_extras · compound_skills · real_robot_adapters
 │   ├── g1_brain/brain/              ·  BrainRealtimeAgent (Fast Brain, extends va-demo) ·
 │   │                                   conversation_logger (jsonl, Claude-harness shape) ·
@@ -610,7 +612,7 @@ python -m va_demo.main                    # default: --mode confirm
 | 🐢 **Slow Brain** *(online, on-demand)* | per `ask_slow_brain()` call | Resident **`codex mcp-server`** subprocess (`reasoning_effort=high`, `service_tier=fast` = 1.5× priority) | Hard questions the Realtime model can't answer fast enough — multi-step reasoning, cross-session recall, debugging. Persistent MCP stdio link, ping every 30 s, back-off restart. |
 | 💾 **Slow Brain** *(offline, background)* | debounced 60 s (P1) → P2 trigger | One-shot **`codex exec --json`** subprocesses (Phase 1 + Phase 2 workers) | Session → `rollout_summary` + `raw_memory` (Phase 1) → `MEMORY.md` + `memory_summary.md` (Phase 2). Git-diff gated. |
 | ⚡ **Fast Reflex** *(no LLM)* | 50 Hz RL · 20 Hz watchdog · 5 Hz perception · 1 kHz lowstate | Pure Python — cameras, YOLO11 (cuda), MediaPipe-Pose, depth derivations, RL ONNX, motor PD | Builds the `SceneState` + `RobotState` busses the brains and the safety supervisor both read. |
-| 🛡️ **Safe Skill** *(gating)* | per-call | `SafetySupervisor` (**12 rules**) + `SkillServer` (**21 tools**) | Validate · clamp · route · abort. Rule 12 = GPT-5.5-mini Vision Risk Gate. The LLM never touches motors. |
+| 🛡️ **Safe Skill** *(gating)* | per-call | `SafetySupervisor` (**12 rules**) + `SkillServer` (**23 tools**) | Validate · clamp · route · abort. Rule 12 = GPT-5.5-mini Vision Risk Gate. The LLM never touches motors. |
 
 > 🔑 **Critical invariant** — the **Fast Brain** sees only compact textual scene summaries, NOT a continuous video stream. Vision LLM is invoked only on `describe_scene()`, the Rule 12 risk gate, and the optional post-motion `scene_after` annotation. Continuous perception (YOLO/pose/depth) runs reflex-side and feeds the safety layer directly. This is why a single Realtime turn stays at ≤300 ms latency even with full perception on.
 
@@ -686,11 +688,140 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
 
 > 🛡️ **Key invariant:** every tool call walks `SafetySupervisor.validate()` in order — **whitelist · FSM gating · E-stop · 4 watchdogs · run_mode · pose check · param clamp · obstacle/person scene checks · Rule 12 Vision Risk Gate · confirm prompt**. The LLM never touches motors. The independent E-stop process keeps a panic-button exit even if the agent deadlocks. The ComboController subprocess keeps the motor PD loop alive even if the agent process freezes.
 
+#### 📞 `g1_brain/phone/` — Twilio + Realtime phone bridge
+
+> **NEW, May 2026.** Pick up your phone, say *"Wave your right hand"*, watch the G1 in MuJoCo wave. The phone path is an **isolated parallel front-end** to the existing brain: it owns its own Realtime session and audio transport, but every tool call lands on the **same** `SafetySupervisor` + `vision_risk_gate` + `SkillServer` instance the laptop mic uses — zero code duplication, zero new safety surface.
+>
+> 📂 **Read first:** [`mcp_twilio_design.md`](mcp_twilio_design.md) (1765-line canonical design) · [`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md`](docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md) (approved spec) · [`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`](docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md) (TDD plan, 23 tasks)
+
+##### 🛰️ Topology
+
+```
+   ☎  +61...  ◄──PSTN──► Twilio Voice ──TwiML──┐
+                          │                    │
+                          │  Media Streams     │
+                          │  (μ-law/8k WS)     │
+                          ▼                    │
+                 sparky-bridge public host     │  REST POST /Calls
+                 (nginx + reverse SSH tunnel,  │  from phone/twilio_dialer.py
+                  systemd-user autossh keep-alive)
+                          │
+                          │  wss://twilio.openproduct.cn/twilio
+                          ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  WSL2 laptop — g1_brain process (--enable-phone)              │
+   │                                                               │
+   │  phone/bridge_server.py (aiohttp WS on 127.0.0.1:8787)        │
+   │    • validate X-Twilio-Signature  • caller-id allowlist       │
+   │    • VoiceLeaseManager.acquire(PHONE) ← /tmp/g1_brain_voice_lease
+   │                                                               │
+   │  phone/twilio_transport.py — μ-law/8k ⇄ PCM16/24k (scipy)     │
+   │                                                               │
+   │  phone/realtime_session.py — PhoneRealtimeSession             │
+   │    (subclass of BrainRealtimeAgent; overrides only            │
+   │     _uplink / _handle_event audio + _session_update +         │
+   │     _resolve_tool_schemas + _execute_tool for end_call)       │
+   │            │                                                  │
+   │            ▼ same instance the laptop mic uses                │
+   │  ┌───────────────────────────────────────────────────────┐    │
+   │  │  SafetySupervisor (12 rules)  →  SkillServer (23)     │    │
+   │  │     · vision_risk_gate (GPT-5.5)                      │    │
+   │  │     · ComboController subprocess                      │    │
+   │  └───────────────────────────────────────────────────────┘    │
+   │            │                                                  │
+   │            ▼  DDS rt/lowcmd                                   │
+   │  MuJoCo / real G1                                             │
+   └───────────────────────────────────────────────────────────────┘
+```
+
+##### 🌀 Call lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator (phone)
+    participant Twilio
+    participant Proxy as nginx + tunnel
+    participant Bridge as bridge_server
+    participant RT as OpenAI Realtime
+    participant Skill as SkillServer + safety
+    participant Robot as MuJoCo G1
+
+    Op->>Twilio: dial (REST from CLI or skill)
+    Twilio-->>Twilio: TwiML <Connect><Stream/>
+    Op->>Twilio: PSTN pickup
+    Twilio->>Proxy: WSS /twilio
+    Proxy->>Bridge: forward WS
+    Bridge->>Bridge: validate X-Twilio-Signature
+    Bridge->>Bridge: VoiceLease.acquire(PHONE)
+    Bridge->>RT: session.update (server VAD, phone preamble, tools)
+    Bridge->>RT: response.create (greeting)
+    RT-->>Bridge: audio delta (PCM24k)
+    Bridge-->>Twilio: media (μ-law/8k)
+    Twilio-->>Op: "Hi, this is Sparky..."
+    Op->>Twilio: "Wave your right hand"
+    Twilio->>Bridge: media
+    Bridge->>RT: input_audio_buffer.append
+    RT-->>Bridge: function_call gesture(wave_right)
+    Bridge->>Skill: SkillServer.execute
+    Skill->>Skill: safety.validate + vision_gate.review
+    Skill->>Robot: DDS rt/lowcmd
+    Skill-->>Bridge: ok=true
+    Bridge->>RT: function_call_output + response.create
+    RT-->>Bridge: "Waving my right hand now."
+    Bridge-->>Op: spoken reply
+    Op->>Twilio: "Goodbye"
+    RT-->>Bridge: function_call end_call
+    Bridge->>Twilio: REST hangup
+    Twilio-->>Bridge: stop event
+    Bridge->>Skill: defensive stop()
+    Bridge->>Bridge: VoiceLease.release
+```
+
+##### 🚀 Run order (just adds `--enable-phone` to T3)
+
+```bash
+# T1 — MuJoCo (unchanged)
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py        # press 7 then 9
+
+# T2 — E-stop listener (recommended)
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.safety.estop_listener
+
+# T3 — brain + phone bridge
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a    # TWILIO_*, PUBLIC_BRIDGE_URL, PHONE_ALLOWED_CALLERS
+python -m g1_brain.apps.agent_main --enable-phone --mode active
+# wait for both: "combo policy active" AND "phone bridge listening on 127.0.0.1:8787"
+
+# Dial:
+python -m g1_brain.phone.call_me                    # default = PHONE_ALLOWED_CALLERS[0]
+python -m g1_brain.phone.call_me --to +61...        # explicit
+python -m g1_brain.phone.call_me --dry-run          # cred sanity check, no dial
+```
+
+Or wake-word from T3's mic: *"Hi Sparky, call me."* The local Realtime calls `start_phone_call` → bridge → operator's phone rings.
+
+##### 🛡️ Phone-specific safety
+
+- **`--mode active` is forced** for the phone session — there's no y/N terminal on a phone. The vision risk gate (Rule 12, GPT-5.5-mini) replaces y/N; **fail-closed**: if `safety.vision_gate.enabled=false` in yaml, the bridge refuses to start.
+- **Caller-ID whitelist** at the bridge: `PHONE_ALLOWED_CALLERS` env var; non-whitelisted callers are dropped immediately.
+- **`start_phone_call` dest whitelist** at the skill: even if wake-word ASR misheard a digit (real 2026-05-24 incident: `+6848` → `+6888`), `SkillServer._skill_start_phone_call` rejects any `to` not in `PHONE_ALLOWED_CALLERS` instead of dialling a stranger.
+- **Twilio HMAC-SHA1 signature** validated on every WS upgrade — randomly-discovered tunnel URLs cannot open phone sessions.
+- **Voice lease** (`/tmp/g1_brain_voice_lease`, fcntl.flock'd) — laptop mic and phone are mutually exclusive owners of the brain.
+
+##### 🌐 Public reachability
+
+The bridge listens on `127.0.0.1:8787` only — never `0.0.0.0`. Public access is via a **reverse SSH tunnel** (`autossh` in systemd-user `sparkytun-tunnel.service`) to a VPS running nginx with TLS. The operator's WSL2 laptop never accepts inbound internet traffic. Provisioning steps for the VPS side live in [`mcp_twilio_design.md`](mcp_twilio_design.md) §17.
+
 ---
 
 ### 🧰 Skill Catalog (`g1_brain`)
 
-> **21 OpenAI tool schemas** (18 in sim, +3 real-only) exposed to the Fast Brain. Source of truth: [`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py). Every schema is validated against the **12 rules** in [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) before reaching `SkillServer`. `--vision-only` mode trims down to the 8 no-motion + no-DDS tools (4 I/O + 4 memory).
+> **23 OpenAI tool schemas** (18 in sim + 3 real-only + 2 phone bridge when `--enable-phone`) exposed to the Fast Brain. Source of truth: [`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py). Every schema is validated against the **12 rules** in [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) before reaching `SkillServer`. `--vision-only` mode trims down to the 8 no-motion + no-DDS tools (4 I/O + 4 memory).
 
 #### 🗣️ I/O — no-motion (always allowed outside `BOOT`)
 
@@ -732,6 +863,13 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
 | `loco_high` | High-level locomotion command on a real G1 (rejected in sim). |
 | `arm_action_high` | Arm-action library command on a real G1 (rejected in sim). |
 | `audio_tts_robot` | Speak through the robot's onboard speaker (rejected in sim). |
+
+#### 📞 Phone bridge — **NEW, May 2026** (only present when `--enable-phone` is set)
+
+| Tool | Signature | Notes |
+|---|---|---|
+| `start_phone_call` | `start_phone_call(to?: E.164)` | **Local-mic / laptop side only.** Dials `to` (default: `PHONE_ALLOWED_CALLERS[0]`) via `TwilioDialer`. Rejects any `to` not in `PHONE_ALLOWED_CALLERS` (ASR-misheard-digit guard). Acquires the `PHONE` voice lease so the laptop mic loop quietly steps aside while the call is live. |
+| `end_call` | `end_call()` | **Phone-session side only.** Used by the model on the call to hang up cleanly (operator said goodbye, conversation done). Calls Twilio REST `Status=completed` on the active `CallSid`. |
 
 ---
 
@@ -924,7 +1062,7 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete enti
 ```
                 ┌─────────────────────────────────────────────────────────┐
                 │         🧠 FAST BRAIN  (OpenAI Realtime WS)             │
-                │  · gpt-realtime · 0.2–2 Hz/turn · 21 tools              │
+                │  · gpt-realtime · 0.2–2 Hz/turn · 23 tools              │
                 │  · sees only SceneState.summary_for_llm()               │
                 │  · NEVER touches motors — all calls go via SkillServer  │
                 └─────────────────────────────────────────────────────────┘
@@ -1110,6 +1248,14 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete enti
 | 🆕 [`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md) | Fix log: **ComboController subprocess isolation** — GIL contention root-causing arm tremor + falls. |
 | 🆕 [`g1_brain/docs/g1-fix-phase9.md`](g1_brain/docs/g1-fix-phase9.md) | Fix log: WSL2 + Pulse audio — choppy TTS, LISTENING_WINDOW capture, ALSA underrun spam. |
 
+#### 📞 Phone bridge (Twilio + Realtime, **NEW, May 2026**)
+
+| Doc | Scope |
+|---|---|
+| 🆕 [`mcp_twilio_design.md`](mcp_twilio_design.md) | **Canonical 1765-line architecture reference** — 21 sections covering topology, every component contract, audio pipeline byte-level, Twilio + OpenAI Realtime protocols, safety layering, concurrency model (`VoiceLeaseManager`), 7-state call lifecycle, configuration, error matrix, testing strategy, six-step live verification protocol, operational runbook, decisions log, appendices. |
+| 🆕 [`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md`](docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md) | Approved design spec (the brainstorming output). |
+| 🆕 [`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`](docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md) | TDD implementation plan — 23 tasks across 7 phases, with full code blocks per step. |
+
 #### 📡 Upstream deep-dives
 
 | Doc | Scope |
@@ -1188,7 +1334,7 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete enti
 - `g1_sim_demo/g1_sim_rl_walk.py` · `g1_sim_rl_combo.py` — RL walk + arm-gesture combo.
 - `g1_real_demo/g1_real_rl_combo.py` — real-robot port (with `lying` test mode).
 - `va-demo/` — wake-word-gated Realtime voice + vision agent (4 run modes) — Hi-Sparky barge-in in any state, AEC-cleaned RMS gate, per-process JSONL transcripts.
-- `g1_brain/` **v1.1.0** — three-brain agent: **12-rule** supervisor (incl. GPT-5.5-mini Vision Risk Gate) · 7-state FSM · independent E-stop · ComboController subprocess isolation (Phase 8) · **21 LLM-callable skills** · MuJoCo head-cam perception · `mock_imitate` (Phase 5, opt-in).
+- `g1_brain/` **v1.1.0** — three-brain agent: **12-rule** supervisor (incl. GPT-5.5-mini Vision Risk Gate) · 7-state FSM · independent E-stop · ComboController subprocess isolation (Phase 8) · **23 LLM-callable skills** (incl. Twilio phone bridge, May 2026) · MuJoCo head-cam perception · `mock_imitate` (Phase 5, opt-in).
 - 🆕 **Memory subsystem** — Codex-native (codex daemon + Phase 1 + Phase 2 workers) · SQLite + Markdown (no embeddings) · `recall_grep/read/glob` + `ask_slow_brain` tools · session-summary auto-injection · `tools/reset_memory.py` CLI · 9 dedicated test files.
 - `requirements.txt` — frozen `agi` env reproducible from `python=3.11` + `pip install -r requirements.txt`.
 
@@ -1544,6 +1690,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
   - [🦿 `g1_real_demo/` — 真机部署](#-g1_real_demo--真机部署)
   - [🎙️ `va-demo/` — 语音 + 视觉智能体](#%EF%B8%8F-va-demo--语音--视觉智能体)
   - [🧠 `g1_brain/` v1.1.0 — 三脑认知智能体](#-g1_brain-v110--三脑认知智能体)
+  - [📞 `g1_brain/phone/` — Twilio + Realtime 电话桥](#-g1_brainphone--twilio--realtime-电话桥)
 - [🧰 技能目录（`g1_brain`）](#-技能目录g1_brain)
 - [🛡️ 安全监督器 — 12 条规则](#%EF%B8%8F-安全监督器--12-条规则)
 - [💾 记忆子系统（Codex 原生，v1.1.0）](#-记忆子系统codex-原生v110)
@@ -1570,6 +1717,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🦿 **真机部署脚手架** | `g1_real_demo/g1_real_rl_combo.py` 在 sim 版本基础上加了 `MotionSwitcher` 释放、有界 `lowstate` 等待和 `lying` 检线模式——在让机器人站起来之前就能验证 DDS 通路。 |
 | 🎙️ **语音 + 视觉 Realtime 智能体** | `va-demo/` 自带"嗨 Sparky"唤醒词的 OpenAI Realtime 全双工语音智能体，可以**调用视觉**描述场景，也能**工具调用** `walk` / `gesture` / `stop` 直接驱动 RL 策略——支持 confirm / observe / active / vision-only 四种运行模式。 |
 | 🧠 **三脑认知智能体（v1.1.0）** | `g1_brain/` 不再是单一 Realtime 回路，而是 **三脑系统**：**🧠 快脑**（OpenAI Realtime 长连接，0.2–2 Hz / turn）做决策与对话；**🐢 在线慢脑**（常驻 `codex mcp-server` 子进程，`reasoning_effort=high` + `service_tier=fast` 1.5× 优先级）通过 `ask_slow_brain(query)` 工具按需触发；**💾 离线慢脑**（一次性 `codex exec --json` 跑 Phase 1 + Phase 2 worker）把每次 session 提炼到 `MEMORY.md`。外加既有的 **快反射**（50 Hz RL + 20 Hz watchdog + 5 Hz 感知，纯 Python 无 LLM）。完整审计：[`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)。 |
+| 📞 **电话桥 — 拿起电话就能遥控机器人** | `g1_brain/phone/`（2026 年 5 月新增）把 **Twilio Voice Media Streams** ⇄ 一个独立的 **OpenAI Realtime** session ⇄ 现有的 **`SafetySupervisor` + `vision_risk_gate` + `SkillServer`** 链路完整串起来。两种触发方式：CLI（`python -m g1_brain.phone.call_me`）或本地说一句 *"Hi Sparky, call me"*。电话端的 Realtime 使用 **与本地话筒完全相同的 tool schema、安全规则、DDS 通路**——`PhoneRealtimeSession` 是 `BrainRealtimeAgent` 的 200 行子类，只覆盖音频传输层，安全侧零拷贝、零新增。`/tmp/g1_brain_voice_lease`（fcntl.flock）确保本地话筒和电话不会同时驱动机器人。完整设计：[`mcp_twilio_design.md`](mcp_twilio_design.md)。 |
 | 🛡️ **12 条安全规则 + GPT-5.5 视觉风险门** | 每次工具调用都按顺序过 **12 条规则**：白名单 · FSM 关卡 · run_mode · 4 个 watchdog（lowstate / 头摄 / RL-active / USB）· 姿态检查 · 参数裁剪 · 障碍距离场景检查 · 人体距离场景检查 · **规则 12 —— GPT-5.5-mini 视觉风险门**（抓帧 + 动作语句 → `SAFE: …` / `RISK: …`，只有后者才落到 y/N 提示）· E-stop。规格见 [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md)。 |
 | 💾 **Codex 原生记忆子系统** | 每次 session 都把对话写成 Claude-harness 风格 JSONL 到 `g1_brain/logs/conversations/`。Phase 1 通过 `codex exec` 把每条 session 提炼成 `rollout_summary` + raw-memory bullets。Phase 2（去抖动 + git diff 触发）把它们汇总成 `MEMORY.md`（≤200 行）+ `memory_summary.md`（≤80 行），后者下一次 session 自动注入为开发者指令。**4 个新 recall 工具** —— `recall_grep` · `recall_read` · `recall_glob` · `ask_slow_brain` —— 让 LLM 实时回看历史。SQLite + Markdown，**不用任何 embedding / 向量库**。设计稿：[`docs/harness-design.md`](docs/harness-design.md)。 |
 | ⚡ **21 个 LLM 可调用技能** | 8 I/O（`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`）+ 4 记忆/慢脑（`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`）+ 6 运动（`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`）+ 3 仅真机（`loco_high`, `arm_action_high`, `audio_tts_robot`）。 |
@@ -1654,7 +1802,7 @@ unitree-notes/
 │   │                                   watchdog · vision_risk_gate（规则 12，GPT-5.5-mini）·
 │   │                                   combo_proxy（子进程隔离，Phase 8）·
 │   │                                   estop_listener + estop_client（独立进程）
-│   ├── g1_brain/skills/             ·  SkillServer · 21 个 OpenAI 工具 schema ·
+│   ├── g1_brain/skills/             ·  SkillServer · 23 个 OpenAI 工具 schema ·
 │   │                                   keyframe_extras · compound_skills · real_robot_adapters
 │   ├── g1_brain/brain/              ·  BrainRealtimeAgent（快脑，继承 va-demo）·
 │   │                                   conversation_logger（jsonl，Claude-harness 形状）·
@@ -2159,11 +2307,140 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
 
 > 🛡️ **关键不变量：** 每一次工具调用都要按顺序过 `SafetySupervisor.validate()`——**白名单 · FSM 关卡 · E-stop · 4 个 watchdog · run_mode · 姿态检查 · 参数裁剪 · 障碍/人体场景检查 · 规则 12 视觉风险门 · 确认提示**。LLM 永远碰不到电机；独立 E-stop 进程保证主进程死锁也能切电；ComboController 子进程保证主进程冻住时电机 PD 回路仍然存活。
 
+#### 📞 `g1_brain/phone/` — Twilio + Realtime 电话桥
+
+> **2026 年 5 月新增。** 拿起电话说一句 *"Wave your right hand"*，看 MuJoCo 里的 G1 真的挥手。电话桥是一条**并列的独立前端**：它有自己的 Realtime session 和音频通道，但所有 tool call 都落到与本地话筒**完全相同**的 `SafetySupervisor` + `vision_risk_gate` + `SkillServer` 实例上 —— 安全侧零拷贝、零新增表面。
+>
+> 📂 **先读：** [`mcp_twilio_design.md`](mcp_twilio_design.md)（1765 行权威设计稿） · [`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md`](docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md)（已批准 spec） · [`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`](docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md)（TDD 实施计划，23 个任务）
+
+##### 🛰️ 拓扑
+
+```
+   ☎  +61...  ◄──PSTN──► Twilio Voice ──TwiML──┐
+                          │                    │
+                          │  Media Streams     │
+                          │  (μ-law/8k WS)     │
+                          ▼                    │
+                 sparky-bridge 公网域名         │  REST POST /Calls
+                 (nginx + reverse SSH tunnel,  │  来自 phone/twilio_dialer.py
+                  systemd-user autossh 常驻)
+                          │
+                          │  wss://twilio.openproduct.cn/twilio
+                          ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  WSL2 本机 — g1_brain 进程（--enable-phone）                  │
+   │                                                               │
+   │  phone/bridge_server.py（aiohttp WS @ 127.0.0.1:8787）        │
+   │    · 校验 X-Twilio-Signature   · caller-id 白名单             │
+   │    · VoiceLeaseManager.acquire(PHONE) ← /tmp/g1_brain_voice_lease
+   │                                                               │
+   │  phone/twilio_transport.py — μ-law/8k ⇄ PCM16/24k（scipy）    │
+   │                                                               │
+   │  phone/realtime_session.py — PhoneRealtimeSession             │
+   │    （BrainRealtimeAgent 的子类；只覆盖                        │
+   │     _uplink / _handle_event 音频 + _session_update +          │
+   │     _resolve_tool_schemas + _execute_tool 中的 end_call）     │
+   │            │                                                  │
+   │            ▼ 与本地话筒共享同一实例                           │
+   │  ┌───────────────────────────────────────────────────────┐    │
+   │  │  SafetySupervisor（12 规则） → SkillServer（23）     │    │
+   │  │     · vision_risk_gate（GPT-5.5）                     │    │
+   │  │     · ComboController 子进程                          │    │
+   │  └───────────────────────────────────────────────────────┘    │
+   │            │                                                  │
+   │            ▼  DDS rt/lowcmd                                   │
+   │  MuJoCo / 真机 G1                                             │
+   └───────────────────────────────────────────────────────────────┘
+```
+
+##### 🌀 呼叫生命周期
+
+```mermaid
+sequenceDiagram
+    participant Op as 操作员（电话）
+    participant Twilio
+    participant Proxy as nginx + 隧道
+    participant Bridge as bridge_server
+    participant RT as OpenAI Realtime
+    participant Skill as SkillServer + safety
+    participant Robot as MuJoCo G1
+
+    Op->>Twilio: 拨号（REST 来自 CLI 或 skill）
+    Twilio-->>Twilio: TwiML <Connect><Stream/>
+    Op->>Twilio: PSTN 接通
+    Twilio->>Proxy: WSS /twilio
+    Proxy->>Bridge: 转发 WS
+    Bridge->>Bridge: 校验 X-Twilio-Signature
+    Bridge->>Bridge: VoiceLease.acquire(PHONE)
+    Bridge->>RT: session.update（server VAD、phone preamble、tools）
+    Bridge->>RT: response.create（greeting）
+    RT-->>Bridge: audio delta (PCM24k)
+    Bridge-->>Twilio: media (μ-law/8k)
+    Twilio-->>Op: "Hi, this is Sparky..."
+    Op->>Twilio: "Wave your right hand"
+    Twilio->>Bridge: media
+    Bridge->>RT: input_audio_buffer.append
+    RT-->>Bridge: function_call gesture(wave_right)
+    Bridge->>Skill: SkillServer.execute
+    Skill->>Skill: safety.validate + vision_gate.review
+    Skill->>Robot: DDS rt/lowcmd
+    Skill-->>Bridge: ok=true
+    Bridge->>RT: function_call_output + response.create
+    RT-->>Bridge: "Waving my right hand now."
+    Bridge-->>Op: 语音回复
+    Op->>Twilio: "Goodbye"
+    RT-->>Bridge: function_call end_call
+    Bridge->>Twilio: REST 挂断
+    Twilio-->>Bridge: stop event
+    Bridge->>Skill: 防御性 stop()
+    Bridge->>Bridge: VoiceLease.release
+```
+
+##### 🚀 启动顺序（只在 T3 加 `--enable-phone`）
+
+```bash
+# T1 — MuJoCo（不变）
+conda activate agi
+cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+python unitree_mujoco.py        # 按 7 再按 9
+
+# T2 — E-stop 监听（推荐）
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.safety.estop_listener
+
+# T3 — brain + 电话桥
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+set -a; source .env; set +a    # TWILIO_*、PUBLIC_BRIDGE_URL、PHONE_ALLOWED_CALLERS
+python -m g1_brain.apps.agent_main --enable-phone --mode active
+# 等到两行都出现："combo policy active" 和 "phone bridge listening on 127.0.0.1:8787"
+
+# 发起电话：
+python -m g1_brain.phone.call_me                    # 默认拨 PHONE_ALLOWED_CALLERS[0]
+python -m g1_brain.phone.call_me --to +61...        # 指定号码
+python -m g1_brain.phone.call_me --dry-run          # 凭据自检，不拨
+```
+
+或者直接对 T3 的话筒说 *"Hi Sparky, call me"*。本地 Realtime 会调用 `start_phone_call` → 桥 → 你的手机响铃。
+
+##### 🛡️ 电话场景专属安全
+
+- **`--mode active` 是强制的** —— 电话上没法去敲终端按 y/N。视觉风险门（规则 12，GPT-5.5-mini）替代 y/N；**fail-closed**：如果 yaml 里 `safety.vision_gate.enabled=false`，桥直接拒绝启动。
+- **Caller-ID 白名单**（bridge 侧）：`PHONE_ALLOWED_CALLERS` 环境变量；不在白名单的来电立刻挂断。
+- **`start_phone_call` 目标白名单**（skill 侧）：即使 wake-word ASR 把数字听错（2026-05-24 真实事故：`+6848` 被听成 `+6888`），`SkillServer._skill_start_phone_call` 也会拒绝任何不在 `PHONE_ALLOWED_CALLERS` 里的 `to`，而不是傻乎乎给陌生人拨电话。
+- **Twilio HMAC-SHA1 签名校验** 在每次 WS upgrade 时执行 —— 哪怕有人扫到隧道 URL，也开不了电话 session。
+- **Voice lease**（`/tmp/g1_brain_voice_lease`，`fcntl.flock`）—— 本地话筒和电话互斥占有 brain。
+
+##### 🌐 公网可达性
+
+桥只监听 `127.0.0.1:8787`，永远不绑 `0.0.0.0`。公网入口走 **autossh 反向 SSH 隧道**（systemd-user `sparkytun-tunnel.service`）到 VPS 上的 nginx + TLS。WSL2 本机从不接受任何入站公网流量。VPS 侧的配置步骤见 [`mcp_twilio_design.md`](mcp_twilio_design.md) §17。
+
 ---
 
 ### 🧰 技能目录（`g1_brain`）
 
-> 暴露给快脑的 **21 个 OpenAI 工具 schema**（仿真 18 个 + 仅真机 3 个）。权威源：[`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py)。每条 schema 在到达 `SkillServer` 之前都要先过 [§ 安全监督器](#%EF%B8%8F-安全监督器--12-条规则) 的 **12 条规则**。`--vision-only` 模式会裁到 8 个无动作 + 无 DDS 工具（4 I/O + 4 记忆）。
+> 暴露给快脑的 **23 个 OpenAI 工具 schema**（仿真 18 + 仅真机 3 + 电话桥 2）。权威源：[`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py)。每条 schema 在到达 `SkillServer` 之前都要先过 [§ 安全监督器](#%EF%B8%8F-安全监督器--12-条规则) 的 **12 条规则**。`--vision-only` 模式会裁到 8 个无动作 + 无 DDS 工具（4 I/O + 4 记忆）。
 
 #### 🗣️ I/O —— 不涉及运动（除 `BOOT` 外永远允许）
 
@@ -2205,6 +2482,13 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
 | `loco_high` | 真机 G1 的高层运动指令（仿真直接拒）。 |
 | `arm_action_high` | 真机 G1 的预置上肢动作库（仿真直接拒）。 |
 | `audio_tts_robot` | 通过机器人本体扬声器说话（仿真直接拒）。 |
+
+#### 📞 电话桥 —— **2026 年 5 月新增**（仅 `--enable-phone` 启动时存在）
+
+| 工具 | 签名 | 备注 |
+|---|---|---|
+| `start_phone_call` | `start_phone_call(to?: E.164)` | **仅本地话筒侧。** 调 `TwilioDialer` 拨 `to`（默认 `PHONE_ALLOWED_CALLERS[0]`）。任何不在 `PHONE_ALLOWED_CALLERS` 的 `to` 都被拒绝（ASR 听错数字的硬门）。同时拿到 `PHONE` voice lease，本地话筒回路自动让位。 |
+| `end_call` | `end_call()` | **仅电话 session 侧。** 给模型用于干净挂断（用户说 goodbye、对话自然结束等）。调 Twilio REST 把当前 `CallSid` 置 `Status=completed`。 |
 
 ---
 
@@ -2581,6 +2865,14 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # 删整个 r
 | 🆕 [`g1_brain/docs/g1-fix-phase7.md`](g1_brain/docs/g1-fix-phase7.md) | 修复日志：50 Hz hysteresis 的 stand-still bypass；关闭 mock_imitation auto-trigger。 |
 | 🆕 [`g1_brain/docs/g1-fix-phase8.md`](g1_brain/docs/g1-fix-phase8.md) | 修复日志：**ComboController 子进程隔离** —— GIL 抢占引发手臂抖动 + 摔倒的根因。 |
 | 🆕 [`g1_brain/docs/g1-fix-phase9.md`](g1_brain/docs/g1-fix-phase9.md) | 修复日志：WSL2 + Pulse 音频——TTS 断续、LISTENING_WINDOW 采集、ALSA underrun 刷屏。 |
+
+#### 📞 电话桥（Twilio + Realtime，**2026 年 5 月新增**）
+
+| 文档 | 内容 |
+|---|---|
+| 🆕 [`mcp_twilio_design.md`](mcp_twilio_design.md) | **1765 行权威架构稿** —— 21 节，覆盖拓扑、每个组件的契约、音频流水线（μ-law/8k ⇄ PCM16/24k 字节级细节）、Twilio + OpenAI Realtime 协议、安全分层、并发（`VoiceLeaseManager`）、7 状态呼叫生命周期、配置、错误矩阵、测试策略、六步上线验证流程、运维 runbook、决策日志、附录。 |
+| 🆕 [`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md`](docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md) | 已批准设计 spec（brainstorming 产物）。 |
+| 🆕 [`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`](docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md) | TDD 实施计划 —— 23 个任务、7 个 phase，每步都有完整代码块。 |
 
 #### 📡 上游深度笔记
 

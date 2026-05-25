@@ -29,6 +29,7 @@
 12. [一次完整 turn 的端到端时序](#12-一次完整-turn-的端到端时序)
 13. [关键问题回答](#13-关键问题回答)
 14. [已知局限与下一步](#14-已知局限与下一步)
+15. [电话桥（Twilio + Realtime，2026-05-24 增量）](#15-电话桥twilio--realtime2026-05-24-增量)
 
 ---
 
@@ -43,6 +44,8 @@
 | **慢脑（离线）** | 后台批处理 | `codex exec --json` 一次性子进程（Phase 1 + Phase 2） | session 结束后异步消化 jsonl → MEMORY.md |
 
 **反射层（Fast Reflex）** 是另一回事：50 Hz RL policy + 20 Hz watchdog + 5 Hz perception，全部纯 Python，不含 LLM。
+
+> 🆕 **2026-05-24 增量**：v1.1.0 之上加了 **电话桥（`g1_brain/phone/`）**——一条**并列**的快脑入口，把 Twilio Voice Media Streams 桥接到一个独立的 OpenAI Realtime session，再走**完全相同**的 `SafetySupervisor` + `vision_risk_gate` + `SkillServer` 实例。详见 §15。本节其它部分（三脑、反射层）一字未改。
 
 > ⚠️ 用户的两个直觉判断都正确：
 > 1. **快脑的本地 perception 几乎没有"持续流"进入 LLM** —— 只在 motion tool 返回值里被注入一帧 `scene_after`，或被快脑主动调用 `query_scene_state()` / `describe_scene()` 时按需查询。`inject_perception_event()` 这条路径在 v1.1.0 **只对 `mock_imitation` 模块生效**，普通用户路径不走。
@@ -1213,6 +1216,227 @@ flowchart LR
 
 ---
 
+## 15. 电话桥（Twilio + Realtime，2026-05-24 增量）
+
+> 本节是 v1.1.0 主版本之后的**增量**，覆盖 `g1_brain/g1_brain/phone/` 子包与跨进程协作。
+> 设计稿：根目录 `mcp_twilio_design.md`（1765 行）·
+> Spec：`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md` ·
+> 实施计划：`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md` ·
+> 实测通过日期：2026-05-24（commit `8c8fd5b`）。
+
+### 15.1 设计原则
+
+| 原则 | 落地 |
+|---|---|
+| 安全侧零拷贝 | 电话端 tool call 直接进入既有 `SkillServer.execute()` —— 不复制 SafetySupervisor、不复制 vision_risk_gate、不复制 SkillServer。 |
+| 进程内桥接 | bridge_server 与 brain 同进程同 asyncio 循环；tool 调度是 in-process method call。 |
+| 公网零暴露 | bridge 只监听 `127.0.0.1:8787`，永远不绑 `0.0.0.0`；公网入口走 VPS nginx + autossh 反向隧道。 |
+| 双麦克风互斥 | `/tmp/g1_brain_voice_lease`（fcntl.flock'd JSON）确保本地话筒和电话不会同时驱动机器人。 |
+| Fail-closed | `safety.vision_gate.enabled=false` → 桥拒绝启动；Twilio 签名错 → 403；caller 不在白名单 → 立即挂；start_phone_call 目标不在白名单 → 拒拨。 |
+
+### 15.2 任务树扩展
+
+`agent_main --enable-phone` 在原 v1.1.0 任务树之上**追加**一个 asyncio task 和一组按需子任务：
+
+```
+agent_main 主进程（原 v1.1.0）
+│
+├── BrainRealtimeAgent (Fast Brain, 本地话筒) ····· §6
+├── CodexDaemon (Slow Brain online) ·············· §7
+├── Phase1Worker / Phase2Worker ·················· §8
+├── ComboProxy 子进程 ····························· §3
+├── CameraHub / YOLO / Pose / Watchdog ··········· §3
+│
+└── 🆕 phone/bridge_server.py
+       └── aiohttp.web.AppRunner @ 127.0.0.1:8787
+              ├── GET /healthz   ── 始终在
+              └── GET /twilio (Upgrade)
+                     └── 每次来电 spawn 一组任务（call lifetime）：
+                            ├── PhoneRealtimeSession.run()
+                            │     ├── _uplink(ws)  ── Twilio media → OpenAI
+                            │     └── _downlink(ws) ── OpenAI events → _handle_event
+                            └── _kick (response.create greeting)
+```
+
+来电结束时 `finally` 子句保证：(1) 防御性 `skill_server.execute("stop", {})`；(2) `VoiceLease.release(PHONE)`；(3) `transport.close()`。
+
+### 15.3 PhoneRealtimeSession 继承图
+
+```mermaid
+classDiagram
+    class RealtimeAgent {
+      +mic: MicStream
+      +speaker: SpeakerStream
+      +run() async
+      +_session_update(ws) async
+      +_uplink(ws) async
+      +_downlink(ws) async
+      +_handle_event(ws, evt) async
+    }
+    class BrainRealtimeAgent {
+      +skill_server
+      +scene_bus
+      +phone_enabled: bool
+      +_resolve_instructions()
+      +_resolve_tool_schemas()
+      +_execute_tool(name, args)
+      +cancel_in_flight() async
+    }
+    class PhoneRealtimeSession {
+      +transport
+      +dialer
+      +call_sid: str
+      +_session_update(ws) async [server VAD on]
+      +_uplink(ws) async [reads transport not mic]
+      +_handle_event(ws, evt) async [audio delta to transport]
+      +_resolve_instructions() [+phone preamble]
+      +_resolve_tool_schemas() [+end_call, -start_phone_call]
+      +_execute_tool() [intercepts end_call]
+    }
+    RealtimeAgent <|-- BrainRealtimeAgent
+    BrainRealtimeAgent <|-- PhoneRealtimeSession
+```
+
+**覆盖原则**：只覆盖 5 个方法 + 加 3 个新 dataclass 字段。`SkillServer.execute`、`SafetySupervisor.validate`、`vision_risk_gate.review`、conversation_logger、plan tracker、barge-in 取消逻辑——**统统继承不动**。
+
+### 15.4 一次电话调用的端到端时序
+
+```mermaid
+sequenceDiagram
+    participant Op as 操作员（电话）
+    participant Twilio
+    participant Nginx as VPS nginx
+    participant Autossh as autossh tunnel
+    participant Bridge as bridge_server :8787
+    participant Session as PhoneRealtimeSession
+    participant RT as OpenAI Realtime
+    participant SS as SkillServer + Safety
+    participant Combo as ComboProxy (DDS)
+    participant Robot as MuJoCo G1
+
+    Note over Bridge: agent_main --enable-phone 已在跑
+    Op->>Twilio: 拨号（来自 call_me CLI 或 start_phone_call skill）
+    Twilio->>Twilio: TwiML <Connect><Stream/>
+    Op->>Twilio: PSTN 接通
+    Twilio->>Nginx: WSS /twilio + X-Twilio-Signature
+    Nginx->>Autossh: 反向转发到 127.0.0.1:8787
+    Autossh->>Bridge: WS 升级
+    Bridge->>Bridge: validate_twilio_signature(URL, AuthToken)
+    Bridge->>Bridge: transport.start() ── 读 connected + start 事件
+    Bridge->>Bridge: 检查 caller-id ∈ PHONE_ALLOWED_CALLERS
+    Bridge->>Bridge: VoiceLease.acquire(PHONE) ── flock'd
+    Bridge->>Session: 构造 PhoneRealtimeSession(transport, dialer, call_sid, ...)
+    Bridge->>Session: session.run()  ── 即父类 RealtimeAgent.run
+    Session->>RT: WS connect wss://api.openai.com/v1/realtime
+    Session->>RT: session.update（GA 形态 + server VAD on + phone tools）
+    par 并发开启
+        Session->>Session: _uplink(ws) loop
+    and
+        Session->>Session: _downlink(ws) loop
+    end
+    Bridge->>RT: response.create（greeting，由 _kick 任务发）
+    RT-->>Bridge: response.output_audio.delta（PCM16/24k）
+    Bridge->>Bridge: audio_codec: PCM24k → μ-law/8k
+    Bridge-->>Twilio: media event（μ-law/8k base64）
+    Twilio-->>Op: 听到 "Hi, this is Sparky. What would you like me to do?"
+
+    Op->>Twilio: "Wave your right hand"
+    Twilio->>Bridge: media event（μ-law/8k）
+    Bridge->>Bridge: audio_codec: μ-law/8k → PCM24k
+    Session->>RT: input_audio_buffer.append（PCM24k base64）
+    RT->>RT: server VAD 检测 turn end
+    RT-->>Session: response.function_call_arguments.done<br/>name=gesture args={"name":"wave_right"}
+    Session->>SS: skill_server.execute("gesture", {...})
+    SS->>SS: safety.validate ── ALLOWED_TOOLS pass, 参数裁剪
+    SS->>SS: vision_risk_gate.review ── SAFE
+    SS->>Combo: 通过 DDS rt/lowcmd 发关节序列
+    Combo->>Robot: 50 Hz 步进 + arm override
+    Robot-->>Combo: rt/lowstate
+    SS-->>Session: {"ok": true, "summary": "waved right hand 1.2s"}
+    Session->>RT: conversation.item.create function_call_output
+    Session->>RT: response.create
+    RT-->>Bridge: "Waving my right hand now." 音频流
+    Bridge-->>Twilio: media events
+    Twilio-->>Op: "Waving my right hand now."
+
+    Op->>Twilio: "Goodbye"
+    Twilio->>Bridge: media → RT
+    RT-->>Session: function_call end_call
+    Session->>Session: _execute_tool 拦截 end_call
+    Session->>Twilio: REST POST /Calls/{sid} Status=completed
+    Twilio->>Bridge: stop event
+    Bridge->>SS: skill_server.execute("stop", {}) ── 防御性
+    Bridge->>Bridge: VoiceLease.release(PHONE)
+    Bridge->>Session: ws close + cleanup
+```
+
+### 15.5 子模块清单
+
+| 文件 | 行数 | 职责 |
+|---|---|---|
+| `phone/config.py` | ~95 | Pydantic `TwilioConfig` + `PhoneConfig`；`load_from_env()` 失败立即 raise `PhoneConfigError`。 |
+| `phone/audio_codec.py` | ~95 | `mulaw8k_to_pcm24k` / `pcm24k_to_mulaw8k`（scipy `resample_poly` 整数比 1:3 / 3:1，`np.clip` 防 int16 wrap）+ `StreamingResampler` 持帧。 |
+| `phone/voice_lease.py` | ~145 | `VoiceLeaseManager{LOCAL_MIC, PHONE}`；`/tmp/g1_brain_voice_lease` + `fcntl.flock(LOCK_EX)`；stale 自动回收（默认 1 h）。 |
+| `phone/tunnel_health.py` | ~50 | `validate_twilio_signature()` HMAC-SHA1 constant-time；`build_healthz_payload()`。 |
+| `phone/twilio_dialer.py` | ~135 | REST `dial(to)` / `hangup(sid)` / `dry_run()`；默认 Account SID + Auth Token 鉴权（API Key 路径见 `_auth()` 注释）。 |
+| `phone/twilio_transport.py` | ~115 | aiohttp WS 协议适配：`start()` 读 `connected` + `start` → `StartEvent`；`iter_inbound_pcm24k()` 异步迭代；`send_outbound_pcm24k()` 走 `StreamingResampler`；`clear_outbound()` 给 barge-in 用。 |
+| `phone/realtime_session.py` | ~155 | `PhoneRealtimeSession`（继承 `BrainRealtimeAgent`）；覆盖 `_uplink` / `_handle_event(audio delta + speech_started)` / `_session_update`（server VAD on）/ `_resolve_*` / `_execute_tool(end_call)`；`END_CALL_SCHEMA`。 |
+| `phone/bridge_server.py` | ~240 | `build_app(...)` → aiohttp；`/healthz` + `/twilio` WS 路由；`_build_phone_session` 注入 `safety=skill_server.safety`（不是 MagicMock，2026-05-24 修过一次真火事故）。 |
+| `phone/call_me.py` | ~55 | CLI `python -m g1_brain.phone.call_me [--to ...] [--dry-run]`。 |
+
+### 15.6 跨文件改动
+
+| 文件 | 改动 |
+|---|---|
+| `brain/realtime_agent.py` | 添加 `phone_enabled: bool = False` 字段；`_resolve_tool_schemas()` 把它传给 `build_tool_schemas(phone_enabled=...)`。 |
+| `brain/prompts.py` | 新增常量 `PHONE_CALL_PREAMBLE`（指定语言 = caller 用什么回什么，默认英文）。 |
+| `skills/tool_schemas.py` | 新增 `START_PHONE_CALL_SCHEMA` + `END_CALL_SCHEMA`；`build_tool_schemas` 加 `phone_enabled` kwarg；only-enable-when-true append `start_phone_call`。 |
+| `skills/skill_server.py` | `__init__` 加 `dialer=None`, `default_phone_to=None`；`_skill_start_phone_call(*, to=None)`；`_allowed_phone_callers` 白名单守门（2026-05-24 真火 ASR 听错事故后加）。 |
+| `safety/supervisor.py` | `ALLOWED_TOOLS_NO_MOTION` 加 `start_phone_call` 与 `end_call`；`_sanitize_no_motion` 加对应分支。 |
+| `apps/agent_main.py` | 新增 `--enable-phone` flag；当开启时：load_phone_env → 强制要求 `safety.vision_gate.enabled=true` → `TwilioDialer` → 在已构造的 `skill_server` 上 late-wire `_dialer` / `_default_phone_to` / `_allowed_phone_callers` → `build_app` → `aiohttp.web.TCPSite` 绑 `phone.bind_host:bind_port`（默认 `127.0.0.1:8787`）。 |
+| `configs/g1_brain.yaml` | 末尾追加 `phone:` 块；`enabled: false` 默认。 |
+| `.env.example` | 新增 7 个 Twilio + 桥变量样板。 |
+| `pyproject.toml` | dependencies 加 `aiohttp>=3.9`, `pydantic>=2.0`, `scipy>=1.11`, `twilio>=9.0`。 |
+
+### 15.7 安全栈在电话场景下的差异
+
+| 规则 | 电话场景的处理 |
+|---|---|
+| run_mode | **强制 `active`**；电话上没法敲终端按 y/N。 |
+| Rule 12 (vision_risk_gate) | **替代** y/N 提示。`safety.vision_gate.enabled` 必须 true，否则桥 fail-closed 拒绝启动。 |
+| Rule 1 (whitelist) | `ALLOWED_TOOLS_NO_MOTION` 已加入 `start_phone_call` + `end_call`。 |
+| Caller-ID | 桥侧白名单：`PHONE_ALLOWED_CALLERS` 环境变量。 |
+| Dial 目标白名单 | skill 侧：`SkillServer._allowed_phone_callers`。即使 wake-word ASR 听错（真事故：`+6848` 听成 `+6888`），也无法外拨陌生人。 |
+| Twilio HMAC | 桥侧每次 WS upgrade 校验 `X-Twilio-Signature`（HMAC-SHA1 over URL，constant-time compare）。 |
+| Voice lease | `/tmp/g1_brain_voice_lease`，fcntl.flock'd JSON。LOCAL_MIC 与 PHONE 互斥占有 brain，stale 1 h 后可被抢占。 |
+
+### 15.8 已知局限
+
+- **并发电话**：bridge 同一时刻只接受一个 phone session（VoiceLease 单 PHONE 槽）；多操作员需要先扩 `VoiceLeaseManager` 与 `_twilio_ws` 的 active-call 计数器。
+- **Inbound 来电**：当前只做出站拨号；要支持来电需要加 `/twiml/inbound` 路由并在 Twilio 控制台把号码 Voice URL 指过去。仍然要走 caller-id 白名单。
+- **STT 听数字稳健性**：本地 wake-word 用的 `gpt-4o-mini-transcribe` 对 `+61411706848` 这种长串数字的精度有限；白名单兜底但用户体验仍可能"我让你打 8 你却说要打 8888"。提示工程 / DTMF / 短代码可能更稳。
+- **trial-account preroll**：Twilio Trial 账号每次出站都会插一段"by upgrading press any key..."的留言；升级账号即可消除。
+- **跨地理/国际拨号**：Twilio 账号默认只开启美国/加拿大出站；其它区（如澳大利亚）需到 console → Voice Geo Permissions 显式启用。
+
+### 15.9 实测验证记录（2026-05-24）
+
+| 步骤 | 结果 |
+|---|---|
+| 1. tunnel 公网可达 | `curl https://twilio.openproduct.cn/healthz` 从外网返回 200 + 正确 JSON ✅ |
+| 2. Twilio 凭据 dry-run | `call_me --dry-run` 输出 "My first Twilio account" ✅ |
+| 3. 全栈启动 | T1 sim + T3 brain+phone bridge 同时跑，日志见 "phone bridge listening on 127.0.0.1:8787" ✅ |
+| 4. 出站拨号 | `python -m g1_brain.phone.call_me` 触发响铃 ✅ |
+| 5. 音频桥（双向） | 接通听到英文 greeting，"Say hello in French" 收到法语回复 ✅ |
+| 6. **机器人在电话指令下动作** | "Wave your right hand" → tool: gesture(wave_right) → safety pass → vision_gate SAFE → DDS → **MuJoCo G1 真挥手** ✅ |
+
+### 15.10 后续路标
+
+- 让模型在通话开始时主动询问操作员姓名 / 短指令偏好（减少 STT 听错率）。
+- 增加 DTMF 通道：电话按键 0=立即 E-stop，1=确认，2=取消。
+- 与 memory 子系统对接：phone session 的 jsonl 走相同的 Phase 1 / Phase 2 流水线（理论上已经走了，因为 ConversationLogger 是 brain 共享的；待端到端测一次）。
+
+---
+
 ## 附录 A：关键 file:line 索引
 
 | 关注点 | 文件:行 |
@@ -1239,6 +1463,18 @@ flowchart LR
 | `_skill_recall_grep` | `skill_server.py:753-774` |
 | `_skill_ask_slow_brain` | `skill_server.py:815-844` |
 | 配置默认值（effort=high, tier=fast） | `g1_brain/memory/schemas.py:131-133` |
+| 🆕 **电话桥** 入口 + 启动检查 | `g1_brain/apps/agent_main.py:1055-1090` |
+| 🆕 桥 aiohttp app builder | `g1_brain/phone/bridge_server.py:30-55` |
+| 🆕 桥 WS handler（签名 + 白名单 + lease） | `g1_brain/phone/bridge_server.py:65-145` |
+| 🆕 PhoneRealtimeSession 类 | `g1_brain/phone/realtime_session.py:30-155` |
+| 🆕 `_session_update` 覆盖（server VAD on） | `g1_brain/phone/realtime_session.py:60-100` |
+| 🆕 `audio_codec.StreamingResampler` | `g1_brain/phone/audio_codec.py:55-95` |
+| 🆕 `VoiceLeaseManager.acquire` | `g1_brain/phone/voice_lease.py:67-95` |
+| 🆕 `validate_twilio_signature` | `g1_brain/phone/tunnel_health.py:18-40` |
+| 🆕 `TwilioDialer._auth` / `dial` / `dry_run` | `g1_brain/phone/twilio_dialer.py:30-130` |
+| 🆕 `_skill_start_phone_call` + 白名单守门 | `g1_brain/skills/skill_server.py:709-735` |
+| 🆕 `ALLOWED_TOOLS_NO_MOTION` 含 `start_phone_call` + `end_call` | `g1_brain/safety/supervisor.py` |
+| 🆕 `PHONE_CALL_PREAMBLE` | `g1_brain/brain/prompts.py:175-200` |
 
 ## 附录 B：v1.1.0 与 v1.0 的 diff 速览
 
@@ -1250,8 +1486,22 @@ flowchart LR
 - 改造唤醒词：从 va-demo 的"only-in-IDLE"改为"any-state barge-in"
 - 改造 audio control：cleaned-RMS gate + AEC delay（commit `74722b3`）
 
+### v1.1.1 增量（2026-05-24，电话桥）
+
+- 新增 `g1_brain/phone/` 子包（config / audio_codec / voice_lease / tunnel_health / twilio_dialer / twilio_transport / realtime_session / bridge_server / call_me），合计 ~1200 LOC + 46 测试。
+- 新增 2 个 LLM 工具：`start_phone_call`（本地话筒侧，带号码白名单守门）+ `end_call`（电话 session 侧）。
+- 新增 1 个 brain dataclass 字段：`BrainRealtimeAgent.phone_enabled`（通过 agent_main 的 `--enable-phone` 注入）。
+- 改 `safety/supervisor.py::ALLOWED_TOOLS_NO_MOTION`：加入 `start_phone_call` + `end_call`。
+- 改 `brain/prompts.py`：新增 `PHONE_CALL_PREAMBLE`（pin caller's language，默认英文）。
+- 改 `apps/agent_main.py`：`--enable-phone` flag + late-wire dialer + fail-closed on `safety.vision_gate.enabled=false`。
+- 改 `configs/g1_brain.yaml`：末尾追加 `phone:` 节。
+- 改 `pyproject.toml`：加 `aiohttp`, `pydantic`, `scipy`, `twilio` 依赖。
+- 新增 systemd-user unit `sparkytun-tunnel.service`（autossh 反向隧道到 VPS）。
+- 公网入口 `wss://twilio.openproduct.cn/twilio`（nginx + Let's Encrypt）。
+- 实测通过：CLI 拨号 → 电话响铃 → 通话双向音频 → 电话语音指令 → MuJoCo G1 真挥手（CallSid `CAb849c8e4eae9efcd5051f1e08f3e88e8` 等多次）。
+
 ---
 
-*本文件版本：1.1.0-runtime*
+*本文件版本：1.1.0-runtime（+ 1.1.1-phone-bridge 2026-05-24 增量）*
 *生成时间：2026-05-24*
 *维护者：作者本人；如发现与代码不符，以代码为准并提 issue。*

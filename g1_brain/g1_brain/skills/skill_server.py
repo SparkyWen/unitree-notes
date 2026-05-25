@@ -105,6 +105,8 @@ class SkillServer:
         sim: bool = True,
         conversation_logger=None,
         memory=None,
+        dialer=None,
+        default_phone_to: Optional[str] = None,
     ) -> None:
         self.combo = combo_ctl
         self.safety = safety
@@ -126,6 +128,14 @@ class SkillServer:
         # Tracks in-flight ask_slow_brain calls keyed by tool call_id, so
         # on_response_canceled (fired on barge-in) can set the cancel events.
         self._ask_cancel_events: Dict[str, Any] = {}
+        # Optional Twilio dialer. None = phone bridge not enabled.
+        self._dialer = dialer
+        self._default_phone_to = default_phone_to
+        # Whitelist of E.164 numbers the LLM may dial via start_phone_call.
+        # Defends against wake-word ASR misheard digits (a real-world incident
+        # 2026-05-24: model heard +6848 as +6888 and rang a stranger for 3min).
+        # Empty list => only the default operator number is allowed.
+        self._allowed_phone_callers: List[str] = []
 
         # Pre-build the gesture lookup table:
         #   name (str)  ->  ArmAction (with .keyframes)
@@ -700,6 +710,33 @@ class SkillServer:
 
     async def _skill_audio_tts_robot(self, **_kwargs: Any) -> Dict[str, Any]:
         return {"ok": False, "skill": "audio_tts_robot", "reason": "real-robot only"}
+
+    async def _skill_start_phone_call(
+        self, *, to: Optional[str] = None, **_: object,
+    ) -> Dict[str, Any]:
+        if self._dialer is None:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": "phone bridge not enabled"}
+        dest = to or self._default_phone_to
+        if not dest:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": "no destination configured"}
+        # Whitelist-enforce dest. Wake-word ASR can mishear a single digit and
+        # without this gate the LLM happily dials whoever it heard.
+        allowed = set(self._allowed_phone_callers or [])
+        if self._default_phone_to:
+            allowed.add(self._default_phone_to)
+        if allowed and dest not in allowed:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": f"refusing dial: {dest} not in allowed callers "
+                              f"(use the configured operator number)"}
+        try:
+            sid = await self._dialer.dial(dest)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": f"dial failed: {e!s}"}
+        return {"ok": True, "skill": "start_phone_call",
+                "summary": f"calling {dest}", "call_sid": sid}
 
     # ----- Helpers ---------------------------------------------------------
 

@@ -1053,6 +1053,46 @@ async def _run(args: argparse.Namespace) -> int:
             memory=memory_subsystem,
         )
 
+    # ---- phone bridge (optional) ----
+    bridge_runner = None
+    if args.enable_phone or cfg.get("phone", {}).get("enabled", False):
+        from g1_brain.phone.config import load_from_env as _load_phone_env
+        from g1_brain.phone.bridge_server import build_app as _build_bridge_app
+        from g1_brain.phone.voice_lease import VoiceLeaseManager
+        from g1_brain.phone.twilio_dialer import TwilioDialer
+        from aiohttp import web as _web
+
+        twilio_cfg, phone_cfg = _load_phone_env()
+        # vision_gate must be enabled — fail-closed
+        if not cfg.get("safety", {}).get("vision_gate", {}).get("enabled", False):
+            raise RuntimeError(
+                "phone bridge requires safety.vision_gate.enabled=true (fail-closed)"
+            )
+        dialer = TwilioDialer(twilio_cfg, str(phone_cfg.public_bridge_url))
+        # late-wire dialer into the existing skill_server so start_phone_call works
+        if skill_server is not None:
+            skill_server._dialer = dialer
+            skill_server._default_phone_to = (
+                phone_cfg.allowed_callers[0] if phone_cfg.allowed_callers else None
+            )
+            # Whitelist for start_phone_call dest validation. Prevents
+            # wake-word ASR misheard digits from dialing strangers.
+            skill_server._allowed_phone_callers = list(phone_cfg.allowed_callers)
+        lease = VoiceLeaseManager()
+        app = _build_bridge_app(
+            twilio_cfg=twilio_cfg, phone_cfg=phone_cfg,
+            skill_server=skill_server,
+            scene_bus=scene_bus,
+            dialer=dialer, voice_lease=lease,
+            version="0.1.0",
+        )
+        bridge_runner = _web.AppRunner(app)
+        await bridge_runner.setup()
+        site = _web.TCPSite(bridge_runner, phone_cfg.bind_host, phone_cfg.bind_port)
+        await site.start()
+        log.info("phone bridge listening on %s:%d",
+                 phone_cfg.bind_host, phone_cfg.bind_port)
+
     # ---- brain realtime agent ----
     # OPENAI_API_KEY presence already validated at the top of _run.
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -1073,6 +1113,7 @@ async def _run(args: argparse.Namespace) -> int:
                 scene_bus=scene_bus,
                 mock_imitate_trigger=None,
                 mock_imitate_enabled=mock_imitation_enabled,
+                phone_enabled=args.enable_phone or cfg.get("phone", {}).get("enabled", False),
                 api_key=api_key,
                 model=os.environ.get(
                     "OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]
@@ -1199,6 +1240,8 @@ async def _run(args: argparse.Namespace) -> int:
         # by a finite timeout so a single hung subsystem (e.g. DDS that
         # never returns) can't trap the user into SIGKILL territory — which
         # is what leaks the PulseAudio handle for the next launch.
+        if bridge_runner is not None:
+            await bridge_runner.cleanup()
         if sm is not None:
             try:
                 await asyncio.wait_for(sm.stop(), timeout=3.0)
@@ -1420,6 +1463,8 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--vision-only", action="store_true",
                    help="vision-only test mode: drop motion tools, skip DDS init "
                         "(implies --no-skills)")
+    p.add_argument("--enable-phone", action="store_true",
+                   help="Mount Twilio bridge on phone.bind_port (requires TWILIO_* env vars)")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="DEBUG-level logging")
     return p.parse_args(argv)

@@ -14,6 +14,7 @@ import pytest
 from g1_brain.phone.twilio_transport import (
     TwilioMediaStreamTransport,
     StartEvent,
+    TwilioStreamClosed,
 )
 
 
@@ -101,6 +102,67 @@ async def test_iter_inbound_yields_pcm24k_chunks():
         pass
     # 3 inbound frames × 960 B PCM24k each
     assert sum(len(c) for c in chunks) == 3 * 960
+
+
+class ClosingWS:
+    """Mimics aiohttp: receive_json() raises TypeError on a CLOSE frame.
+
+    aiohttp's WebSocketResponse.receive_json -> receive_str raises
+    `TypeError("Received message 257:None is not WSMsgType.TEXT")` when the
+    peer closed (257 == WSMsgType.CLOSED). We reproduce that exact behaviour.
+    """
+    def __init__(self, frames_before_close: list[str] | None = None):
+        self._frames = list(frames_before_close or [])
+        self.closed = False
+
+    async def receive_json(self):
+        if self._frames:
+            return json.loads(self._frames.pop(0))
+        raise TypeError("Received message 257:None is not WSMsgType.TEXT")
+
+    async def send_str(self, s: str):
+        pass
+
+    async def close(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_start_raises_typed_error_when_twilio_closes_immediately():
+    # Twilio upgraded then dropped the WS before sending 'connected' (31901).
+    ws = ClosingWS([])
+    transport = TwilioMediaStreamTransport(ws)
+    with pytest.raises(TwilioStreamClosed):
+        await transport.start()
+
+
+@pytest.mark.asyncio
+async def test_start_raises_typed_error_when_closed_after_connected():
+    ws = ClosingWS([json.dumps({"event": "connected"})])
+    transport = TwilioMediaStreamTransport(ws)
+    with pytest.raises(TwilioStreamClosed):
+        await transport.start()
+
+
+@pytest.mark.asyncio
+async def test_iter_inbound_ends_cleanly_on_midcall_close():
+    # 'connected' + 'start', one media frame, then a CLOSE frame.
+    mu = base64.b64encode(b"\x7f" * 160).decode()
+    frames = [
+        json.dumps({"event": "connected"}),
+        json.dumps({"event": "start", "streamSid": "MZ1",
+                    "start": {"streamSid": "MZ1", "callSid": "CA1",
+                              "customParameters": {}}}),
+        _media_event("MZ1", mu),
+    ]
+    ws = ClosingWS(frames)
+    transport = TwilioMediaStreamTransport(ws)
+    await transport.start()
+    chunks = []
+    # Must return (not raise) when the CLOSE frame arrives after the media.
+    async for chunk in transport.iter_inbound_pcm24k():
+        chunks.append(chunk)
+    assert sum(len(c) for c in chunks) == 960  # one 20 ms frame decoded
 
 
 @pytest.mark.asyncio

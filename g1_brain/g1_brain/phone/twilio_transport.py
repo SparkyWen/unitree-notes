@@ -24,6 +24,22 @@ from .audio_codec import StreamingResampler
 log = logging.getLogger(__name__)
 
 
+class TwilioStreamClosed(RuntimeError):
+    """Twilio closed the media-stream WS before the audio session got going.
+
+    The dominant cause is Twilio error 31901 ("Stream - WebSocket - Connection
+    Timeout"): the upgrade reached the bridge but our handshake/first frames
+    didn't get back to Twilio inside its connect window, so Twilio gives up and
+    the call drops at ~10 s with no audio. On a saturated single asyncio loop
+    (perception render bursts + realtime agent sharing the GIL) plus a slow
+    reverse tunnel, the WS simply isn't serviced in time.
+
+    Raising this (instead of letting aiohttp's receive_json throw a raw
+    TypeError on a CLOSE frame) lets the bridge log a clean, actionable line
+    and run its defensive stop, rather than reporting an unhandled crash.
+    """
+
+
 @dataclass
 class StartEvent:
     stream_sid: str
@@ -45,10 +61,24 @@ class TwilioMediaStreamTransport:
 
     async def start(self) -> StartEvent:
         # The first two events from Twilio are 'connected' then 'start'.
-        connected = await self._ws.receive_json()
+        # aiohttp's receive_json() raises TypeError when the next frame is a
+        # CLOSE/CLOSED (Twilio gave up — typically 31901). Translate that into
+        # a typed TwilioStreamClosed so the bridge can report it cleanly.
+        try:
+            connected = await self._ws.receive_json()
+        except (TypeError, ConnectionResetError) as e:
+            raise TwilioStreamClosed(
+                "media stream closed before 'connected' event "
+                "(Twilio WS handshake timed out — error 31901)"
+            ) from e
         if connected.get("event") != "connected":
             raise RuntimeError(f"expected connected, got {connected!r}")
-        start = await self._ws.receive_json()
+        try:
+            start = await self._ws.receive_json()
+        except (TypeError, ConnectionResetError) as e:
+            raise TwilioStreamClosed(
+                "media stream closed after 'connected' but before 'start'"
+            ) from e
         if start.get("event") != "start":
             raise RuntimeError(f"expected start, got {start!r}")
         s = start["start"]
@@ -71,6 +101,12 @@ class TwilioMediaStreamTransport:
             try:
                 evt = await self._ws.receive_json()
             except (asyncio.CancelledError, ConnectionResetError):
+                return
+            except TypeError:
+                # Mid-call CLOSE/CLOSED frame: caller hung up or Twilio dropped
+                # the media stream (e.g. our outbound media stalled past the
+                # stream's tolerance). End the loop cleanly, no crash.
+                log.info("twilio: media stream closed mid-call")
                 return
             t = evt.get("event")
             if t == "media":

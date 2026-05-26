@@ -18,7 +18,7 @@ from aiohttp import web
 from .config import PhoneConfig, TwilioConfig
 from .realtime_session import PhoneRealtimeSession
 from .tunnel_health import build_healthz_payload, validate_twilio_signature
-from .twilio_transport import TwilioMediaStreamTransport
+from .twilio_transport import TwilioMediaStreamTransport, TwilioStreamClosed
 from .voice_lease import LeaseHolder, VoiceLeaseManager
 
 
@@ -49,7 +49,45 @@ def build_app(
     app["state"] = state
     app.router.add_get("/healthz", _healthz)
     app.router.add_get("/twilio", _twilio_ws)
+    app.on_startup.append(_start_loop_lag_monitor)
+    app.on_cleanup.append(_stop_loop_lag_monitor)
     return app
+
+
+async def _loop_lag_monitor(interval: float = 0.5, warn_s: float = 0.5) -> None:
+    """Log when the asyncio loop is starved.
+
+    Twilio's media-stream WS handshake (and the ongoing media pump) must be
+    serviced within a few seconds. The bridge shares this loop + the GIL with
+    perception render bursts (~134 ms each on llvmpipe) and the realtime agent.
+    If a scheduled 0.5 s wake-up returns late, the loop was blocked that long —
+    which is exactly what makes Twilio time out (error 31901). This is the
+    decisive evidence for loop-starvation vs. a slow tunnel.
+    """
+    loop = asyncio.get_event_loop()
+    while True:
+        t0 = loop.time()
+        await asyncio.sleep(interval)
+        lag = (loop.time() - t0) - interval
+        if lag >= warn_s:
+            log.warning(
+                "phone: event-loop stalled %.2fs — Twilio media WS may miss "
+                "its connect/keepalive window (cause of 31901 drops)", lag,
+            )
+
+
+async def _start_loop_lag_monitor(app: web.Application) -> None:
+    app["_lag_task"] = asyncio.create_task(_loop_lag_monitor())
+
+
+async def _stop_loop_lag_monitor(app: web.Application) -> None:
+    task = app.get("_lag_task")
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 async def _healthz(request: web.Request) -> web.Response:
@@ -79,8 +117,15 @@ async def _twilio_ws(request: web.Request) -> web.WebSocketResponse:
         log.warning("phone: bad/missing X-Twilio-Signature from %s", request.remote)
         return web.Response(status=403, text="forbidden")
 
+    loop = asyncio.get_event_loop()
+    t_accept = loop.time()
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
+    t_prepared = loop.time()
+    # If prepare() itself took a while, the loop was busy before we even got
+    # here — Twilio counts that against its connect timeout.
+    log.info("phone: /twilio upgrade accepted; prepare() took %.3fs",
+             t_prepared - t_accept)
 
     transport = TwilioMediaStreamTransport(ws)
     owner = f"call-{uuid.uuid4()}"
@@ -91,9 +136,10 @@ async def _twilio_ws(request: web.Request) -> web.WebSocketResponse:
         # 2. Read start event (validates Twilio shape + gives caller info)
         start = await asyncio.wait_for(transport.start(), timeout=10.0)
         log.info(
-            "phone: start streamSid=%s callSid=%s bsid=%s from=%s",
+            "phone: start streamSid=%s callSid=%s bsid=%s from=%s "
+            "(connected+start %.3fs after upgrade)",
             start.stream_sid, start.call_sid, start.brain_session_id,
-            start.from_number,
+            start.from_number, loop.time() - t_prepared,
         )
 
         # 3. Caller-id allowlist (only enforce if Twilio provided a From)
@@ -134,8 +180,16 @@ async def _twilio_ws(request: web.Request) -> web.WebSocketResponse:
         #    Also schedule a greeting kick once the WS is up.
         await _run_with_greeting(session, phone_cfg.greeting)
 
-    except asyncio.TimeoutError:
-        log.warning("phone: start event timeout; closing")
+    except (asyncio.TimeoutError, TwilioStreamClosed) as e:
+        # Not a crash: Twilio opened the media WS then dropped it before any
+        # audio (almost always error 31901 — handshake serviced too late).
+        # The call rings, answers, then drops at ~10 s with no audio.
+        detail = "start event timeout" if isinstance(e, asyncio.TimeoutError) else str(e)
+        log.warning(
+            "phone: media stream dropped before audio (%s). Likely Twilio "
+            "31901: the WS handshake wasn't serviced in time — check the "
+            "'event-loop stalled' lines above and the tunnel RTT.", detail,
+        )
     except Exception:
         log.exception("phone: session crashed")
     finally:

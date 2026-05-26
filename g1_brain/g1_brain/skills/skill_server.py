@@ -136,6 +136,10 @@ class SkillServer:
         # 2026-05-24: model heard +6848 as +6888 and rang a stranger for 3min).
         # Empty list => only the default operator number is allowed.
         self._allowed_phone_callers: List[str] = []
+        # Optional async () -> (ok, detail) check that the public path to the
+        # bridge is alive (and self-heals the tunnel) before we dial. Late-wired
+        # by agent_main when --enable-phone. None => skip the check.
+        self._tunnel_precheck = None
 
         # Pre-build the gesture lookup table:
         #   name (str)  ->  ArmAction (with .keyframes)
@@ -730,6 +734,18 @@ class SkillServer:
             return {"ok": False, "skill": "start_phone_call",
                     "reason": f"refusing dial: {dest} not in allowed callers "
                               f"(use the configured operator number)"}
+        # Verify Twilio can actually reach the bridge before dialing. A zombie
+        # reverse tunnel (common in China) otherwise lets the call ring and then
+        # drops it the instant the operator answers (Twilio 31920). This probes
+        # the full public path and self-heals the tunnel when configured.
+        if self._tunnel_precheck is not None:
+            try:
+                ok, detail = await self._tunnel_precheck()
+            except Exception as e:  # noqa: BLE001
+                ok, detail = False, f"tunnel check error: {e!s}"
+            if not ok:
+                return {"ok": False, "skill": "start_phone_call",
+                        "reason": f"phone link not ready: {detail}"}
         try:
             sid = await self._dialer.dial(dest)
         except Exception as e:  # noqa: BLE001

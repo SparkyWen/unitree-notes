@@ -18,6 +18,7 @@ import asyncio
 import sys
 
 from .config import load_from_env, PhoneConfigError
+from .tunnel_health import ensure_public_path
 from .twilio_dialer import TwilioDialer, TwilioDialError
 
 
@@ -54,6 +55,17 @@ async def _main(argv: list[str]) -> int:
     if not to:
         print("no --to and PHONE_ALLOWED_CALLERS is empty", file=sys.stderr)
         return 2
+
+    # Don't place a call into a dead tunnel — it would ring then drop on answer.
+    if phone_cfg.tunnel_healthcheck:
+        ok, detail = await ensure_public_path(
+            str(phone_cfg.public_bridge_url),
+            restart_cmd=phone_cfg.tunnel_restart_cmd,
+        )
+        if not ok:
+            print(f"phone link not ready: {detail}", file=sys.stderr)
+            return 1
+        print(f"tunnel: {detail}")
 
     try:
         sid = await dialer.dial(to)

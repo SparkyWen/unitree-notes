@@ -1056,10 +1056,12 @@ async def _run(args: argparse.Namespace) -> int:
     # ---- phone bridge (optional) ----
     bridge_runner = None
     if args.enable_phone or cfg.get("phone", {}).get("enabled", False):
+        import functools as _functools
         from g1_brain.phone.config import load_from_env as _load_phone_env
         from g1_brain.phone.bridge_server import build_app as _build_bridge_app
         from g1_brain.phone.voice_lease import VoiceLeaseManager
         from g1_brain.phone.twilio_dialer import TwilioDialer
+        from g1_brain.phone.tunnel_health import ensure_public_path as _ensure_public_path
         from aiohttp import web as _web
 
         twilio_cfg, phone_cfg = _load_phone_env()
@@ -1078,6 +1080,17 @@ async def _run(args: argparse.Namespace) -> int:
             # Whitelist for start_phone_call dest validation. Prevents
             # wake-word ASR misheard digits from dialing strangers.
             skill_server._allowed_phone_callers = list(phone_cfg.allowed_callers)
+            # Pre-dial gate: verify (and self-heal) the public path before the
+            # model places a call, so a zombie tunnel can't cause an
+            # answer-then-instant-hangup (Twilio 31920).
+            _restart_cmd = (
+                phone_cfg.tunnel_restart_cmd if phone_cfg.tunnel_healthcheck else ""
+            )
+            skill_server._tunnel_precheck = _functools.partial(
+                _ensure_public_path,
+                str(phone_cfg.public_bridge_url),
+                restart_cmd=_restart_cmd,
+            )
         lease = VoiceLeaseManager()
         app = _build_bridge_app(
             twilio_cfg=twilio_cfg, phone_cfg=phone_cfg,
@@ -1092,6 +1105,19 @@ async def _run(args: argparse.Namespace) -> int:
         await site.start()
         log.info("phone bridge listening on %s:%d",
                  phone_cfg.bind_host, phone_cfg.bind_port)
+        # Startup health probe: confirm Twilio can actually reach us through the
+        # VPS nginx + reverse tunnel. Self-heals a dead tunnel if configured.
+        if phone_cfg.tunnel_healthcheck:
+            _ok, _detail = await _ensure_public_path(
+                str(phone_cfg.public_bridge_url),
+                restart_cmd=phone_cfg.tunnel_restart_cmd,
+            )
+            if _ok:
+                log.info("phone: public path OK (%s)", _detail)
+            else:
+                log.warning("phone: public path NOT reachable (%s) — "
+                            "inbound calls will drop on answer until the "
+                            "tunnel recovers", _detail)
 
     # ---- brain realtime agent ----
     # OPENAI_API_KEY presence already validated at the top of _run.

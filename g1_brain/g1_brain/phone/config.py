@@ -34,6 +34,12 @@ class PhoneConfig(BaseModel):
     realtime_model: str = "gpt-realtime"
     realtime_voice: str = "alloy"
     greeting: str = "Hi, this is Sparky. What would you like me to do?"
+    # Before placing an outbound call, round-trip the public /healthz to prove
+    # Twilio can actually reach the bridge (catches a zombie reverse tunnel,
+    # common in China). If the path is dead, run tunnel_restart_cmd and re-probe
+    # rather than placing a call that drops the instant the operator answers.
+    tunnel_healthcheck: bool = True
+    tunnel_restart_cmd: str = "systemctl --user restart sparkytun-tunnel.service"
 
     @field_validator("public_bridge_url")
     @classmethod
@@ -83,10 +89,19 @@ def load_from_env() -> Tuple[TwilioConfig, PhoneConfig]:
             api_key_secret=os.environ["TWILIO_API_KEY_SECRET"],
             from_number=os.environ["TWILIO_FROM_NUMBER"],
         )
-        phone_cfg = PhoneConfig(
-            public_bridge_url=os.environ["PUBLIC_BRIDGE_URL"],
-            allowed_callers=callers,
-        )
+        phone_kwargs = {
+            "public_bridge_url": os.environ["PUBLIC_BRIDGE_URL"],
+            "allowed_callers": callers,
+        }
+        # Optional overrides for the pre-dial tunnel healthcheck.
+        if "PHONE_TUNNEL_HEALTHCHECK" in os.environ:
+            phone_kwargs["tunnel_healthcheck"] = (
+                os.environ["PHONE_TUNNEL_HEALTHCHECK"].strip().lower()
+                not in ("0", "false", "no", "off", "")
+            )
+        if "PHONE_TUNNEL_RESTART_CMD" in os.environ:
+            phone_kwargs["tunnel_restart_cmd"] = os.environ["PHONE_TUNNEL_RESTART_CMD"]
+        phone_cfg = PhoneConfig(**phone_kwargs)
     except Exception as e:
         raise PhoneConfigError(str(e)) from e
 

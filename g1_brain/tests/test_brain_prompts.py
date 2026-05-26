@@ -10,6 +10,7 @@ import re
 import pytest
 
 from g1_brain.brain.prompts import (
+    PHONE_CALL_PREAMBLE,
     REALTIME_SYSTEM_PROMPT_BRAIN,
     REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY,
     VISION_SCENE_PROMPT_BRAIN,
@@ -73,6 +74,21 @@ def test_brain_prompt_forbids_self_naming_sparky():
     """Same anti-echo defense as va-demo's prompt."""
     assert "Sparky" in REALTIME_SYSTEM_PROMPT_BRAIN
     assert "never refer to yourself as \"Sparky\"" in REALTIME_SYSTEM_PROMPT_BRAIN
+
+
+def test_phone_preamble_only_hangs_up_on_explicit_request():
+    """Regression for 2026-05-26: the model treated 'Thank you' as a goodbye
+    and called end_call mid-conversation. The preamble must require an
+    EXPLICIT hang-up request and must keep the line open after a task."""
+    p = PHONE_CALL_PREAMBLE
+    low = p.lower()
+    # Must instruct keeping the line open and only ending on explicit request.
+    assert "explicit" in low
+    assert "挂断" in p or "hang up" in low
+    # The old auto-hangup-on-implicit-silence trigger must be gone.
+    assert "implicitly" not in low
+    # Thanks must be named as a NON-trigger so the model stops hanging up on it.
+    assert "谢谢" in p or "thank" in low
 
 
 def test_vision_scene_prompt_mentions_head_camera():

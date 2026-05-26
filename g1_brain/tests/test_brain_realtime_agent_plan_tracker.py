@@ -73,6 +73,36 @@ class _StubSkillServer:
         return self._results.get(name, {"ok": True})
 
 
+class _CountingSafety:
+    """Counts validate() calls so we can assert a tool is gated exactly once."""
+
+    def __init__(self):
+        self.validate_calls = 0
+
+    async def validate(self, name, args):
+        self.validate_calls += 1
+        return True, "", args
+
+
+class _ValidatingSkillServer:
+    """Mirrors the REAL SkillServer contract: execute() runs the
+    SafetySupervisor pass internally (skill_server.py is the documented
+    single validation point). Used to prove BrainRealtimeAgent._dispatch_tool
+    must NOT validate a second time — a double validate runs the vision gate
+    and confirm prompt twice for one tool call (field log 2026-05-26)."""
+
+    def __init__(self, safety):
+        self.safety = safety
+        self.calls: List[tuple] = []
+
+    async def execute(self, name, args, *, call_id: str = ""):
+        ok, reason, sanitized = await self.safety.validate(name, args)
+        if not ok:
+            return {"ok": False, "skill": name, "reason": reason}
+        self.calls.append((name, sanitized))
+        return {"ok": True, "skill": name}
+
+
 class _RecordingWS:
     def __init__(self):
         self.sent: List[Dict[str, Any]] = []
@@ -204,6 +234,39 @@ async def test_tool_use_and_tool_result_callbacks_fire():
     assert tool_results == [
         ("call_w", "walk", {"ok": True, "executed": "walk"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_validates_exactly_once():
+    """One tool call must be validated exactly ONCE.
+
+    skill_server.execute() is the single validation point (it runs the
+    SafetySupervisor incl. the vision-risk gate + operator confirm prompt).
+    _dispatch_tool must therefore NOT pre-validate, or every motion call is
+    gated twice — two vision evaluations and, on a RISK verdict, two y/N
+    confirm prompts for one walk. Regression for the 2026-05-26 phone log.
+    """
+    safety = _CountingSafety()
+    skill = _ValidatingSkillServer(safety)
+    ws = _RecordingWS()
+    agent = _make_agent(skill_server=skill, ws=ws)
+    # _make_agent wires its own _StubSafety; point the agent at the counter so
+    # any stray _dispatch_tool validate is counted on the same object the
+    # skill server uses.
+    agent.safety = safety
+
+    await agent._dispatch_tool(ws, {
+        "type": "response.function_call_arguments.done",
+        "call_id": "call_walk",
+        "name": "walk",
+        "arguments": json.dumps({"vx": 0.2, "duration_s": 10.0}),
+    })
+
+    assert safety.validate_calls == 1, (
+        f"walk was validated {safety.validate_calls}× — double validation "
+        f"re-runs the vision gate + confirm prompt for a single tool call"
+    )
+    assert skill.calls == [("walk", {"vx": 0.2, "duration_s": 10.0})]
 
 
 @pytest.mark.asyncio

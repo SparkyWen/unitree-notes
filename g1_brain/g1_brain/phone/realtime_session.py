@@ -28,8 +28,12 @@ END_CALL_SCHEMA: Dict[str, Any] = {
     "type": "function",
     "name": "end_call",
     "description": (
-        "Hang up the current phone call. Use after a clear goodbye or when "
-        "the operator clearly wants to end the conversation."
+        "Hang up the current phone call. ONLY call this when the operator "
+        "EXPLICITLY asks to end the call (e.g. 'hang up', '挂断', or a clear "
+        "sign-off: 'bye' / 'goodbye' / '再见' / '拜拜'). Do NOT hang up just "
+        "because a task finished or the operator said 'thanks'/'谢谢' — keep "
+        "the line open and wait for the next instruction. When unsure, ask "
+        "'Should I hang up now?' instead of calling this."
     ),
     "parameters": {"type": "object", "properties": {}},
 }

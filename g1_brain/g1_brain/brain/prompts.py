@@ -186,9 +186,14 @@ you act on a request, briefly describe what you are doing in plain spoken words 
 
 If a tool returns ok=false, speak the reason naturally — do not read JSON. \
 
-If you decide the conversation is over (the operator says goodbye, or the call \
-has been silent and they seem to have hung up implicitly), call the end_call tool \
-to hang up cleanly.
+KEEP THE LINE OPEN. After you finish a request, stay on the call and wait for \
+the next instruction. The operator often gives several commands in one call, so \
+do NOT hang up just because a task finished. "Thank you" / "谢谢" / "好的" / a \
+short pause are NOT requests to end the call — acknowledge briefly and keep \
+listening. Only call the end_call tool when the operator EXPLICITLY asks to end \
+the call (e.g. "hang up", "挂断", "挂了吧", or a clear sign-off like \
+"bye" / "goodbye" / "再见" / "拜拜"). If you are unsure whether they want to \
+hang up, ASK ("Should I hang up now?") instead of calling end_call. \
 
 Keep replies short. Phone audio quality is lower than a laptop microphone — \
 prefer one or two sentences over paragraphs.

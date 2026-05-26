@@ -299,6 +299,17 @@ logging:
   log_dir: "${HOME}/unitree/unitree-notes/g1_brain/logs"
   rotate_mb: 50
 
+diagnostics:
+  # Event-loop lag heartbeat. Logs a WARNING when an asyncio.sleep overruns
+  # by more than lag_warn_ms — i.e. the loop was starved (GIL held by the
+  # head-cam render / YOLO / DDS). Use it to tell a real stall (lag spikes
+  # here) apart from a cosmetic terminal pause like Windows-Terminal
+  # QuickEdit/Mark mode (no lag logged — the bytes were already flushed,
+  # the terminal just withheld them until you pressed a key).
+  event_loop_lag_monitor: true
+  lag_interval_s: 1.0
+  lag_warn_ms: 500.0
+
 audio_control:
   # Wake-word barge-in: when "hi sparky" fires while the agent is talking,
   # running tools, or even mid-capture, drop everything in flight and start
@@ -357,6 +368,18 @@ audio_control:
   # and deciding y/N. Current budget: 30 s vision + 60 s confirm = 90 s,
   # plus margin for the skill itself.
   plan_watchdog_s: 150.0
+  # Manual end-of-utterance. While the agent is listening (CAPTURING, right
+  # after "Hi Sparky"), pressing Enter in the terminal commits your message
+  # immediately instead of waiting for webrtcvad to detect end-of-speech.
+  # webrtcvad mis-classifies steady room noise as speech, so the silence
+  # counter never reaches utterance.silence_threshold_ms and capture runs to
+  # utterance.max_duration_s (30 s) — the "I finished talking but it waits the
+  # full 30 s" symptom. Enter is a deterministic override; the VAD stays as
+  # the automatic fallback. The watcher is only armed while listening, so it
+  # never steals the keystroke meant for the confirm-mode y/N prompt. No-ops
+  # automatically when stdin is not a TTY (piped / headless).
+  manual_commit:
+    enabled: true
   # Per-process conversation jsonl, Claude-shape so the future Claude
   # harness with memory retrieval / SQLite FTS5 can ingest these files.
   transcript:

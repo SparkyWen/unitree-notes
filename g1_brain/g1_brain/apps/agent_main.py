@@ -511,6 +511,41 @@ async def _shutdown_step(name: str, fn, timeout: float = 3.0) -> None:
         log.exception("%s failed", name)
 
 
+async def _event_loop_lag_monitor(
+    interval_s: float = 1.0, warn_ms: float = 500.0
+) -> None:
+    """Log when the asyncio event loop is starved of CPU.
+
+    On this WSL2 box the head-cam render (Mesa llvmpipe), YOLO, and DDS
+    callbacks all contend for the GIL with the event loop. When a C
+    extension holds the GIL for a long stretch, the loop cannot run its
+    coroutines — mic chunks queue up, ``print``/log lines from loop-thread
+    code stall, and the terminal appears to "freeze" until the stall ends.
+
+    This heartbeat sleeps a fixed interval and measures how much longer the
+    wakeup actually took; the excess is loop lag. We only emit a WARNING
+    above ``warn_ms`` so a healthy run stays quiet. This is the evidence
+    that distinguishes a genuine GIL stall (lag spikes here) from a purely
+    cosmetic terminal pause such as Windows-Terminal QuickEdit/Mark mode
+    (no lag here — the bytes were already flushed, the terminal just held
+    them). Cheap: one sleep + one subtraction per interval.
+    """
+    loop = asyncio.get_running_loop()
+    while True:
+        t0 = loop.time()
+        try:
+            await asyncio.sleep(interval_s)
+        except asyncio.CancelledError:
+            return
+        lag_ms = (loop.time() - t0 - interval_s) * 1000.0
+        if lag_ms >= warn_ms:
+            log.warning(
+                "event-loop lag %.0f ms (a %.1fs sleep took %.2fs) — GIL "
+                "contention is delaying audio/VAD/log handling this tick",
+                lag_ms, interval_s, lag_ms / 1000.0 + interval_s,
+            )
+
+
 # ---------------------------------------------------------------------------
 # Main async run
 # ---------------------------------------------------------------------------
@@ -545,6 +580,20 @@ async def _run(args: argparse.Namespace) -> int:
     if args.vision_only and not args.no_skills:
         log.info("--vision-only implies --no-skills; skipping DDS / RL init")
         args.no_skills = True
+
+    # Event-loop lag heartbeat (diagnostic). Surfaces GIL stalls that delay
+    # audio/VAD/log handling, and — by staying quiet on a healthy loop —
+    # tells us when a terminal "freeze" is NOT us (e.g. QuickEdit mode).
+    diag_cfg = (cfg.get("diagnostics", {}) or {})
+    lag_monitor_task: Optional[asyncio.Task] = None
+    if diag_cfg.get("event_loop_lag_monitor", True):
+        lag_monitor_task = asyncio.create_task(
+            _event_loop_lag_monitor(
+                interval_s=float(diag_cfg.get("lag_interval_s", 1.0)),
+                warn_ms=float(diag_cfg.get("lag_warn_ms", 500.0)),
+            ),
+            name="event-loop-lag-monitor",
+        )
 
     # ---- audio ----
     # Pass the running loop explicitly so MicStream.start() can be safely
@@ -1236,6 +1285,8 @@ async def _run(args: argparse.Namespace) -> int:
             await brain_agent.run()
     finally:
         log.info("shutting down ...")
+        if lag_monitor_task is not None:
+            lag_monitor_task.cancel()
         # sm.stop() is a coroutine; the rest are sync. Each step is bounded
         # by a finite timeout so a single hung subsystem (e.g. DDS that
         # never returns) can't trap the user into SIGKILL territory — which
@@ -1308,6 +1359,7 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
     barge_in_cfg = audio_ctl.get("barge_in", {}) or {}
     voice_bi_cfg = audio_ctl.get("voice_barge_in", {}) or {}
     idle_cfg = audio_ctl.get("idle_after_plan", {}) or {}
+    manual_commit_cfg = audio_ctl.get("manual_commit", {}) or {}
 
     backend_name = (wakeword_cfg.get("backend") or "openai").lower()
     if backend_name == "openai":
@@ -1407,6 +1459,7 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             drain_threshold_bytes=int(idle_cfg.get("drain_threshold_bytes", 2400)),
             drain_max_wait_s=float(idle_cfg.get("drain_max_wait_s", 6.0)),
             plan_watchdog_s=float(audio_ctl.get("plan_watchdog_s", 30.0)),
+            manual_commit_enabled=bool(manual_commit_cfg.get("enabled", True)),
             voice_barge_in_enabled=bool(voice_bi_cfg.get("enabled", False)),
             voice_barge_in_echo_gain=float(voice_bi_cfg.get("echo_gain", 1.0)),
             voice_barge_in_margin_rms=float(voice_bi_cfg.get("margin_rms", 350.0)),

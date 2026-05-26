@@ -27,6 +27,8 @@ from __future__ import annotations
 import asyncio
 import enum
 import logging
+import os
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
@@ -71,6 +73,16 @@ class BrainConversationConfig:
     drain_max_wait_s: float = 6.0
     # Force plan_done if a tool call never resolves.
     plan_watchdog_s: float = 30.0
+    # Manual end-of-utterance: while CAPTURING, a line on stdin (the operator
+    # pressing Enter in the terminal) commits the utterance immediately
+    # instead of waiting for the webrtcvad silence/max-duration heuristic.
+    # webrtcvad regularly mis-classifies steady room noise as speech, so the
+    # silence counter never reaches the threshold and capture runs to the
+    # 30 s max — the operator-reported "I finished talking but it waits the
+    # full 30 s". Enter is a deterministic override; the VAD stays as the
+    # automatic fallback. Only armed while CAPTURING so it never steals the
+    # keystroke meant for the confirm-mode y/N prompt (which runs in THINKING).
+    manual_commit_enabled: bool = True
     # ---- echo-aware voice-onset barge-in (SPEAKING-only) -------------------
     # The wake-word ASR window during SPEAKING is dominated by the bot's own
     # TTS leaking into the mic; "Hi Sparky" rarely survives that. This second
@@ -147,6 +159,14 @@ class BrainConversationStateMachine:
         self._voice_bi_streak: int = 0
         self._voice_bi_pending: bool = False
 
+        # Manual-commit (Enter-to-commit) stdin watcher. `_stdin_fd` is the
+        # terminal fd we watch with loop.add_reader; None when stdin is not a
+        # TTY (piped / CI / tests) so the feature silently no-ops there.
+        # `_manual_commit_armed` tracks whether the reader is currently
+        # registered so arm/disarm stay idempotent across transitions.
+        self._stdin_fd: Optional[int] = None
+        self._manual_commit_armed: bool = False
+
     # ---- public lifecycle ---------------------------------------------------
 
     async def start(self) -> None:
@@ -168,6 +188,21 @@ class BrainConversationStateMachine:
                 lambda reason: self.logger.log_response_canceled(reason=reason)
             )
 
+        # Manual Enter-to-commit: resolve the terminal fd once. We only watch
+        # it when CAPTURING (see _arm/_disarm_manual_commit). Skip silently
+        # when stdin is not a real TTY (piped, CI, tests) — there is no Enter
+        # key to read there.
+        if self.cfg.manual_commit_enabled:
+            try:
+                if sys.stdin is not None and sys.stdin.isatty():
+                    self._stdin_fd = sys.stdin.fileno()
+                    log.info(
+                        "manual commit enabled: press Enter while listening "
+                        "to send your message immediately"
+                    )
+            except (ValueError, OSError):
+                self._stdin_fd = None
+
         if self.mic is not None:
             self._mic_queue = self.mic.subscribe()
             self._mic_task = asyncio.create_task(self._consume_mic(), name="bcsm-mic")
@@ -179,6 +214,7 @@ class BrainConversationStateMachine:
 
     async def stop(self) -> None:
         self._stopped = True
+        self._disarm_manual_commit()
         for t in (self._no_speech_timer, self._drain_task, self._plan_watchdog_task):
             if t is not None:
                 t.cancel()
@@ -204,6 +240,86 @@ class BrainConversationStateMachine:
         if self._loop is None or self._stopped:
             return
         self._loop.call_soon_threadsafe(self._on_wake_in_loop, evt)
+
+    def request_manual_commit(self) -> None:
+        """End the current utterance now (operator pressed Enter).
+
+        Thread-safe entrypoint mirroring :meth:`handle_wake`: the stdin
+        reader callback already runs on the loop thread, but routing through
+        ``call_soon_threadsafe`` keeps this safe to call from anywhere and
+        consistent with the rest of the public surface.
+        """
+        if self._loop is None or self._stopped:
+            return
+        self._loop.call_soon_threadsafe(self._on_manual_commit_in_loop)
+
+    def _on_manual_commit_in_loop(self) -> None:
+        if self._stopped:
+            return
+        if self._state != State.CAPTURING:
+            # Enter outside CAPTURING is a no-op: nothing is being captured,
+            # and the reader is only armed in CAPTURING anyway. Guard defends
+            # against a queued call racing a transition.
+            log.debug("[manual_commit] ignored (state=%s)", self._state.value)
+            return
+        log.info(
+            "[utterance] manual_commit after %.2fs",
+            time.monotonic() - self._capture_started_at,
+        )
+        print("[g1_brain] got it — sending now", flush=True)
+        self._enter_thinking()
+
+    # ---- manual-commit stdin watcher ----------------------------------------
+
+    def _arm_manual_commit(self) -> None:
+        """Watch stdin for a line (Enter) while CAPTURING.
+
+        Registered only in CAPTURING so it never consumes the keystroke the
+        confirm-mode y/N prompt reads during THINKING. The TTY stays in its
+        default canonical mode, so the fd becomes readable once a full line
+        is available — i.e. exactly when the operator hits Enter.
+        """
+        if self._stdin_fd is None or self._manual_commit_armed:
+            return
+        if self._loop is None:
+            return
+        try:
+            self._loop.add_reader(self._stdin_fd, self._on_stdin_readable)
+            self._manual_commit_armed = True
+        except (OSError, ValueError, NotImplementedError):
+            # add_reader can fail on exotic fds / platforms; degrade to
+            # VAD-only commit rather than crash the turn.
+            log.debug("manual commit: add_reader failed", exc_info=True)
+
+    def _disarm_manual_commit(self) -> None:
+        if self._stdin_fd is None or not self._manual_commit_armed:
+            return
+        self._manual_commit_armed = False
+        if self._loop is None:
+            return
+        try:
+            self._loop.remove_reader(self._stdin_fd)
+        except (OSError, ValueError, NotImplementedError):
+            log.debug("manual commit: remove_reader failed", exc_info=True)
+
+    def _on_stdin_readable(self) -> None:
+        """loop.add_reader callback: a line is ready on the terminal."""
+        if self._stdin_fd is None:
+            return
+        try:
+            data = os.read(self._stdin_fd, 4096)
+        except (OSError, BlockingIOError):
+            return
+        if not data:
+            # EOF on stdin (e.g. terminal detached). Stop watching so the
+            # reader doesn't busy-spin firing on a permanently-ready fd.
+            self._disarm_manual_commit()
+            return
+        # Any line — empty (bare Enter) or with text — is the operator's
+        # signal to end the utterance. We only act in CAPTURING; the reader
+        # should only be armed there, but re-check defensively.
+        if self._state == State.CAPTURING:
+            self._on_manual_commit_in_loop()
 
     def _handle_response_audio_delta(self) -> None:
         """Called by BrainRealtimeAgent from the asyncio loop thread."""
@@ -383,9 +499,14 @@ class BrainConversationStateMachine:
                     log.exception("logger.log_scene_snapshot raised")
         self._set_state(State.CAPTURING, reason=reason)
         self._reset_no_speech_timer()
+        # Now listening: let the operator press Enter to commit immediately.
+        self._arm_manual_commit()
 
     def _enter_thinking(self) -> None:
         self._cancel_no_speech_timer()
+        # Stop watching stdin so the confirm-mode y/N prompt (which reads the
+        # terminal during tool dispatch) gets the keystroke, not us.
+        self._disarm_manual_commit()
         self.agent.set_uplink_enabled(False)
         self._set_state(State.THINKING, reason="vad_commit")
         # Stdout ack so the operator sees the system *did* hear them and is
@@ -556,6 +677,8 @@ class BrainConversationStateMachine:
             return
         if self.vad.had_any_voice():
             return  # voice was heard; the silence-commit path will handle it
+        # Going back to IDLE — stop watching stdin until the next wake.
+        self._disarm_manual_commit()
         log.info(
             "[capture] no speech for %.1fs after wake; aborting",
             self.cfg.no_speech_timeout_s,

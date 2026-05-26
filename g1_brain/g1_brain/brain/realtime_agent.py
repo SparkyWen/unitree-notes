@@ -338,15 +338,19 @@ class BrainRealtimeAgent(RealtimeAgent):
         log.info("tool call: %s(%s)", name, args)
         self._emit_tool_use(call_id, name, args)
 
-        ok, reason, sanitized = await self.safety.validate(name, args)
-        if not ok:
-            result: Dict[str, Any] = {"ok": False, "reason": reason}
-        else:
-            try:
-                result = await self._execute_tool(name, sanitized, call_id=call_id)
-            except Exception as e:  # noqa: BLE001
-                log.exception("tool exception: %s", e)
-                result = {"ok": False, "reason": f"exception: {e!s}"}
+        # Single validation point: skill_server.execute() runs the
+        # SafetySupervisor pass (incl. the vision-risk gate AND the operator
+        # confirm prompt) internally and sanitizes the args. We must NOT
+        # pre-validate here too — doing so gated every motion call twice: two
+        # vision evaluations and, on a RISK verdict, TWO terminal y/N prompts
+        # for a single walk (field log 2026-05-26: one walk → confirm 'y' →
+        # confirm 'y' → execute). _execute_tool's own docstring already
+        # documents this contract; _dispatch_tool used to violate it.
+        try:
+            result = await self._execute_tool(name, args, call_id=call_id)
+        except Exception as e:  # noqa: BLE001
+            log.exception("tool exception: %s", e)
+            result = {"ok": False, "reason": f"exception: {e!s}"}
 
         self._emit_tool_result(call_id, name, result)
 

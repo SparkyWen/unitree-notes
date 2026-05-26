@@ -627,6 +627,74 @@ async def test_concurrent_barge_in_serialised():
     assert len(stop_calls) == 1
 
 
+# ------------------------- manual Enter-to-commit -------------------------
+
+@pytest.mark.asyncio
+async def test_manual_commit_in_capturing_triggers_thinking():
+    """Pressing Enter while CAPTURING ends the utterance immediately,
+    bypassing the VAD silence/max-duration wait."""
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    assert sm.state == State.CAPTURING
+
+    sm.request_manual_commit()
+    await asyncio.sleep(0)  # let call_soon_threadsafe run
+
+    assert sm.state == State.THINKING
+    assert sm.agent.uplink_enabled is False
+    await asyncio.sleep(0)  # let commit_and_respond task run
+    assert sm.agent.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_commit_ignored_when_idle():
+    """Enter outside CAPTURING is a no-op — there is no utterance to commit."""
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    assert sm.state == State.IDLE
+
+    sm.request_manual_commit()
+    await asyncio.sleep(0)
+
+    assert sm.state == State.IDLE
+    assert sm.agent.commit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_manual_commit_logs_utterance_event():
+    """The manual commit path logs begin/commit lifecycle just like VAD."""
+    logger = _StubLogger()
+    sm = _make_sm(logger=logger)
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+
+    sm.request_manual_commit()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert sm.state == State.THINKING
+    # commit transition recorded
+    assert any(
+        name == "log_state_transition"
+        and kwargs.get("to_state") == State.THINKING.value
+        for (name, args, kwargs) in logger.calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_manual_commit_when_stopped_is_dropped():
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    await sm.stop()
+    sm.request_manual_commit()
+    await asyncio.sleep(0)
+    # stop() did not crash and no commit happened.
+    assert sm.agent.commit_calls == 0
+
+
 # ------------------------- voice-onset barge-in (SPEAKING) ----------------
 
 def _pcm16_chunk(rms_target: float, n_samples: int = 1200) -> bytes:

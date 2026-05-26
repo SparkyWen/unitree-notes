@@ -1,0 +1,16 @@
+{
+  "name": "fixture-5-allergy",
+  "language": "zh",
+  "turns": [
+    {
+      "item_id": "itm-1",
+      "previous_item_id": null,
+      "speaker_label": "patient",
+      "transcript": "我对青霉素过敏。"
+    }
+  ],
+  "expected": {
+    "must_have_memory_candidates": ["allergy"],
+    "force_invariants": ["every_memory_candidate_requires_confirmation"]
+  }
+}

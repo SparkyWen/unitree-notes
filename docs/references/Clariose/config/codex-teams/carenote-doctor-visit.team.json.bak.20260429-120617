@@ -1,0 +1,148 @@
+{
+  "team_id": "carenote-doctor-visit-v1",
+  "team_name": "CareNote Doctor Visit Team",
+  "version": "1.0.0",
+  "schema_version": "1.0.0",
+  "runtime_preference": ["codex-sdk", "codex-app-server", "codex-cli"],
+  "default_runtime_options": {
+    "model": "gpt-5.5",
+    "sandboxMode": "read-only",
+    "approvalPolicy": "never",
+    "networkAccessEnabled": false,
+    "skipGitRepoCheck": true
+  },
+  "agents": [
+    {
+      "role": "visit_orchestrator",
+      "name": "Visit Orchestrator",
+      "prompt_file": "prompts/codex-agents/visit_orchestrator.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "VisitOrchestratorOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_visit_orchestrator.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "transcript_quality",
+      "name": "Transcript Quality",
+      "prompt_file": "prompts/codex-agents/transcript_quality.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "TranscriptQualityOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_transcript_quality.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "speaker_role",
+      "name": "Speaker Role",
+      "prompt_file": "prompts/codex-agents/speaker_role.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "SpeakerRoleOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_speaker_role.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "medical_instruction_extractor",
+      "name": "Medical Instruction Extractor",
+      "prompt_file": "prompts/codex-agents/medical_instruction_extractor.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "MedicalInstructionExtractorOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_medical_instruction_extractor.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "medication_reminder_draft",
+      "name": "Medication Reminder Draft",
+      "prompt_file": "prompts/codex-agents/medication_reminder_draft.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "MedicationReminderDraftOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_medication_reminder_draft.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "follow_up_task_draft",
+      "name": "Follow-up Task Draft",
+      "prompt_file": "prompts/codex-agents/follow_up_task_draft.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "FollowUpTaskDraftOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_follow_up_task_draft.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "safety_clarification",
+      "name": "Safety Clarification",
+      "prompt_file": "prompts/codex-agents/safety_clarification.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "SafetyClarificationOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_safety_clarification.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "family_summary",
+      "name": "Family Summary",
+      "prompt_file": "prompts/codex-agents/family_summary.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "FamilySummaryOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_family_summary.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "memory_update",
+      "name": "Memory Update",
+      "prompt_file": "prompts/codex-agents/memory_update.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "MemoryUpdateOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_memory_update.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "compliance_guardrail",
+      "name": "Compliance Guardrail",
+      "prompt_file": "prompts/codex-agents/compliance_guardrail.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "ComplianceGuardrailOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_compliance_guardrail.toml",
+      "can_write_files": false
+    },
+    {
+      "role": "final_visit_summary",
+      "name": "Final Visit Summary",
+      "prompt_file": "prompts/codex-agents/final_visit_summary.md",
+      "prompt_version": "1.0.0",
+      "schema_name": "FinalVisitSummaryOutput",
+      "schema_version": "1.0.0",
+      "thread_policy": "persistent_per_team",
+      "sandbox_policy": "read_only_runtime",
+      "agent_config_path": ".codex/agents/carenote_final_visit_summary.toml",
+      "can_write_files": false
+    }
+  ]
+}

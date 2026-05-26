@@ -1,0 +1,656 @@
+// ─── Clariose — Prisma schema ──────────────────────────────────────────────────
+// Domain: doctor-patient communication bridge. A consultation session is the
+// central object — it owns a transcript, agent runs, and the artifacts those
+// agents produce (medication plans, follow-ups, family digests, reminders).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  IDENTITY
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum UserRole {
+  PATIENT
+  CLINICIAN
+  CARETAKER
+  ADMIN
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  displayName  String?
+  role         UserRole  @default(PATIENT)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // CLARIOSE_V01: implements §5.3 (auto-dream gates) and §7.1
+  autoDreamEnabled Boolean   @default(true)
+  lastDreamedAt    DateTime?
+
+  patientProfile   Patient?
+  clinicianProfile Clinician?
+
+  // CLARIOSE_V01 §recall-codex — stable hashed namespace for the
+  // ~/.zai/memories/<recallNamespace>/ workspace. Backfilled lazily by
+  // MemoryRootResolver so existing users get one on first /api/recall touch.
+  recallNamespace String? @unique
+
+  ownedSessions ConsultSession[] @relation("SessionOwner")
+  reminders     Reminder[]
+  auditLogs     AuditLog[]
+  dreamLock     UserDreamLock?
+
+  // recall-codex back-relations
+  recallSessions   RecallSession[]
+  recallNotes      RecallNote[]
+  recallPhase1Jobs Phase1Job[]
+  recallDailyUsage RecallDailyUsage[]
+
+  // CLARIOSE_V03 §dream — manual + cron run history.
+  dreamRuns DreamRun[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// A patient is the human whose health is being tracked. Every consult belongs
+// to exactly one patient. A user with role PATIENT auto-creates a Patient row.
+model Patient {
+  id         String    @id @default(cuid())
+  userId     String    @unique
+  fullName   String
+  birthDate  DateTime?
+  allergies  Json      @default("[]") // [{ substance, severity, note }]
+  conditions Json      @default("[]") // [{ name, sinceYear }]
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions ConsultSession[]
+
+  @@map("patients")
+}
+
+// A clinician is a human delivering care. Optional — many sessions are recorded
+// without a registered clinician (the doctor's name is just a string field).
+model Clinician {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  fullName      String
+  specialty     String?
+  licenseNumber String?
+  organization  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions ConsultSession[]
+
+  @@map("clinicians")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  CONSULTATION
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum SessionStatus {
+  ACTIVE
+  ENDED
+  ARCHIVED
+}
+
+model ConsultSession {
+  id          String        @id @default(cuid())
+  ownerUserId String // who started the session (usually the patient)
+  patientId   String
+  clinicianId String?
+  doctorName  String? // free text when no Clinician account exists
+  status      SessionStatus @default(ACTIVE)
+
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  durationSec Int       @default(0)
+
+  // gpt-realtime session metadata
+  realtimeModel String? // e.g. "gpt-realtime-1.5"
+  realtimeId    String? // OpenAI session id (for audit, not auth)
+
+  // De-normalised counters for cheap dashboard queries.
+  utteranceCount Int @default(0)
+  reminderCount  Int @default(0)
+
+  // Cached top-level summary (filled by the family-digest agent).
+  summaryMd String?
+
+  // CLARIOSE_V01: implements §7.1 — carenote/codex-harness Visit fields.
+  // ConsultSession is now repurposed as the carenote Visit.
+  language        String? // 'zh' | 'en' | 'mixed'
+  consentRecorded Boolean @default(false)
+  rawAudioSaved   Boolean @default(false)
+  // Serialized VisitState (medical/medicalSchemas.ts VisitStateSchema). Whole-blob
+  // read on cold start so a PM2 reload / browser refresh sees the same state the
+  // codex-harness was assembling in-memory.
+  visitState      Json    @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner     User       @relation("SessionOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  patient   Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  clinician Clinician? @relation(fields: [clinicianId], references: [id], onDelete: SetNull)
+
+  utterances  TranscriptUtterance[]
+  agentRuns   AgentRun[]
+  medications MedicationPlan[]
+  followUps   FollowUp[]
+  digest      FamilyDigest?
+  reminders   Reminder[]
+
+  @@index([ownerUserId, startedAt])
+  @@index([patientId, startedAt])
+  @@map("consult_sessions")
+}
+
+enum Speaker {
+  DOCTOR
+  PATIENT
+  UNKNOWN
+}
+
+model TranscriptUtterance {
+  id             String   @id @default(cuid())
+  sessionId      String
+  speaker        Speaker  @default(UNKNOWN)
+  text           String
+  startedAtMs    Int // ms offset from session start
+  endedAtMs      Int?
+  isFinal        Boolean  @default(true)
+  realtimeItemId String?
+  createdAt      DateTime @default(now())
+
+  session ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, realtimeItemId])
+  @@index([sessionId, startedAtMs])
+  @@map("transcript_utterances")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  AGENT RUNS
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum AgentKind {
+  REVIEWER
+  MEDICATION
+  RISK
+  FAMILY
+  REMINDER
+  ORCHESTRATOR
+  TRANSCRIPT_VERIFICATION
+  SPEAKER_ROLE
+}
+
+enum AgentStatus {
+  PENDING
+  RUNNING
+  READY
+  ERROR
+}
+
+// Each AgentRun is one invocation of one agent over the current transcript
+// window. Outputs are stored in the related typed tables (MedicationPlan,
+// FollowUp, FamilyDigest, Reminder draft) for easy querying.
+model AgentRun {
+  id           String      @id @default(cuid())
+  sessionId    String
+  kind         AgentKind
+  // Stable id of the team-folder agent (e.g. "medical-instruction-extractor").
+  // null for legacy runs predating the 8-agent team.
+  agentId      String?
+  // Stage in the team DAG (0..4). null for legacy runs.
+  stage        Int?
+  status       AgentStatus @default(PENDING)
+  prompt       String? // resolved prompt that was sent
+  output       Json        @default("{}")
+  errorMessage String?
+  model        String?
+  inputTokens  Int?
+  outputTokens Int?
+  latencyMs    Int?
+  startedAt    DateTime    @default(now())
+  finishedAt   DateTime?
+
+  session ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, kind, startedAt])
+  @@index([sessionId, agentId, startedAt])
+  @@map("agent_runs")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  STRUCTURED ARTIFACTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+model MedicationPlan {
+  id         String   @id @default(cuid())
+  sessionId  String
+  drug       String
+  dose       String
+  frequency  String
+  duration   String
+  note       String?
+  citationMs Int? // transcript timestamp the agent quoted
+  approved   Boolean  @default(false) // user must accept before reminders fire
+  createdAt  DateTime @default(now())
+
+  session ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("medication_plans")
+}
+
+enum FollowUpSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model FollowUp {
+  id         String           @id @default(cuid())
+  sessionId  String
+  question   String
+  because    String? // the rationale the agent gave
+  severity   FollowUpSeverity @default(MEDIUM)
+  resolvedAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  session ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("follow_ups")
+}
+
+model FamilyDigest {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  summaryMd String
+  watchFor  Json     @default("[]") // string[]
+  doTonight Json     @default("[]") // string[]
+  followUps Json     @default("[]") // string[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  session ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("family_digests")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  REMINDERS
+// ═════════════════════════════════════════════════════════════════════════════
+
+enum ReminderChannel {
+  APP
+  SMS
+  EMAIL
+}
+
+enum ReminderStatus {
+  DRAFT // proposed by the agent, awaiting user acceptance
+  SCHEDULED
+  PAUSED
+  DONE
+  CANCELLED
+}
+
+model Reminder {
+  id          String          @id @default(cuid())
+  ownerUserId String
+  sessionId   String?
+  title       String
+  drug        String?
+  dose        String?
+  cadence     String // human-readable, e.g. "Twice daily after meals"
+  cron        String? // resolved cron expression
+  startsOn    DateTime
+  endsOn      DateTime?
+  channel     ReminderChannel @default(APP)
+  status      ReminderStatus  @default(DRAFT)
+  nextFireAt  DateTime?
+  meta        Json            @default("{}")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  owner   User            @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  session ConsultSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([ownerUserId, status, nextFireAt])
+  @@map("reminders")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  AUDIT
+// ═════════════════════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  resource   String?
+  resourceId String?
+  detail     Json     @default("{}")
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  CLARIOSE_V01 — Carenote codex-harness multi-agent swarm tables.
+//  Specced in docs/design/clariose-v01-0430.md §7.1.
+//  visitId is the cuid of a ConsultSession (which is repurposed as the
+//  carenote Visit; we did not rename to avoid a destructive migration).
+// ═════════════════════════════════════════════════════════════════════════════
+
+// CarenoteTask — durable shared work units (Layer 2 of 4-layer comm).
+// Roles do not message each other for "go do X"; they create a Task with a
+// description and let the run-manager dispatch. The task object IS the
+// collaboration bus (see CCLearn note 4 §"Task is the cooperation bus").
+model CarenoteTask {
+  id             String   @id @default(cuid())
+  visitId        String
+  parentTaskId   String?
+  createdByRole  String
+  taskType       String
+  description    String
+  status         String   @default("pending") // pending|running|completed|failed|cancelled
+  inputJson      Json
+  outputJson     Json?
+  blackboardKeys String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([visitId, status])
+  @@map("carenote_tasks")
+}
+
+// CarenoteBlackboard — versioned KV per visit. Every role can read; writes
+// are attributed to a specific role for audit. Subscribers in CodexRunManager
+// declare interest in keys at registration; writes emit blackboard_updated
+// events that trigger on-demand re-runs of dependent roles.
+model CarenoteBlackboard {
+  id        String   @id @default(cuid())
+  visitId   String
+  key       String
+  value     Json
+  writtenBy String
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  @@unique([visitId, key])
+  @@map("carenote_blackboard")
+}
+
+// CarenoteMailbox — DB mirror of the file-backed inboxes at
+// .data/carenote/teams/<visit>/inboxes/<role>.json. The file is the source
+// of truth; this table exists so the SSE bus and the UI can query unread
+// counts and message history without parsing files.
+model CarenoteMailbox {
+  id            String   @id @default(cuid())
+  visitId       String
+  recipientRole String
+  fromRole      String
+  payloadJson   Json
+  isRead        Boolean  @default(false)
+  fileIndex     Int // index in the .json array, lets us correlate markRead
+  createdAt     DateTime @default(now())
+
+  @@index([visitId, recipientRole, isRead])
+  @@map("carenote_mailbox")
+}
+
+// CarenoteAgentRun — per-codex-run telemetry. visitId is null for cross-visit
+// runs (auto-dream consolidation). userId is set for auto-dream so we can
+// answer "show me what the dream agent did for user X".
+model CarenoteAgentRun {
+  id               String    @id @default(cuid())
+  visitId          String?
+  userId           String?
+  role             String
+  kind             String // 'turn'|'dream'|'json_repair'
+  status           String // RUNNING|COMPLETED|FAILED|ABORTED
+  prompt           String?
+  rawOutput        String?
+  parsedJson       Json?
+  validationStatus String? // 'valid'|'repaired'|'failed'
+  errorMessage     String?
+  threadId         String?
+  modelName        String?
+  latencyMs        Int?
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+
+  @@index([visitId, role, startedAt])
+  @@index([userId, kind, startedAt])
+  @@map("carenote_agent_runs")
+}
+
+// UserDreamLock — single-row-per-user lock to prevent two consolidation
+// workers running at once. File lock at .data/carenote/memory/users/<u>/.consolidation.lock
+// is the source of truth for cross-process safety; this row exists so ops
+// can see who's currently consolidating without grepping disk.
+model UserDreamLock {
+  userId        String   @id
+  acquiredAt    DateTime @default(now())
+  expiresAt     DateTime
+  acquiredByPid Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_dream_locks")
+}
+
+// CLARIOSE_V03 §dream — manual + cron memory-consolidation run history.
+// One row per dream pass. SSE channels replay from `progressJson` so a
+// late-mounting page can pick up an in-flight run.
+model DreamRun {
+  id           String       @id @default(cuid())
+  userId       String
+  scope        String // "all" | "visit:<visitId>"
+  trigger      DreamTrigger
+  status       DreamStatus  @default(RUNNING)
+  startedAt    DateTime     @default(now())
+  endedAt      DateTime?
+  visitCount   Int          @default(0)
+  filesUpdated Int          @default(0)
+  errorMessage String?
+  progressJson Json         @default("[]")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt(sort: Desc)])
+  @@map("dream_runs")
+}
+
+enum DreamStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum DreamTrigger {
+  MANUAL_USER
+  MANUAL_VISIT
+  CRON
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  CLARIOSE_V01 — recall-codex (knowledge-recall console).
+//  Specced in docs/design/09_codex_memory_recall_design.md.
+//  Front-stage chat is a Codex agent in read-only sandbox at the user's
+//  memories root; background pipeline distills historical sessions into
+//  durable .md files. These tables persist the chat transcript, the user's
+//  uploaded notes, and the Phase-1/Phase-2 worker state.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Front-stage chat session against the recall coordinator.
+model RecallSession {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // codex thread id captured from the first thread.started event; null until
+  // the first turn completes.
+  codexThreadId String?
+  // First user prompt — used for the history-rail preview.
+  firstPrompt   String?
+  messageCount  Int       @default(0)
+  lastTurnAt    DateTime?
+  createdAt     DateTime  @default(now())
+  // Set when user clicks "新对话" or session goes idle for >24h.
+  endedAt       DateTime?
+  active        Boolean   @default(true)
+
+  messages    RecallMessage[]
+  citations   RecallCitation[]
+  rolloutJobs Phase1Job[]
+
+  @@index([userId, lastTurnAt])
+  @@index([userId, active])
+  @@map("recall_sessions")
+}
+
+// Per-message store; SSE rehydration replays these on reload.
+model RecallMessage {
+  id        String        @id @default(cuid())
+  sessionId String
+  session   RecallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String // 'user' | 'assistant'
+  content   String
+  // [{cmd, exit_code, snippet}, ...]
+  toolCalls Json?
+  // {totalTokens, cacheHitRate, durationMs}
+  usage     Json?
+  createdAt DateTime      @default(now())
+
+  @@index([sessionId, createdAt])
+  @@map("recall_messages")
+}
+
+// Citations parsed from assistant messages (<file>:<line> references).
+model RecallCitation {
+  id        String   @id @default(cuid())
+  sessionId String
+  messageId String
+  relPath   String
+  startLine Int?
+  endLine   Int?
+  excerpt   String?
+  createdAt DateTime @default(now())
+
+  session RecallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([relPath])
+  @@map("recall_citations")
+}
+
+// User-uploaded notes (.md / .txt / .jsonl). The file on disk under
+// memoriesRoot/notes/<slug>.<ext> is the source of truth; this table holds
+// metadata for cheap listing.
+model RecallNote {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug        String
+  filename    String
+  kind        String // 'md' | 'txt' | 'jsonl'
+  bytes       Int
+  description String?
+  collection  String?
+  pinned      Boolean  @default(false)
+  // user-classified label, optional
+  type        String?
+  tags        String[] @default([])
+  createdAt   DateTime @default(now())
+  mtime       DateTime @default(now())
+
+  @@unique([userId, slug])
+  @@index([userId, pinned])
+  @@map("recall_notes")
+}
+
+// Phase-1 job/lease/state — the "SQLite" of Codex's design, in Postgres.
+// One row per (userId, RecallSession.id) candidate rollout; cron decides
+// which sessions are eligible for memory generation.
+model Phase1Job {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId      String
+  session        RecallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  // Path to the codex rollout JSONL (~/.codex/sessions/.../rollout-xxx.jsonl).
+  // For now we use the recall_messages dump; the field accepts both.
+  rolloutPath    String
+  // 'pending' | 'leased' | 'done' | 'failed' | 'skipped'
+  state          String        @default("pending")
+  leaseHolder    String?
+  leaseExpires   DateTime?
+  attemptCount   Int           @default(0)
+  lastError      String?
+  // Phase-1 stage-1 outputs.
+  rawMemory      String?
+  rolloutSummary String?
+  rolloutSlug    String?
+  generatedAt    DateTime?
+  // Bumped each time Phase 2 selects this job.
+  usageCount     Int           @default(0)
+  lastUsageAt    DateTime?
+  createdAt      DateTime      @default(now())
+
+  @@unique([userId, sessionId])
+  @@index([userId, state, generatedAt])
+  @@index([userId, leaseExpires])
+  @@map("recall_phase1_jobs")
+}
+
+// Global Phase-2 lock (singleton row per user).
+model Phase2Lock {
+  userId     String    @id
+  holder     String?
+  acquiredAt DateTime?
+  expiresAt  DateTime?
+  lastRunAt  DateTime?
+
+  @@map("recall_phase2_locks")
+}
+
+// Per-user/day cost ledger; protects against runaway recall sessions.
+model RecallDailyUsage {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  inputTok      Int      @default(0)
+  outputTok     Int      @default(0)
+  costUsdMicros Int      @default(0)
+
+  @@unique([userId, date])
+  @@map("recall_daily_usage")
+}

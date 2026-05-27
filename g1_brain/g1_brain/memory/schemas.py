@@ -113,6 +113,19 @@ class MemoryConfig:
     phase2_max_raw_memories: int = 256
     phase2_max_unused_days: int = 30
 
+    # Resource-contention controls. Phase1/Phase2 run codex (reasoning=high)
+    # which, even though the model runs out-of-process, drives enough local
+    # GIL/CPU work (JSONL projection, git, file I/O, the codex client read
+    # loop) to starve the audio/VAD event loop mid-conversation. When
+    # defer_when_conversation_active is on, the workers will not CLAIM new jobs
+    # while a turn is in progress (state != IDLE) — an in-flight job still
+    # finishes, but nothing new starts until the operator is idle again.
+    defer_when_conversation_active: bool = True
+    # Historical backfill only enqueues Phase1 jobs, but we still keep it off
+    # the synchronous start() path and let startup settle first so it can't
+    # pile onto the perception-model-load stall at boot.
+    backfill_delay_s: float = 20.0
+
     slow_brain_model: str = ""
     ask_default_timeout_s: float = 20.0
     ask_queue_max: int = 2

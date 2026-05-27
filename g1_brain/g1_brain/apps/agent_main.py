@@ -1233,6 +1233,17 @@ async def _run(args: argparse.Namespace) -> int:
     elif brain_agent is not None:
         log.info("wake-word DISABLED; Realtime uplink runs continuously")
 
+    # ---- memory: pause Phase1/Phase2 codex work while a turn is in progress.
+    # The state machine exists now, so wire a busy-gate: memory won't start new
+    # extraction/consolidation while state != IDLE, so codex stops stealing the
+    # GIL/CPU from audio/VAD/wake mid-conversation.
+    if memory_subsystem is not None and sm is not None:
+        try:
+            memory_subsystem.set_busy_gate(lambda _sm=sm: _sm.state.value != "IDLE")
+            log.info("memory: busy-gate wired (pause codex while conversation active)")
+        except Exception:  # noqa: BLE001
+            log.exception("wiring memory busy-gate failed")
+
     # ---- memory: chain on_plan_done AFTER state-machine init so we don't
     # clobber the state machine's own handler (which set itself just above).
     if memory_subsystem is not None and brain_agent is not None:

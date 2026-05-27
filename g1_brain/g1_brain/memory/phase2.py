@@ -86,15 +86,34 @@ class Phase2Worker:
         self._system_prompt = _load_phase2_system_prompt()
         self._stop_evt = asyncio.Event()
         self._lock = asyncio.Lock()
+        self._busy_gate = None
 
     async def stop(self) -> None:
         self._stop_evt.set()
+
+    def set_busy_gate(self, cb) -> None:
+        """cb() -> bool: True when a conversation turn is active."""
+        self._busy_gate = cb
+
+    def _is_busy(self) -> bool:
+        if self._busy_gate is None:
+            return False
+        try:
+            return bool(self._busy_gate())
+        except Exception:  # noqa: BLE001
+            log.exception("phase2 busy_gate raised; treating as not busy")
+            return False
 
     async def trigger_after_phase1(self, session_id: str) -> None:
         """Called from Phase1Worker after a successful Phase1.
 
         Fire-and-forget by design; we don't block Phase1.
         """
+        # Heaviest codex pass (consolidation). Skip while a turn is active; the
+        # next Phase1 completion re-triggers us once the operator is idle.
+        if self._is_busy():
+            log.info("phase2: conversation active; deferring consolidation")
+            return
         # Best-effort, single-flight on this process. The DB-side global
         # lock is the cross-process backstop.
         async with self._lock:

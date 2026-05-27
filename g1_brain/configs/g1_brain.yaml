@@ -409,6 +409,16 @@ memory:
   # Drop stage1 outputs unused for this long when picking Phase2 inputs.
   phase2_max_unused_days: 30
 
+  # Resource contention: when true, Phase1/Phase2 will NOT start new codex work
+  # while a conversation turn is active (state != IDLE). An in-flight job still
+  # finishes; nothing new starts until the operator is idle. Stops codex from
+  # stealing the GIL/CPU from audio/VAD/wake mid-conversation.
+  defer_when_conversation_active: true
+  # Historical backfill is deferred off the synchronous startup path and waits
+  # this long before enqueueing, so it can't pile onto the boot-time
+  # perception-model-load stall.
+  backfill_delay_s: 20
+
   # ask_slow_brain persistent Codex daemon (codex mcp-server)
   slow_brain_model: ""
   ask_default_timeout_s: 20

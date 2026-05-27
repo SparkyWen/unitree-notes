@@ -28,6 +28,7 @@ import asyncio
 import enum
 import logging
 import os
+import select
 import sys
 import time
 from dataclasses import dataclass
@@ -287,6 +288,28 @@ class BrainConversationStateMachine:
 
     # ---- manual-commit stdin watcher ----------------------------------------
 
+    def _drain_stdin(self) -> None:
+        """Discard input already buffered on stdin (non-blocking).
+
+        Uses a zero-timeout select so we only consume what is *currently*
+        ready: on a canonical-mode TTY that is exactly the completed lines
+        the operator entered earlier (a half-typed line with no Enter is not
+        yet readable and is correctly left alone). Best-effort — any fd that
+        cannot be polled or read simply leaves the buffer as-is.
+        """
+        if self._stdin_fd is None:
+            return
+        try:
+            while True:
+                r, _, _ = select.select([self._stdin_fd], [], [], 0)
+                if not r:
+                    return
+                data = os.read(self._stdin_fd, 4096)
+                if not data:  # EOF — nothing more to drain
+                    return
+        except (OSError, ValueError, BlockingIOError):
+            return
+
     def _arm_manual_commit(self) -> None:
         """Watch stdin for a line (Enter) while CAPTURING.
 
@@ -299,6 +322,14 @@ class BrainConversationStateMachine:
             return
         if self._loop is None:
             return
+        # Discard anything already buffered on stdin BEFORE we start watching.
+        # A line the operator typed while we were not capturing (a stray Enter
+        # pressed in the terminal while IDLE, or QuickEdit/paste noise on
+        # Windows Terminal) otherwise becomes immediately readable the instant
+        # add_reader registers, firing a "commit now" at 0.00s — committing an
+        # empty audio buffer before the operator can speak. Only Enter pressed
+        # AFTER capture begins should count as an end-of-utterance signal.
+        self._drain_stdin()
         try:
             self._loop.add_reader(self._stdin_fd, self._on_stdin_readable)
             self._manual_commit_armed = True

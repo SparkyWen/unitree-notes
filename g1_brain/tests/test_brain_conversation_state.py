@@ -8,6 +8,7 @@ docs/audio-control-update01.md directly.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -808,6 +809,83 @@ async def test_manual_commit_when_stopped_is_dropped():
     await asyncio.sleep(0)
     # stop() did not crash and no commit happened.
     assert sm.agent.commit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_arm_manual_commit_discards_stale_buffered_stdin():
+    """Bytes typed into the terminal BEFORE capture begins (a stray Enter
+    pressed while IDLE) must not commit the new utterance the instant it
+    starts.
+
+    Regression: arming the stdin reader on entering CAPTURING immediately
+    read the stale buffered line and fired manual_commit at 0.00s, committing
+    an empty audio buffer — so 'Hi Sparky' woke the agent but it never heard
+    the operator. Looked exactly like "won't wake".
+    """
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,        # don't let the no-speech timer race us
+        barge_in_min_capture_age_s=0.0,
+        idle_after_plan_enabled=False,
+        plan_watchdog_s=10.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+
+    r_fd, w_fd = os.pipe()
+    try:
+        sm._stdin_fd = r_fd
+        # Operator pressed Enter while IDLE — it sits buffered before wake.
+        os.write(w_fd, b"\n")
+
+        sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+        # Let the wake transition + any add_reader callback run.
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+
+        # The stale newline must be discarded at arm time, NOT treated as a
+        # commit. We stay in CAPTURING, listening for the real utterance.
+        assert sm.state == State.CAPTURING
+        assert sm.agent.commit_calls == 0
+    finally:
+        sm._disarm_manual_commit()
+        os.close(r_fd)
+        os.close(w_fd)
+
+
+@pytest.mark.asyncio
+async def test_manual_commit_via_stdin_after_arm_still_commits():
+    """Enter pressed AFTER capture begins must still commit immediately —
+    the stale-input flush must not disable the feature itself."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+        idle_after_plan_enabled=False,
+        plan_watchdog_s=10.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+
+    r_fd, w_fd = os.pipe()
+    try:
+        sm._stdin_fd = r_fd
+        sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+        await asyncio.sleep(0)  # wake → CAPTURING + arm reader
+        assert sm.state == State.CAPTURING
+
+        # Operator presses Enter now, while listening.
+        os.write(w_fd, b"\n")
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+            if sm.state == State.THINKING:
+                break
+
+        assert sm.state == State.THINKING
+        await asyncio.sleep(0)
+        assert sm.agent.commit_calls == 1
+    finally:
+        sm._disarm_manual_commit()
+        os.close(r_fd)
+        os.close(w_fd)
 
 
 # ------------------------- voice-onset barge-in (SPEAKING) ----------------

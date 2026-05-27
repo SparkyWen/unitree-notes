@@ -93,10 +93,22 @@ class OpenAITranscribeBackend:
         model: str = "gpt-4o-mini-transcribe",
         prompt: Optional[str] = "Sparky",
         language: Optional[str] = None,
+        timeout_s: float = 8.0,
+        max_retries: int = 0,
     ):
         from openai import OpenAI
 
-        self._client = OpenAI()
+        # The wake loop is single-threaded and calls transcribe() synchronously
+        # (see WakeWordDetector._loop). The OpenAI SDK default is read=600 s with
+        # 2 retries, so ONE hung request — server never returns response headers,
+        # a half-open TCP — freezes wake-word detection for up to ~10 minutes.
+        # Observed in the field as "stuck, can't wake up"; py-spy caught the
+        # worker parked in ssl.read inside transcribe() for >9 min. Bound the
+        # per-call timeout small and disable retries so a stalled call raises
+        # promptly; _loop catches the exception and resumes on the next
+        # iteration. A normal wake transcribe of the 1.5 s window is ~0.2-0.5 s,
+        # so a few seconds is comfortably above the happy path.
+        self._client = OpenAI(timeout=timeout_s, max_retries=max_retries)
         self._model = model
         self._prompt = prompt
         self._language = language

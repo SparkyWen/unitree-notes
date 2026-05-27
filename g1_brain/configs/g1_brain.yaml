@@ -205,6 +205,14 @@ wakeword:
   # for perceived wake responsiveness. Override per-run via wakeword.openai_model.
   openai_model: "gpt-4o-mini-transcribe"
   openai_prompt: "Sparky"
+  # Per-call HTTP timeout for the wake transcribe. The wake loop is a SINGLE
+  # worker thread doing a synchronous transcribe; the OpenAI SDK default
+  # (read=600 s, 2 retries) means one hung request freezes wake for ~10 min
+  # (field-observed "stuck, can't wake up"; py-spy caught the worker in
+  # ssl.read for >9 min). A normal transcribe of the 1.5 s window is
+  # ~0.2-0.5 s, so 8 s fails fast on a stall while never tripping the happy
+  # path. Retries are forced to 0 in code so a stall isn't multiplied.
+  openai_timeout_s: 8.0
   rolling_window_s: 1.5
   # Bumped from 3 → 5 Hz to address operator-reported "first Hi-Sparky
   # misses during TTS, second one interrupts". A "Hi Sparky" utterance

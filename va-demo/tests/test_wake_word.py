@@ -171,6 +171,57 @@ def test_worker_healthy_requires_sustained_ticking():
     assert d.worker_healthy() is True
 
 
+# ---- OpenAI backend fail-fast timeout -------------------------------------
+#
+# Regression for the field-observed "stuck, can't wake up": the wake loop is
+# single-threaded and calls backend.transcribe() synchronously. The OpenAI SDK
+# default is read=600 s with 2 retries, so ONE hung request (server never sends
+# response headers / half-open TCP) freezes wake-word detection for up to ~10
+# min. py-spy caught the worker parked in ssl.read inside transcribe() for >9
+# min. The backend must construct its client with a small bounded timeout and
+# zero retries so a stalled call raises promptly; _loop already catches the
+# exception and resumes on the next iteration.
+
+
+def test_openai_backend_bounds_timeout_and_disables_retries(monkeypatch):
+    openai = __import__("pytest").importorskip("openai")
+    captured: dict = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeClient)
+    from va_demo.wake_word import OpenAITranscribeBackend
+
+    OpenAITranscribeBackend(timeout_s=5.0)
+
+    # Retries disabled: a hung call must not be multiplied by SDK retries.
+    assert captured.get("max_retries") == 0
+    # Timeout bounded and small (not the 600 s default) so the single worker
+    # thread can't be frozen for minutes on one stalled request.
+    assert captured.get("timeout") == 5.0
+
+
+def test_openai_backend_default_timeout_is_bounded(monkeypatch):
+    openai = __import__("pytest").importorskip("openai")
+    captured: dict = {}
+
+    class _FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeClient)
+    from va_demo.wake_word import OpenAITranscribeBackend
+
+    OpenAITranscribeBackend()  # no explicit timeout
+
+    to = captured.get("timeout")
+    assert to is not None, "default must set an explicit (bounded) timeout"
+    assert float(to) <= 30.0, f"default timeout {to!r} is too close to the 600 s SDK default"
+    assert captured.get("max_retries") == 0
+
+
 # ---- AEC subtraction ------------------------------------------------------
 #
 # These exercise the path that fixes operator-reported "Hi Sparky can't

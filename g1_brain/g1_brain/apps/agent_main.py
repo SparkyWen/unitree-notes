@@ -358,14 +358,16 @@ def _try_import_camera_hub():
         return None
 
 
-def _try_build_perception_runner(cfg, scene_bus, robot_bus):
+def _try_build_perception_runner(cfg, scene_bus, robot_bus, camera_hub=None):
     try:
         from ..perception.runner import PerceptionRunner
     except Exception as e:  # noqa: BLE001
         log.warning("PerceptionRunner import failed (mediapipe/ultralytics?): %s", e)
         return None
     try:
-        return PerceptionRunner(cfg, scene_bus, robot_bus)
+        # Share agent_main's CameraHub so perception doesn't spin up a SECOND
+        # head-cam render thread for the same camera (doubled llvmpipe CPU).
+        return PerceptionRunner(cfg, scene_bus, robot_bus, camera_hub=camera_hub)
     except Exception as e:  # noqa: BLE001
         log.warning("PerceptionRunner construction failed: %s", e)
         return None
@@ -1114,7 +1116,9 @@ async def _run(args: argparse.Namespace) -> int:
     perception = None
     perception_start_task = None
     if not args.no_perception:
-        perception = _try_build_perception_runner(cfg, scene_bus, robot_bus)
+        perception = _try_build_perception_runner(
+            cfg, scene_bus, robot_bus, camera_hub=camera_hub,
+        )
         if perception is not None:
             # MUST complete torch's import on this thread BEFORE the background
             # loader starts importing it, or scipy's import-time torch probe
@@ -1547,6 +1551,10 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             model=wakeword_cfg.get("openai_model", "gpt-4o-transcribe"),
             prompt=wakeword_cfg.get("openai_prompt", "Sparky"),
             language=wakeword_cfg.get("language") or None,
+            # Bound the per-call HTTP timeout: the wake loop is single-threaded,
+            # so a hung transcribe at the SDK default (read=600 s) freezes wake
+            # for ~10 min. See va_demo.wake_word.OpenAITranscribeBackend.
+            timeout_s=float(wakeword_cfg.get("openai_timeout_s", 8.0)),
         )
     elif backend_name == "local":
         backend = FasterWhisperBackend(

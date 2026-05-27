@@ -140,6 +140,8 @@ class MemorySubsystem:
         self._started = False
         self._stopping = False
         self._cancel_tokens: dict[str, asyncio.Event] = {}
+        self._busy_gate = None
+        self._backfill_task: Optional[asyncio.Task] = None
 
     # ---------- lifecycle ----------
 
@@ -172,10 +174,13 @@ class MemorySubsystem:
         # Backfill: any historical JSONL in conversations_dir that isn't
         # already represented in sessions/stage1_outputs gets queued for
         # Phase1 so future recalls can hit summaries, not just raw grep.
+        # Deferred OFF the synchronous start() path: it only enqueues jobs (the
+        # heavy Phase1 processing is gated by the busy_gate), and running it at
+        # boot piled onto the perception-model-load GIL stall.
         try:
-            await asyncio.to_thread(self._backfill_historical_sessions)
+            self._backfill_task = asyncio.create_task(self._deferred_backfill())
         except Exception:  # noqa: BLE001
-            log.exception("historical backfill failed (non-fatal)")
+            log.exception("historical backfill scheduling failed (non-fatal)")
 
         # Daemon starts in background; failures are non-fatal
         try:
@@ -183,10 +188,44 @@ class MemorySubsystem:
         except Exception:  # noqa: BLE001
             log.exception("codex daemon start scheduling failed")
 
+    def set_busy_gate(self, cb) -> None:
+        """Wire a predicate (cb() -> bool) that is True while a conversation
+        turn is active. agent_main calls this after the state machine exists.
+
+        Propagates to Phase1/Phase2 so neither starts new codex work while the
+        operator is mid-turn — the fix for "codex churns and starves wake/VAD
+        during my conversation".
+        """
+        self._busy_gate = cb
+        try:
+            self.phase1.set_busy_gate(cb)
+            self.phase2.set_busy_gate(cb)
+        except Exception:  # noqa: BLE001
+            log.exception("set_busy_gate propagation failed")
+
+    async def _deferred_backfill(self) -> None:
+        if not self.cfg.defer_when_conversation_active:
+            delay = 0.0
+        else:
+            delay = max(0.0, float(self.cfg.backfill_delay_s))
+        try:
+            if delay:
+                await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        try:
+            await asyncio.to_thread(self._backfill_historical_sessions)
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            log.exception("historical backfill failed (non-fatal)")
+
     async def stop(self) -> None:
         if self._stopping:
             return
         self._stopping = True
+        if self._backfill_task is not None:
+            self._backfill_task.cancel()
         # Force Phase1 on current session before tearing down
         try:
             await asyncio.to_thread(

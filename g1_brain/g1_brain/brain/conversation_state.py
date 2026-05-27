@@ -28,6 +28,7 @@ import asyncio
 import enum
 import logging
 import os
+import select
 import sys
 import time
 from dataclasses import dataclass
@@ -184,9 +185,25 @@ class BrainConversationStateMachine:
             self.agent.on_assistant_transcript_done = self.logger.log_assistant_transcript
             self.agent.on_tool_use = self.logger.log_tool_use
             self.agent.on_tool_result = self.logger.log_tool_result
-            self.agent.on_response_canceled = (
-                lambda reason: self.logger.log_response_canceled(reason=reason)
-            )
+            # CHAIN, don't clobber: agent_main may already have wired
+            # on_response_canceled to SkillServer.on_response_canceled so a
+            # barge-in cancels in-flight ask_slow_brain (long planning). A plain
+            # assignment here used to overwrite that, which is why pressing
+            # "Hi Sparky" during a long plan couldn't actually stop it.
+            _prev_cancel = self.agent.on_response_canceled
+
+            def _on_response_canceled(reason, _prev=_prev_cancel):
+                if callable(_prev):
+                    try:
+                        _prev(reason)
+                    except Exception:
+                        log.exception("prev on_response_canceled raised")
+                try:
+                    self.logger.log_response_canceled(reason=reason)
+                except Exception:
+                    log.exception("logger.log_response_canceled raised")
+
+            self.agent.on_response_canceled = _on_response_canceled
 
         # Manual Enter-to-commit: resolve the terminal fd once. We only watch
         # it when CAPTURING (see _arm/_disarm_manual_commit). Skip silently
@@ -233,6 +250,32 @@ class BrainConversationStateMachine:
     def state(self) -> State:
         return self._state
 
+    def force_idle(self, *, reason: str = "reconnect") -> None:
+        """Force the machine back to a clean wake-ready IDLE state.
+
+        Called when the Realtime session reconnects under us (see
+        BrainRealtimeAgent.on_reconnect): the previous turn's server-side
+        state died with the old socket, so any CAPTURING/THINKING/SPEAKING
+        progress is moot. Cancel the in-flight drain + plan watchdog, mute the
+        uplink (so stale mic audio buffered for the dead session isn't fed into
+        the fresh one), reset the agent's plan tracker, and land in IDLE so the
+        next "Hi Sparky" starts a clean turn. Must run on the loop thread (the
+        reconnect callback already does).
+        """
+        if self._stopped:
+            return
+        self._cancel_drain()
+        self._cancel_plan_watchdog()
+        try:
+            self.agent.set_uplink_enabled(False)
+        except Exception:  # noqa: BLE001
+            log.exception("force_idle: set_uplink_enabled failed")
+        try:
+            self.agent.reset_plan_tracker()
+        except AttributeError:
+            pass
+        self._set_state(State.IDLE, reason=reason)
+
     # ---- callbacks (thread-safe entrypoints) --------------------------------
 
     def handle_wake(self, evt) -> None:
@@ -271,6 +314,28 @@ class BrainConversationStateMachine:
 
     # ---- manual-commit stdin watcher ----------------------------------------
 
+    def _drain_stdin(self) -> None:
+        """Discard input already buffered on stdin (non-blocking).
+
+        Uses a zero-timeout select so we only consume what is *currently*
+        ready: on a canonical-mode TTY that is exactly the completed lines
+        the operator entered earlier (a half-typed line with no Enter is not
+        yet readable and is correctly left alone). Best-effort — any fd that
+        cannot be polled or read simply leaves the buffer as-is.
+        """
+        if self._stdin_fd is None:
+            return
+        try:
+            while True:
+                r, _, _ = select.select([self._stdin_fd], [], [], 0)
+                if not r:
+                    return
+                data = os.read(self._stdin_fd, 4096)
+                if not data:  # EOF — nothing more to drain
+                    return
+        except (OSError, ValueError, BlockingIOError):
+            return
+
     def _arm_manual_commit(self) -> None:
         """Watch stdin for a line (Enter) while CAPTURING.
 
@@ -283,6 +348,14 @@ class BrainConversationStateMachine:
             return
         if self._loop is None:
             return
+        # Discard anything already buffered on stdin BEFORE we start watching.
+        # A line the operator typed while we were not capturing (a stray Enter
+        # pressed in the terminal while IDLE, or QuickEdit/paste noise on
+        # Windows Terminal) otherwise becomes immediately readable the instant
+        # add_reader registers, firing a "commit now" at 0.00s — committing an
+        # empty audio buffer before the operator can speak. Only Enter pressed
+        # AFTER capture begins should count as an end-of-utterance signal.
+        self._drain_stdin()
         try:
             self._loop.add_reader(self._stdin_fd, self._on_stdin_readable)
             self._manual_commit_armed = True
@@ -352,15 +425,21 @@ class BrainConversationStateMachine:
                 self.logger.log_plan_done()
             except Exception:
                 log.exception("logger.log_plan_done raised")
-        self._cancel_plan_watchdog()
         if not self.cfg.idle_after_plan_enabled:
             # Operator opted out: stay in SPEAKING; equivalent to old behaviour.
+            self._cancel_plan_watchdog()
             return
         if self._drain_task is not None:
             self._drain_task.cancel()
         self._drain_task = asyncio.create_task(
             self._drain_to_idle(), name="bcsm-drain",
         )
+        # The plan has SIGNALLED done, so the long "plan never finished" window
+        # no longer applies — but the drain still has to land us in IDLE. Re-arm
+        # the watchdog to a short drain deadline so that if the drain task dies
+        # for ANY reason (exception, lost cancel, phone-call teardown race) we
+        # still force IDLE and wake keeps working. Reaching IDLE cancels it.
+        self._reset_plan_watchdog(self.cfg.drain_max_wait_s + 2.0)
 
     # ---- audio path ---------------------------------------------------------
 
@@ -458,6 +537,12 @@ class BrainConversationStateMachine:
             except Exception:
                 log.exception("logger.log_state_transition raised")
         self._state = new
+        # Leaving the active region (THINKING/SPEAKING) for IDLE/CAPTURING means
+        # any plan/drain recovery watchdog has done its job — disarm it here so
+        # exactly one place owns "we're no longer mid-turn". Prevents a stale
+        # watchdog from firing a spurious recovery after we've already moved on.
+        if new in (State.IDLE, State.CAPTURING):
+            self._cancel_plan_watchdog()
         # Voice-onset barge-in streak only makes sense while SPEAKING. Any
         # transition (into SPEAKING from THINKING, or out of SPEAKING) resets
         # it so a leftover partial streak can't fire across boundaries.
@@ -703,33 +788,52 @@ class BrainConversationStateMachine:
         self._set_state(State.IDLE, reason="no_speech_timeout")
 
     async def _drain_to_idle(self) -> None:
-        """Wait for speaker to drain, then transition to IDLE."""
-        deadline = time.monotonic() + self.cfg.drain_max_wait_s
-        if self.speaker is not None:
-            while time.monotonic() < deadline:
-                if self._stopped or self._state not in (State.THINKING, State.SPEAKING):
-                    return
-                try:
-                    pending = self.speaker.pending_bytes()
-                except Exception:
-                    pending = 0
-                if pending <= self.cfg.drain_threshold_bytes:
-                    break
-                try:
+        """Wait for speaker to drain, then transition to IDLE.
+
+        Robust by construction: whatever happens in the body (drain completes,
+        the max-wait deadline hits, or an unexpected exception is raised), as
+        long as this is still the live drain and no newer turn / shutdown has
+        superseded us, the ``finally`` lands us in IDLE. A drain that died here
+        without reaching IDLE was a way to get trapped in SPEAKING — and wake is
+        only honoured from IDLE, so "Hi Sparky" would silently stop working.
+        """
+        superseded = False
+        try:
+            deadline = time.monotonic() + self.cfg.drain_max_wait_s
+            if self.speaker is not None:
+                while time.monotonic() < deadline:
+                    if self._stopped or self._state not in (State.THINKING, State.SPEAKING):
+                        superseded = True
+                        return
+                    try:
+                        pending = self.speaker.pending_bytes()
+                    except Exception:
+                        pending = 0
+                    if pending <= self.cfg.drain_threshold_bytes:
+                        break
                     await asyncio.sleep(0.05)
-                except asyncio.CancelledError:
-                    return
-        if self._stopped or self._state not in (State.THINKING, State.SPEAKING):
-            return
-        self.agent.set_uplink_enabled(False)
-        self._set_state(State.IDLE, reason="plan_done_drained")
-        # Stdout ack so the operator knows the agent is back to listening
-        # for the next wake — without this the prompt looks "stuck" again
-        # because the spoken reply ended but nothing said the turn is over.
-        print(
-            "[g1_brain] idle — say 'Hi Sparky' to start the next turn",
-            flush=True,
-        )
+        except asyncio.CancelledError:
+            # Cancelled because a newer turn (wake/barge-in) or shutdown took
+            # over; those paths set their own state. Don't fight them.
+            superseded = True
+            raise
+        finally:
+            if (
+                not superseded
+                and not self._stopped
+                and self._state in (State.THINKING, State.SPEAKING)
+                and asyncio.current_task() is self._drain_task
+            ):
+                self.agent.set_uplink_enabled(False)
+                self._set_state(State.IDLE, reason="plan_done_drained")
+                # Stdout ack so the operator knows the agent is back to
+                # listening for the next wake — without this the prompt looks
+                # "stuck" because the spoken reply ended but nothing said the
+                # turn is over.
+                print(
+                    "[g1_brain] idle — say 'Hi Sparky' to start the next turn",
+                    flush=True,
+                )
 
     def _cancel_drain(self) -> None:
         if self._drain_task is not None:
@@ -755,12 +859,13 @@ class BrainConversationStateMachine:
             self._no_speech_timer.cancel()
             self._no_speech_timer = None
 
-    def _reset_plan_watchdog(self) -> None:
+    def _reset_plan_watchdog(self, timeout_s: Optional[float] = None) -> None:
         self._cancel_plan_watchdog()
+        delay = self.cfg.plan_watchdog_s if timeout_s is None else timeout_s
 
         async def _runner():
             try:
-                await asyncio.sleep(self.cfg.plan_watchdog_s)
+                await asyncio.sleep(delay)
                 self._plan_watchdog_fire()
             except asyncio.CancelledError:
                 pass
@@ -779,13 +884,33 @@ class BrainConversationStateMachine:
             return
         if self._state not in (State.THINKING, State.SPEAKING):
             return
+        # Decisive hard recovery: force IDLE directly rather than re-routing
+        # through _handle_plan_done → drain (the drain is the most likely thing
+        # to have wedged, and a phone hangup / dead plan can leave us trapped in
+        # SPEAKING/THINKING forever — wake is only honoured from IDLE, so the
+        # operator's "Hi Sparky" silently does nothing until we get back here).
         log.warning(
-            "[plan_watchdog] forcing plan_done after %.1fs (state=%s)",
-            self.cfg.plan_watchdog_s, self._state.value,
+            "[plan_watchdog] state stuck in %s; forcing IDLE so wake works again",
+            self._state.value,
         )
         if self.logger is not None:
             try:
                 self.logger.log_plan_watchdog_timeout(pending=[])
             except Exception:
                 log.exception("logger.log_plan_watchdog_timeout raised")
-        self._handle_plan_done()
+        self._cancel_drain()
+        try:
+            if self.speaker is not None:
+                self.speaker.clear()
+        except Exception:
+            log.debug("speaker.clear raised during plan_watchdog recovery",
+                      exc_info=True)
+        try:
+            self.agent.set_uplink_enabled(False)
+        except Exception:
+            log.exception("set_uplink_enabled raised during plan_watchdog recovery")
+        self._set_state(State.IDLE, reason="plan_watchdog_recovery")
+        print(
+            "[g1_brain] idle — say 'Hi Sparky' to start the next turn",
+            flush=True,
+        )

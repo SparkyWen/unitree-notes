@@ -8,6 +8,7 @@ docs/audio-control-update01.md directly.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -344,6 +345,121 @@ async def test_drain_respects_max_wait_cap():
     # After max_wait_s + slack we should still transition.
     await asyncio.sleep(0.3)
     assert sm.state == State.IDLE
+
+
+@pytest.mark.asyncio
+async def test_plan_watchdog_fire_hard_resets_stuck_speaking():
+    """The recovery watchdog must force IDLE from a stuck SPEAKING so wake works.
+
+    Regression: a wedged drain / phone-call teardown could trap the SM in
+    SPEAKING; wake is only honoured from IDLE, so 'Hi Sparky' silently died.
+    """
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    sm.speaker.set_pending(12345)  # pretend audio still queued
+    sm._plan_watchdog_fire()
+    assert sm.state == State.IDLE
+    assert sm.agent.uplink_enabled is False
+    assert sm.speaker.cleared >= 1
+    # Wake must work again now that we're back in IDLE.
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    assert sm.state == State.CAPTURING
+
+
+@pytest.mark.asyncio
+async def test_plan_done_rearms_watchdog_so_a_wedged_drain_is_recovered():
+    """plan_done re-arms (not cancels) the watchdog; firing it recovers IDLE."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        idle_after_plan_enabled=True,
+        drain_threshold_bytes=0,
+        drain_max_wait_s=5.0,           # drain stays in its loop, never lands IDLE
+        plan_watchdog_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    sm.speaker.set_pending(99999)       # drain will loop for the full 5 s
+    sm._handle_plan_done()
+    await asyncio.sleep(0.05)           # drain is now looping; still SPEAKING
+    assert sm.state == State.SPEAKING
+    # The watchdog must be armed as the safety net (NOT cancelled by plan_done).
+    assert sm._plan_watchdog_task is not None and not sm._plan_watchdog_task.done()
+    # Simulate the watchdog firing: it must cancel the wedged drain and recover.
+    sm._plan_watchdog_fire()
+    assert sm.state == State.IDLE
+
+
+@pytest.mark.asyncio
+async def test_on_response_canceled_chains_not_clobbers():
+    """start() must CHAIN a pre-wired on_response_canceled, not overwrite it.
+
+    Regression: agent_main wires on_response_canceled -> cancel_all_in_flight
+    so a barge-in stops an in-flight ask_slow_brain (long planning). start()
+    used to clobber it with a log-only lambda, so long plans couldn't be
+    interrupted.
+    """
+    prev_calls: List[str] = []
+    logger = _StubLogger()
+    sm = BrainConversationStateMachine(
+        cfg=BrainConversationConfig(no_speech_timeout_s=10.0),
+        wake_word=_StubWakeWord(),
+        utterance_vad=_StubVAD(),
+        realtime_agent=_StubAgent(),
+        mic=_StubMic(),
+        speaker=_StubSpeaker(),
+        logger=logger,
+    )
+    # Simulate agent_main's prior wiring (cancel_all_in_flight).
+    sm.agent.on_response_canceled = lambda reason: prev_calls.append(reason)
+    await sm.start()
+    try:
+        # Fire it the way BrainRealtimeAgent.cancel_in_flight() does on barge-in.
+        sm.agent.on_response_canceled("barge_in")
+    finally:
+        await sm.stop()
+    assert prev_calls == ["barge_in"], "prior cancel hook must still run"
+    assert "log_response_canceled" in logger.names(), "logging must still run too"
+
+
+@pytest.mark.asyncio
+async def test_successful_drain_disarms_watchdog():
+    """Normal drain → IDLE must leave no lingering recovery watchdog running."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        idle_after_plan_enabled=True,
+        drain_threshold_bytes=10,
+        drain_max_wait_s=1.0,
+        plan_watchdog_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    sm.speaker.set_pending(5)           # already below threshold → drains at once
+    sm._handle_plan_done()
+    await asyncio.sleep(0.1)
+    assert sm.state == State.IDLE
+    assert sm._plan_watchdog_task is None or sm._plan_watchdog_task.done()
 
 
 @pytest.mark.asyncio
@@ -695,6 +811,83 @@ async def test_manual_commit_when_stopped_is_dropped():
     assert sm.agent.commit_calls == 0
 
 
+@pytest.mark.asyncio
+async def test_arm_manual_commit_discards_stale_buffered_stdin():
+    """Bytes typed into the terminal BEFORE capture begins (a stray Enter
+    pressed while IDLE) must not commit the new utterance the instant it
+    starts.
+
+    Regression: arming the stdin reader on entering CAPTURING immediately
+    read the stale buffered line and fired manual_commit at 0.00s, committing
+    an empty audio buffer — so 'Hi Sparky' woke the agent but it never heard
+    the operator. Looked exactly like "won't wake".
+    """
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,        # don't let the no-speech timer race us
+        barge_in_min_capture_age_s=0.0,
+        idle_after_plan_enabled=False,
+        plan_watchdog_s=10.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+
+    r_fd, w_fd = os.pipe()
+    try:
+        sm._stdin_fd = r_fd
+        # Operator pressed Enter while IDLE — it sits buffered before wake.
+        os.write(w_fd, b"\n")
+
+        sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+        # Let the wake transition + any add_reader callback run.
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+
+        # The stale newline must be discarded at arm time, NOT treated as a
+        # commit. We stay in CAPTURING, listening for the real utterance.
+        assert sm.state == State.CAPTURING
+        assert sm.agent.commit_calls == 0
+    finally:
+        sm._disarm_manual_commit()
+        os.close(r_fd)
+        os.close(w_fd)
+
+
+@pytest.mark.asyncio
+async def test_manual_commit_via_stdin_after_arm_still_commits():
+    """Enter pressed AFTER capture begins must still commit immediately —
+    the stale-input flush must not disable the feature itself."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+        idle_after_plan_enabled=False,
+        plan_watchdog_s=10.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+
+    r_fd, w_fd = os.pipe()
+    try:
+        sm._stdin_fd = r_fd
+        sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+        await asyncio.sleep(0)  # wake → CAPTURING + arm reader
+        assert sm.state == State.CAPTURING
+
+        # Operator presses Enter now, while listening.
+        os.write(w_fd, b"\n")
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+            if sm.state == State.THINKING:
+                break
+
+        assert sm.state == State.THINKING
+        await asyncio.sleep(0)
+        assert sm.agent.commit_calls == 1
+    finally:
+        sm._disarm_manual_commit()
+        os.close(r_fd)
+        os.close(w_fd)
+
+
 # ------------------------- voice-onset barge-in (SPEAKING) ----------------
 
 def _pcm16_chunk(rms_target: float, n_samples: int = 1200) -> bytes:
@@ -848,3 +1041,41 @@ async def test_voice_barge_in_inactive_outside_speaking():
     assert sm.state == State.CAPTURING
     assert sm.agent.cancel_calls == 0
     assert sm.speaker.cleared == 0
+
+
+# --------------------------------------------------------------------------
+# force_idle: Realtime reconnect resets the SM to a clean wake-ready state
+# --------------------------------------------------------------------------
+#
+# When BrainRealtimeAgent.run() reconnects after a transient WS drop it calls
+# on_reconnect → sm.force_idle(). Wherever the drop left us
+# (CAPTURING/THINKING/SPEAKING), we must land in IDLE with the uplink muted so
+# the next "Hi Sparky" starts a clean turn on the fresh session.
+
+@pytest.mark.asyncio
+async def test_force_idle_from_speaking_resets_to_idle():
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm._set_state(State.SPEAKING, reason="test")
+    sm.agent.uplink_calls.clear()
+    sm.agent.reset_plan_calls = 0
+
+    sm.force_idle()
+
+    assert sm.state == State.IDLE
+    # Uplink muted so stale mic audio isn't fed into the fresh session.
+    assert sm.agent.uplink_calls and sm.agent.uplink_calls[-1] is False
+    assert sm.agent.reset_plan_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_force_idle_is_noop_after_stop():
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm._set_state(State.SPEAKING, reason="test")
+    await sm.stop()
+    sm.agent.uplink_calls.clear()
+
+    sm.force_idle()  # must not raise or touch state once stopped
+
+    assert sm.agent.uplink_calls == []

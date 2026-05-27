@@ -293,11 +293,29 @@ class Phase1Worker:
         self._stop_evt = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._on_complete_cb = None
+        self._busy_gate = None
         self._system_prompt = _load_phase1_system_prompt()
 
     def set_on_complete(self, cb) -> None:
         """cb(session_id: str) called after each successful job."""
         self._on_complete_cb = cb
+
+    def set_busy_gate(self, cb) -> None:
+        """cb() -> bool: True when a conversation turn is active.
+
+        While busy we don't CLAIM new jobs (so we never kick off a codex
+        extraction that contends with audio/VAD); an in-flight job finishes.
+        """
+        self._busy_gate = cb
+
+    def _is_busy(self) -> bool:
+        if self._busy_gate is None:
+            return False
+        try:
+            return bool(self._busy_gate())
+        except Exception:  # noqa: BLE001
+            log.exception("phase1 busy_gate raised; treating as not busy")
+            return False
 
     async def start(self) -> None:
         if self._task is not None:
@@ -320,6 +338,17 @@ class Phase1Worker:
 
     async def _loop(self) -> None:
         while not self._stop_evt.is_set():
+            # Don't start new extraction work while the operator is mid-turn —
+            # codex (reasoning=high) churns enough local CPU/GIL to delay
+            # audio/VAD/wake handling. Re-check after a short poll.
+            if self._is_busy():
+                try:
+                    await asyncio.wait_for(
+                        self._stop_evt.wait(), timeout=self._poll_interval,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                continue
             try:
                 claimed = await asyncio.to_thread(
                     self._jobs.try_claim, kind=JOB_KIND_PHASE1, lease_s=120,

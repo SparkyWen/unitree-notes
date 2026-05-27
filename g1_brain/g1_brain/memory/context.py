@@ -82,6 +82,6 @@ class ContextBuilder:
             "background knowledge. When you need detail beyond this summary, "
             "call the `recall_grep` / `recall_read` / `recall_glob` tools. "
             "For deliberation that needs multi-step reasoning over memory, "
-            "call `ask_slow_brain(query)` — sparingly, it takes 5–20 seconds.\n"
+            "call `ask_slow_brain(query)` — sparingly, it takes 10–60 seconds.\n"
         )
         return header + "\n\n" + "\n\n".join(parts) + "\n"

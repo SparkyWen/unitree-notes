@@ -266,6 +266,23 @@ class _RobotStateProducer:
             gz = self._gravity_proj_z_from_quat(quat)
         except Exception:  # noqa: BLE001
             gz = -1.0
+            quat = None
+        # Diagnostic for the recurring boot-time pose EMERGENCY_STOP
+        # (gravity_z ≈ 0). When gz reads "not upright" (> -0.85, the watchdog's
+        # default gravity_z_min), log the RAW IMU quaternion — throttled to once
+        # per 2s — so we can tell a genuinely tilted/settling robot apart from a
+        # bad read (wrong field/order, or all-zeros). This only logs; it does
+        # NOT change any safety threshold.
+        if quat is not None and gz > -0.85:
+            _now = time.monotonic()
+            if _now - getattr(self, "_last_pose_diag_t", 0.0) > 2.0:
+                self._last_pose_diag_t = _now
+                log.warning(
+                    "pose diag: gravity_z=%.3f raw imu quaternion(wxyz)="
+                    "(%.4f, %.4f, %.4f, %.4f) lowstate_age=%.2fs — reads not-upright",
+                    gz, quat[0], quat[1], quat[2], quat[3],
+                    max(0.0, _now - last_t),
+                )
         try:
             ang_vel = (
                 float(s.imu_state.gyroscope[0]),
@@ -341,14 +358,16 @@ def _try_import_camera_hub():
         return None
 
 
-def _try_build_perception_runner(cfg, scene_bus, robot_bus):
+def _try_build_perception_runner(cfg, scene_bus, robot_bus, camera_hub=None):
     try:
         from ..perception.runner import PerceptionRunner
     except Exception as e:  # noqa: BLE001
         log.warning("PerceptionRunner import failed (mediapipe/ultralytics?): %s", e)
         return None
     try:
-        return PerceptionRunner(cfg, scene_bus, robot_bus)
+        # Share agent_main's CameraHub so perception doesn't spin up a SECOND
+        # head-cam render thread for the same camera (doubled llvmpipe CPU).
+        return PerceptionRunner(cfg, scene_bus, robot_bus, camera_hub=camera_hub)
     except Exception as e:  # noqa: BLE001
         log.warning("PerceptionRunner construction failed: %s", e)
         return None
@@ -549,6 +568,123 @@ async def _event_loop_lag_monitor(
 # ---------------------------------------------------------------------------
 # Main async run
 # ---------------------------------------------------------------------------
+
+
+async def _announce_ready_when_warm(
+    session_ready_evt: asyncio.Event,
+    wake,
+    *,
+    max_wait_s: float = 90.0,
+    poll_s: float = 0.5,
+) -> None:
+    """Print the "say Hi Sparky" banner only once the system can actually hear.
+
+    Two gates must both pass: (1) the Realtime session is up (session.created),
+    and (2) the wake-word worker thread is cycling at ~its configured rate —
+    i.e. it is no longer starved of the GIL by the boot-time perception + codex
+    load. Firing the banner on (1) alone (the old behaviour) printed "Sparky is
+    READY" ~30 s before the detector could run, so the operator's wake word was
+    dropped and the app looked frozen ("无论我怎么 hi sparky 都没有用").
+
+    A ``max_wait_s`` cap guarantees the banner always eventually prints (with a
+    caveat) so behaviour is never worse than the old unconditional banner.
+    """
+    banner = (
+        "\n"
+        "============================================================\n"
+        "  ✅ Sparky is READY — say \"Hi Sparky\" to start talking\n"
+        "============================================================\n"
+    )
+    try:
+        await session_ready_evt.wait()
+    except asyncio.CancelledError:
+        return
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max_wait_s
+    warming_announced = False
+    capped = False
+    while True:
+        try:
+            healthy = wake.worker_healthy()
+        except Exception:  # noqa: BLE001 — never let a probe bug suppress READY
+            healthy = True
+        if healthy:
+            break
+        if loop.time() >= deadline:
+            capped = True
+            break
+        if not warming_announced:
+            print(
+                "\n[g1_brain] session connected — warming up "
+                "(perception + memory still settling); "
+                "\"Hi Sparky\" will start working in a few seconds …",
+                flush=True,
+            )
+            warming_announced = True
+        try:
+            await asyncio.sleep(poll_s)
+        except asyncio.CancelledError:
+            return
+    if capped:
+        banner += "  (note: still under heavy boot load — the first wake may lag)\n"
+    print(banner, flush=True)
+
+
+async def _start_perception_bg(perception) -> None:
+    """Run ``PerceptionRunner.start()`` OFF the event-loop thread.
+
+    ``start()`` loads YOLO→CUDA, MediaPipe pose, and clones a head-cam MjModel —
+    tens of seconds of GIL-heavy work. Done synchronously on the event loop (the
+    old behaviour) it froze audio/VAD/log handling for the entire load: the
+    heartbeat measured a single 1 s sleep taking ~49 s, the wake-word worker
+    could not run, and "Hi Sparky" was silently dropped — the reported "卡住,
+    多次唤醒没用". Run in a worker thread the event loop keeps servicing audio
+    while perception warms up in the background, so the wake-word path comes up
+    in seconds. Movement stays gated by the safety watchdogs (head_frame /
+    ground constraint) until perception produces fresh frames, so starting it
+    in the background is safe.
+    """
+    import time
+
+    t0 = time.monotonic()
+    try:
+        await asyncio.to_thread(perception.start)
+    except asyncio.CancelledError:
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("perception background start failed (continuing degraded)")
+        return
+    log.info(
+        "perception: background start complete in %.1fs "
+        "(event loop stayed responsive during model load)",
+        time.monotonic() - t0,
+    )
+
+
+def _prewarm_torch() -> None:
+    """Fully import ``torch`` on the calling (event-loop) thread.
+
+    Backgrounding perception moved its ``import torch`` (via ultralytics) onto a
+    worker thread. If the main thread then imports scipy (phone bridge →
+    audio_codec → ``scipy.signal``/``scipy.stats``), scipy's import-time
+    array-API probe does an UNGUARDED ``getattr(torch, "Tensor")`` and crashes
+    on the half-initialised torch module ("partially initialized module 'torch'
+    … most likely due to a circular import"). torch gets imported either way;
+    completing it here first makes every later ``import torch`` a cache hit and
+    every ``getattr(torch, …)`` see a fully-built module, so the race is gone.
+    One-time cost (~1.5 s); a no-op/fast path if torch is already imported.
+    """
+    import time
+
+    t0 = time.monotonic()
+    try:
+        import torch  # noqa: F401
+    except Exception:  # noqa: BLE001 — perception will surface its own error
+        return
+    log.info(
+        "perception: pre-imported torch in %.1fs (serializes the bg import race)",
+        time.monotonic() - t0,
+    )
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -969,15 +1105,28 @@ async def _run(args: argparse.Namespace) -> int:
             watchdogs = None
 
     # ---- perception ----
+    # PerceptionRunner.start() is launched in the BACKGROUND (a worker thread)
+    # rather than synchronously here: its model load (YOLO→CUDA, MediaPipe,
+    # head-cam MjModel) used to block the event loop for ~49 s at boot, starving
+    # the wake-word path so "Hi Sparky" did nothing until it finished. Nothing
+    # built after this point needs perception to have *finished* — downstream
+    # consumers (skill_server, brain, vision) read ``scene_bus`` + the separate
+    # ``camera_hub`` (built at line ~752), and movement is gated by the safety
+    # watchdogs until perception publishes fresh frames. See _start_perception_bg.
     perception = None
+    perception_start_task = None
     if not args.no_perception:
-        perception = _try_build_perception_runner(cfg, scene_bus, robot_bus)
+        perception = _try_build_perception_runner(
+            cfg, scene_bus, robot_bus, camera_hub=camera_hub,
+        )
         if perception is not None:
-            try:
-                perception.start()
-            except Exception as e:  # noqa: BLE001
-                log.warning("PerceptionRunner.start failed: %s", e)
-                perception = None
+            # MUST complete torch's import on this thread BEFORE the background
+            # loader starts importing it, or scipy's import-time torch probe
+            # (phone bridge, below) races the half-built module and crashes.
+            _prewarm_torch()
+            perception_start_task = asyncio.create_task(
+                _start_perception_bg(perception), name="perception-start",
+            )
 
     # ---- TTS + vision ----
     from openai import OpenAI
@@ -1233,6 +1382,17 @@ async def _run(args: argparse.Namespace) -> int:
     elif brain_agent is not None:
         log.info("wake-word DISABLED; Realtime uplink runs continuously")
 
+    # ---- memory: pause Phase1/Phase2 codex work while a turn is in progress.
+    # The state machine exists now, so wire a busy-gate: memory won't start new
+    # extraction/consolidation while state != IDLE, so codex stops stealing the
+    # GIL/CPU from audio/VAD/wake mid-conversation.
+    if memory_subsystem is not None and sm is not None:
+        try:
+            memory_subsystem.set_busy_gate(lambda _sm=sm: _sm.state.value != "IDLE")
+            log.info("memory: busy-gate wired (pause codex while conversation active)")
+        except Exception:  # noqa: BLE001
+            log.exception("wiring memory busy-gate failed")
+
     # ---- memory: chain on_plan_done AFTER state-machine init so we don't
     # clobber the state machine's own handler (which set itself just above).
     if memory_subsystem is not None and brain_agent is not None:
@@ -1272,6 +1432,7 @@ async def _run(args: argparse.Namespace) -> int:
                 auto_trigger = None
 
     # ---- main loop ----
+    ready_banner_task = None
     try:
         if brain_agent is None:
             log.info("realtime disabled; idling. Ctrl-C to exit.")
@@ -1279,12 +1440,35 @@ async def _run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(1.0)
         else:
             if sm is not None:
+                # Loud, unmissable "now listening" banner — but ONLY once the
+                # wake-word worker can actually run. Startup takes ~60-70 s
+                # (perception models, DDS, memory) and for ~30 s AFTER the
+                # Realtime session connects the perception inference burst +
+                # codex backfill keep the wake-word worker thread starved of the
+                # GIL. Firing the banner on session.created alone told operators
+                # to talk into a detector that physically couldn't run yet — the
+                # reported "stuck at READY, Hi Sparky does nothing". So we gate
+                # the banner on session-up AND worker liveness. See
+                # _announce_ready_when_warm.
+                session_ready_evt = asyncio.Event()
+                brain_agent.on_session_ready = session_ready_evt.set
+                # If the Realtime WS drops and reconnects (see
+                # BrainRealtimeAgent.run), the old turn's state died with the
+                # socket — reset the SM to a clean wake-ready IDLE so the next
+                # "Hi Sparky" works on the fresh session.
+                brain_agent.on_reconnect = sm.force_idle
                 await sm.start()
+                ready_banner_task = asyncio.create_task(
+                    _announce_ready_when_warm(session_ready_evt, sm.wake_word),
+                    name="ready-banner",
+                )
             else:
                 brain_agent.set_uplink_enabled(True)
             await brain_agent.run()
     finally:
         log.info("shutting down ...")
+        if ready_banner_task is not None:
+            ready_banner_task.cancel()
         if lag_monitor_task is not None:
             lag_monitor_task.cancel()
         # sm.stop() is a coroutine; the rest are sync. Each step is bounded
@@ -1302,6 +1486,11 @@ async def _run(args: argparse.Namespace) -> int:
                 log.exception("conversation sm.stop failed")
         if auto_trigger is not None:
             await _shutdown_step("auto_trigger.stop", auto_trigger.stop)
+        if perception_start_task is not None:
+            # If perception is still loading in its worker thread, abandon the
+            # await (the thread can't be force-killed, but the process is going
+            # away). perception.stop() below is defensive against partial init.
+            perception_start_task.cancel()
         if perception is not None:
             await _shutdown_step("perception.stop", perception.stop)
         if watchdogs is not None:
@@ -1367,6 +1556,10 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             model=wakeword_cfg.get("openai_model", "gpt-4o-transcribe"),
             prompt=wakeword_cfg.get("openai_prompt", "Sparky"),
             language=wakeword_cfg.get("language") or None,
+            # Bound the per-call HTTP timeout: the wake loop is single-threaded,
+            # so a hung transcribe at the SDK default (read=600 s) freezes wake
+            # for ~10 min. See va_demo.wake_word.OpenAITranscribeBackend.
+            timeout_s=float(wakeword_cfg.get("openai_timeout_s", 8.0)),
         )
     elif backend_name == "local":
         backend = FasterWhisperBackend(
@@ -1523,6 +1716,33 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _drain_pending_tasks(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) -> None:
+    """Cancel and await every task still pending before the loop closes.
+
+    main() drives the loop manually (not ``asyncio.run``), so it otherwise
+    skips the cancel-all-tasks step ``asyncio.run`` performs internally — and
+    any straggler (a subsystem whose ``stop()`` timed out, the daemon/phase1
+    background loops, a subprocess transport's ``_connect_pipes``) gets GC'd
+    while pending, emitting "Task was destroyed but it is pending!". This
+    mirrors ``asyncio.runners._cancel_all_tasks`` with a bounded wait so a task
+    that ignores cancellation can't hang shutdown.
+    """
+    to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    if not to_cancel:
+        return
+    for task in to_cancel:
+        task.cancel()
+    try:
+        loop.run_until_complete(
+            asyncio.wait_for(
+                asyncio.gather(*to_cancel, return_exceptions=True),
+                timeout=timeout,
+            )
+        )
+    except Exception:  # noqa: BLE001 — timeout or task error; proceed to close
+        pass
+
+
 def main() -> int:
     _ensure_sibling_repos_on_path()
     args = parse_args()
@@ -1573,8 +1793,12 @@ def main() -> int:
         pass
     finally:
         sup_task.cancel()
+        # Drain stragglers so the loop doesn't GC them with "Task was destroyed
+        # but it is pending!" (subsystem stop()s that timed out, daemon/phase1
+        # loops, subprocess transports). Replaces the old single sleep(0).
+        _drain_pending_tasks(loop)
         try:
-            loop.run_until_complete(asyncio.sleep(0))
+            loop.run_until_complete(loop.shutdown_asyncgens())
         except Exception:  # noqa: BLE001
             pass
         loop.close()

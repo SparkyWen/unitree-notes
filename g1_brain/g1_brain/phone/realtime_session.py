@@ -102,9 +102,19 @@ class PhoneRealtimeSession(BrainRealtimeAgent):
                 await self.transport.clear_outbound()
             except Exception:
                 log.exception("transport.clear_outbound raised")
-            # Only cancel in-flight if there is actually an active response.
-            # Sending response.cancel with no active response causes OpenAI to
-            # return a 400 response_cancel_not_active error (non-fatal but noisy).
+            # Cancel any in-flight slow-brain ask FIRST, independent of whether
+            # an OpenAI response is active. A long ask_slow_brain runs AFTER its
+            # response.done (so _current_response_id is already None), which is
+            # exactly the "long planning" case the caller wants to interrupt —
+            # gating this on _current_response_id meant it could never be
+            # cancelled and the caller couldn't stop a long plan over the phone.
+            if self.on_response_canceled is not None:
+                try:
+                    self.on_response_canceled("phone_barge_in")
+                except Exception:
+                    log.exception("on_response_canceled raised")
+            # Only send response.cancel when a response is actually active —
+            # otherwise OpenAI returns a 400 response_cancel_not_active (noisy).
             if getattr(self, "_current_response_id", None):
                 try:
                     await self.cancel_in_flight()

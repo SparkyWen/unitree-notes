@@ -604,7 +604,7 @@ class SafetySupervisor:
             try:
                 if "timeout_s" in args:
                     t = float(args["timeout_s"])
-                    sanitized["timeout_s"] = _clip(t, 3.0, 60.0)
+                    sanitized["timeout_s"] = _clip(t, 3.0, 90.0)
             except (TypeError, ValueError):
                 pass
             return sanitized

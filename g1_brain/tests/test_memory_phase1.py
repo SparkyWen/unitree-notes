@@ -301,3 +301,43 @@ async def test_phase1_worker_loop_drains_pending(tmp_path: Path, storage) -> Non
     row = storage.get_stage1_output("s3")
     assert row is not None
     assert row["raw_memory"] == "- hi"
+
+
+@pytest.mark.asyncio
+async def test_phase1_busy_gate_pauses_then_resumes(tmp_path: Path, storage) -> None:
+    """While the busy-gate reports a turn is active, no job is claimed; once it
+    clears, the pending job drains. This is the 'don't run codex during my
+    conversation' fix."""
+    jsonl = tmp_path / "b.jsonl"
+    _write_jsonl(jsonl, [
+        {"uuid": "1", "session_id": "sb", "turn_id": "t-0001",
+         "timestamp": "T", "type": "user",
+         "message": {"role": "user",
+                     "content": [{"type": "text", "text": "hi"}]}},
+    ])
+    storage.upsert_session(session_id="sb", rollout_path=jsonl)
+    js = JobScheduler(storage)
+    js.enqueue(kind=JOB_KIND_PHASE1, job_key="sb")
+
+    codex = _FakeCodexClient(response_text=json.dumps({
+        "raw_memory": "- hi", "rollout_summary": "h", "rollout_slug": "hi",
+    }))
+    busy = {"v": True}
+    done_evt = asyncio.Event()
+    worker = Phase1Worker(
+        storage=storage, jobs=js, codex=codex, poll_interval_s=0.05,
+    )
+    worker.set_busy_gate(lambda: busy["v"])
+    worker.set_on_complete(lambda sid: done_evt.set())
+    await worker.start()
+    try:
+        # While busy, the job must NOT be claimed/processed.
+        await asyncio.sleep(0.25)
+        assert js.status_of(JOB_KIND_PHASE1, "sb") != JOB_STATUS_DONE
+        assert not done_evt.is_set()
+        # Release the gate → the worker drains the pending job.
+        busy["v"] = False
+        await asyncio.wait_for(done_evt.wait(), timeout=3.0)
+    finally:
+        await worker.stop()
+    assert js.status_of(JOB_KIND_PHASE1, "sb") == JOB_STATUS_DONE

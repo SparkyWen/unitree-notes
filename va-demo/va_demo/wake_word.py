@@ -16,8 +16,9 @@ import logging
 import re
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Protocol
+from typing import Callable, Deque, List, Optional, Protocol
 
 import numpy as np
 
@@ -92,10 +93,22 @@ class OpenAITranscribeBackend:
         model: str = "gpt-4o-mini-transcribe",
         prompt: Optional[str] = "Sparky",
         language: Optional[str] = None,
+        timeout_s: float = 8.0,
+        max_retries: int = 0,
     ):
         from openai import OpenAI
 
-        self._client = OpenAI()
+        # The wake loop is single-threaded and calls transcribe() synchronously
+        # (see WakeWordDetector._loop). The OpenAI SDK default is read=600 s with
+        # 2 retries, so ONE hung request — server never returns response headers,
+        # a half-open TCP — freezes wake-word detection for up to ~10 minutes.
+        # Observed in the field as "stuck, can't wake up"; py-spy caught the
+        # worker parked in ssl.read inside transcribe() for >9 min. Bound the
+        # per-call timeout small and disable retries so a stalled call raises
+        # promptly; _loop catches the exception and resumes on the next
+        # iteration. A normal wake transcribe of the 1.5 s window is ~0.2-0.5 s,
+        # so a few seconds is comfortably above the happy path.
+        self._client = OpenAI(timeout=timeout_s, max_retries=max_retries)
         self._model = model
         self._prompt = prompt
         self._language = language
@@ -201,6 +214,15 @@ class WakeWordDetector:
         self._thread: Optional[threading.Thread] = None
         self._last_fire = 0.0
 
+        # Worker-thread liveness heartbeat. Each loop iteration appends a
+        # monotonic timestamp; worker_healthy() reports whether the thread is
+        # cycling near its configured rate. A worker starved of the GIL/CPU by
+        # the boot-time perception + codex load ticks far slower than
+        # ``period_s`` — agent_main gates the "say Hi Sparky" banner on this so
+        # it is never printed while the detector physically cannot run.
+        self._tick_times: Deque[float] = deque()
+        self._tick_lock = threading.Lock()
+
     @staticmethod
     def _normalize(s: str) -> str:
         s = s.lower()
@@ -241,9 +263,36 @@ class WakeWordDetector:
                 drop = len(self._buf) - self._window_bytes
                 del self._buf[:drop]
 
+    def _record_tick(self) -> None:
+        """Heartbeat: one timestamp per worker-loop iteration (post-sleep)."""
+        now = time.monotonic()
+        with self._tick_lock:
+            self._tick_times.append(now)
+            cutoff = now - 30.0
+            while self._tick_times and self._tick_times[0] < cutoff:
+                self._tick_times.popleft()
+
+    def worker_healthy(self, min_ticks: int = 3, max_factor: float = 3.0) -> bool:
+        """True once the worker thread is cycling near its configured rate.
+
+        The worker sleeps ``period_s`` then needs the GIL to continue; when
+        perception/codex saturate the box at boot it cannot re-acquire the GIL
+        promptly, so it ticks far slower than ``inference_rate_hz``. We count
+        ticks over a span of a few healthy periods and return False until the
+        thread catches up — letting the caller hold the "say Hi Sparky" banner
+        until the detector can actually hear the operator. Returns False before
+        the worker has started (no ticks yet).
+        """
+        window_s = max(1.0, max_factor * self._period_s * min_ticks)
+        now = time.monotonic()
+        with self._tick_lock:
+            recent = sum(1 for t in self._tick_times if t >= now - window_s)
+        return recent >= min_ticks
+
     def _loop(self) -> None:
         while not self._stopped.is_set():
             time.sleep(self._period_s)
+            self._record_tick()
             if self._paused.is_set():
                 continue
             with self._buf_lock:

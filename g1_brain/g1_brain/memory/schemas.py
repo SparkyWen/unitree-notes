@@ -113,14 +113,33 @@ class MemoryConfig:
     phase2_max_raw_memories: int = 256
     phase2_max_unused_days: int = 30
 
+    # Resource-contention controls. Phase1/Phase2 run codex (reasoning=high)
+    # which, even though the model runs out-of-process, drives enough local
+    # GIL/CPU work (JSONL projection, git, file I/O, the codex client read
+    # loop) to starve the audio/VAD event loop mid-conversation. When
+    # defer_when_conversation_active is on, the workers will not CLAIM new jobs
+    # while a turn is in progress (state != IDLE) — an in-flight job still
+    # finishes, but nothing new starts until the operator is idle again.
+    defer_when_conversation_active: bool = True
+    # Historical backfill only enqueues Phase1 jobs, but we still keep it off
+    # the synchronous start() path and let startup settle first so it can't
+    # pile onto the perception-model-load stall at boot. The window the worker
+    # stays GIL-starved after the Realtime session connects is ~30 s, so this
+    # default must clear it with margin (the old 20 s landed in the operator's
+    # first "Hi Sparky"). See configs/g1_brain.yaml.
+    backfill_delay_s: float = 90.0
+
     slow_brain_model: str = ""
-    ask_default_timeout_s: float = 20.0
+    # Slow-brain ask wait budget. The operator found 45 s too short for xhigh
+    # deliberation, so the default ceiling is 90 s. The fast brain may request
+    # less per-call; supervisor clamps requests to [3, 90].
+    ask_default_timeout_s: float = 90.0
     ask_queue_max: int = 2
     daemon_ping_interval_s: float = 30.0
     daemon_restart_max_attempts: int = 5
 
     # Applied to every codex invocation (daemon mcp-server + exec). The user
-    # asked for "high + 1.5x speed" by default. service_tier="fast" maps to
+    # asked for "xhigh + 1.5x speed" by default. service_tier="fast" maps to
     # OpenAI's "Fast" priority tier ("1.5x speed, increased usage" per
     # codex-rs models.json). NB: in TOML config it must be the lowercase
     # serde variant name ("fast" or "flex"), NOT the API request_value
@@ -128,7 +147,8 @@ class MemoryConfig:
     # "unknown variant". Set to "" / "auto" to fall back to account default.
     # reasoning_summary="concise" keeps progress notifications small so
     # daemon's StreamReader doesn't choke on a single 64 KB+ JSONL line.
-    codex_reasoning_effort: str = "high"
+    # "xhigh" is the deepest reasoning tier (validated present in codex 0.128).
+    codex_reasoning_effort: str = "xhigh"
     codex_reasoning_summary: str = "concise"
     codex_service_tier: str = "fast"
     # StreamReader buffer for codex stdout. Some notifications carry full

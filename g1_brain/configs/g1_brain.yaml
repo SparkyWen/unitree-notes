@@ -79,11 +79,20 @@ perception:
     enabled: true
     weights: "yolo11s.pt"
     conf: 0.4
-    inference_hz: 15
+    # Each detector source thread saturates one CPU core per inference and
+    # holds the GIL through ultralytics' Python-side pre/post (object_detector
+    # line 62). At 15 Hz × 2 sources + pose @ 15 Hz this kept the asyncio event
+    # loop GIL-starved (see agent_main `_event_loop_lag_monitor`), so mic chunks
+    # stopped reaching the wake worker and "Hi Sparky" was dropped "in various
+    # situations". 5 Hz cuts that contention ~3× while staying responsive enough
+    # for vision-gate / obstacle checks. Drop `usb` from sources below for a
+    # further halving if wake is still flaky on this box.
+    inference_hz: 5
     sources: ["head", "usb"]    # which streams to detect on
   pose:
     enabled: true
-    inference_hz: 15
+    # Lowered 15 -> 5 for the same wake/event-loop GIL reason as yolo above.
+    inference_hz: 5
     min_visibility: 0.5
     gesture_persist_frames: 3
     gesture_min_confidence: 0.7
@@ -196,6 +205,14 @@ wakeword:
   # for perceived wake responsiveness. Override per-run via wakeword.openai_model.
   openai_model: "gpt-4o-mini-transcribe"
   openai_prompt: "Sparky"
+  # Per-call HTTP timeout for the wake transcribe. The wake loop is a SINGLE
+  # worker thread doing a synchronous transcribe; the OpenAI SDK default
+  # (read=600 s, 2 retries) means one hung request freezes wake for ~10 min
+  # (field-observed "stuck, can't wake up"; py-spy caught the worker in
+  # ssl.read for >9 min). A normal transcribe of the 1.5 s window is
+  # ~0.2-0.5 s, so 8 s fails fast on a stall while never tripping the happy
+  # path. Retries are forced to 0 in code so a stall isn't multiplied.
+  openai_timeout_s: 8.0
   rolling_window_s: 1.5
   # Bumped from 3 → 5 Hz to address operator-reported "first Hi-Sparky
   # misses during TTS, second one interrupts". A "Hi Sparky" utterance
@@ -409,12 +426,32 @@ memory:
   # Drop stage1 outputs unused for this long when picking Phase2 inputs.
   phase2_max_unused_days: 30
 
+  # Resource contention: when true, Phase1/Phase2 will NOT start new codex work
+  # while a conversation turn is active (state != IDLE). An in-flight job still
+  # finishes; nothing new starts until the operator is idle. Stops codex from
+  # stealing the GIL/CPU from audio/VAD/wake mid-conversation.
+  defer_when_conversation_active: true
+  # Historical backfill is deferred off the synchronous startup path and waits
+  # this long before enqueueing. It must clear the whole boot-warmup window:
+  # for ~30 s after the Realtime session connects, perception's initial
+  # inference burst already starves the wake-word worker thread, and a codex
+  # backfill storm landing on top of that (the old 20 s value fired right into
+  # the operator's first "Hi Sparky") kept wake dead. 90 s pushes backfill well
+  # past the point the operator is talking.
+  backfill_delay_s: 90
+
   # ask_slow_brain persistent Codex daemon (codex mcp-server)
   slow_brain_model: ""
-  ask_default_timeout_s: 20
+  # 45 s was too short for xhigh deliberation; 90 s is the default/ceiling.
+  # Supervisor clamps per-call timeout_s requests to [3, 90].
+  ask_default_timeout_s: 90
   ask_queue_max: 2
   daemon_ping_interval_s: 30
   daemon_restart_max_attempts: 5
+  # Codex subscription tier for every codex call (daemon + phase1/2):
+  # deepest reasoning (xhigh) on the 1.5x-speed Fast priority tier.
+  codex_reasoning_effort: "xhigh"
+  codex_service_tier: "fast"
 
   # Recall budgets exposed to the fast brain
   passive_summary_max_tokens: 2500

@@ -170,7 +170,7 @@ def _build_phone_session(
     and the override methods take over at runtime.
     """
     from unittest.mock import MagicMock
-    return PhoneRealtimeSession(
+    session = PhoneRealtimeSession(
         api_key=api_key,
         model=phone_cfg.realtime_model,
         voice=phone_cfg.realtime_voice,
@@ -193,6 +193,14 @@ def _build_phone_session(
         # in the first place.
         phone_enabled=False,
     )
+    # Wire barge-in → cancel in-flight ask_slow_brain. Without this, a caller
+    # who starts talking over a long plan can't actually interrupt it: the
+    # SkillServer's slow-brain ask keeps running to its full timeout.
+    if hasattr(skill_server, "on_response_canceled"):
+        session.on_response_canceled = (
+            lambda reason, _ss=skill_server: _ss.on_response_canceled(reason)
+        )
+    return session
 
 
 async def _run_with_greeting(

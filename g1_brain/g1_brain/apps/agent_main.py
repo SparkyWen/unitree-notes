@@ -266,6 +266,23 @@ class _RobotStateProducer:
             gz = self._gravity_proj_z_from_quat(quat)
         except Exception:  # noqa: BLE001
             gz = -1.0
+            quat = None
+        # Diagnostic for the recurring boot-time pose EMERGENCY_STOP
+        # (gravity_z ≈ 0). When gz reads "not upright" (> -0.85, the watchdog's
+        # default gravity_z_min), log the RAW IMU quaternion — throttled to once
+        # per 2s — so we can tell a genuinely tilted/settling robot apart from a
+        # bad read (wrong field/order, or all-zeros). This only logs; it does
+        # NOT change any safety threshold.
+        if quat is not None and gz > -0.85:
+            _now = time.monotonic()
+            if _now - getattr(self, "_last_pose_diag_t", 0.0) > 2.0:
+                self._last_pose_diag_t = _now
+                log.warning(
+                    "pose diag: gravity_z=%.3f raw imu quaternion(wxyz)="
+                    "(%.4f, %.4f, %.4f, %.4f) lowstate_age=%.2fs — reads not-upright",
+                    gz, quat[0], quat[1], quat[2], quat[3],
+                    max(0.0, _now - last_t),
+                )
         try:
             ang_vel = (
                 float(s.imu_state.gyroscope[0]),

@@ -405,6 +405,38 @@ async def test_plan_done_rearms_watchdog_so_a_wedged_drain_is_recovered():
 
 
 @pytest.mark.asyncio
+async def test_on_response_canceled_chains_not_clobbers():
+    """start() must CHAIN a pre-wired on_response_canceled, not overwrite it.
+
+    Regression: agent_main wires on_response_canceled -> cancel_all_in_flight
+    so a barge-in stops an in-flight ask_slow_brain (long planning). start()
+    used to clobber it with a log-only lambda, so long plans couldn't be
+    interrupted.
+    """
+    prev_calls: List[str] = []
+    logger = _StubLogger()
+    sm = BrainConversationStateMachine(
+        cfg=BrainConversationConfig(no_speech_timeout_s=10.0),
+        wake_word=_StubWakeWord(),
+        utterance_vad=_StubVAD(),
+        realtime_agent=_StubAgent(),
+        mic=_StubMic(),
+        speaker=_StubSpeaker(),
+        logger=logger,
+    )
+    # Simulate agent_main's prior wiring (cancel_all_in_flight).
+    sm.agent.on_response_canceled = lambda reason: prev_calls.append(reason)
+    await sm.start()
+    try:
+        # Fire it the way BrainRealtimeAgent.cancel_in_flight() does on barge-in.
+        sm.agent.on_response_canceled("barge_in")
+    finally:
+        await sm.stop()
+    assert prev_calls == ["barge_in"], "prior cancel hook must still run"
+    assert "log_response_canceled" in logger.names(), "logging must still run too"
+
+
+@pytest.mark.asyncio
 async def test_successful_drain_disarms_watchdog():
     """Normal drain → IDLE must leave no lingering recovery watchdog running."""
     cfg = BrainConversationConfig(

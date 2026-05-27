@@ -184,9 +184,25 @@ class BrainConversationStateMachine:
             self.agent.on_assistant_transcript_done = self.logger.log_assistant_transcript
             self.agent.on_tool_use = self.logger.log_tool_use
             self.agent.on_tool_result = self.logger.log_tool_result
-            self.agent.on_response_canceled = (
-                lambda reason: self.logger.log_response_canceled(reason=reason)
-            )
+            # CHAIN, don't clobber: agent_main may already have wired
+            # on_response_canceled to SkillServer.on_response_canceled so a
+            # barge-in cancels in-flight ask_slow_brain (long planning). A plain
+            # assignment here used to overwrite that, which is why pressing
+            # "Hi Sparky" during a long plan couldn't actually stop it.
+            _prev_cancel = self.agent.on_response_canceled
+
+            def _on_response_canceled(reason, _prev=_prev_cancel):
+                if callable(_prev):
+                    try:
+                        _prev(reason)
+                    except Exception:
+                        log.exception("prev on_response_canceled raised")
+                try:
+                    self.logger.log_response_canceled(reason=reason)
+                except Exception:
+                    log.exception("logger.log_response_canceled raised")
+
+            self.agent.on_response_canceled = _on_response_canceled
 
         # Manual Enter-to-commit: resolve the terminal fd once. We only watch
         # it when CAPTURING (see _arm/_disarm_manual_commit). Skip silently

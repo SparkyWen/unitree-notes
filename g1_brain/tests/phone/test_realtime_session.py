@@ -124,6 +124,27 @@ async def test_handle_event_speech_started_clears_outbound_and_cancels():
 
 
 @pytest.mark.asyncio
+async def test_speech_started_cancels_ask_even_without_active_response():
+    """A long ask_slow_brain runs AFTER its response.done (no active response).
+
+    The caller must still be able to interrupt it by talking, so speech_started
+    must fire on_response_canceled regardless of _current_response_id, while NOT
+    sending response.cancel when there is no active response (avoids the noisy
+    400 response_cancel_not_active).
+    """
+    transport = MagicMock()
+    transport.clear_outbound = AsyncMock()
+    s = _make_session(transport=transport)
+    cancelled = []
+    s.on_response_canceled = lambda reason: cancelled.append(reason)
+    s.cancel_in_flight = AsyncMock()
+    s._current_response_id = None  # long plan in flight; no active response
+    await s._handle_event(MagicMock(), {"type": "input_audio_buffer.speech_started"})
+    assert cancelled, "barge-in must cancel in-flight ask even with no active response"
+    s.cancel_in_flight.assert_not_awaited()  # nothing to response.cancel
+
+
+@pytest.mark.asyncio
 async def test_handle_event_unrelated_event_delegates_to_super(monkeypatch):
     s = _make_session()
     super_called = {"yes": False}

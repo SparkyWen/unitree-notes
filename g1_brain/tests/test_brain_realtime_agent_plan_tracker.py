@@ -164,6 +164,21 @@ async def test_leaf_response_done_fires_plan_done():
 
 
 @pytest.mark.asyncio
+async def test_on_session_ready_fires_once_on_first_session_created():
+    """The 'now listening' banner hook fires exactly once, on session.created."""
+    agent = _make_agent()
+    fired = []
+    agent.on_session_ready = lambda: fired.append(1)
+    await agent._handle_event(_RecordingWS(), {"type": "session.created"})
+    assert fired == [1]
+    # A second session.created (reconnect) must not re-fire the banner.
+    await agent._handle_event(_RecordingWS(), {"type": "session.created"})
+    # session.updated must never fire it.
+    await agent._handle_event(_RecordingWS(), {"type": "session.updated"})
+    assert fired == [1]
+
+
+@pytest.mark.asyncio
 async def test_intermediate_response_done_does_not_fire_plan_done():
     """response.done whose response had a function_call must not fire plan_done."""
     agent = _make_agent()

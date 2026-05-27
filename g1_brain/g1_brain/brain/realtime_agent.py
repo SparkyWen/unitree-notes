@@ -84,9 +84,15 @@ class BrainRealtimeAgent(RealtimeAgent):
     on_tool_result: Optional[Callable[[str, str, Dict[str, Any]], None]] = None
     on_response_canceled: Optional[Callable[[str], None]] = None
     on_plan_done: Optional[Callable[[], None]] = None
+    # Fired once, the first time the Realtime session is up (session.created).
+    # agent_main uses it to print a loud "now listening" banner so the operator
+    # knows when "Hi Sparky" will actually be heard — startup buries that
+    # moment ~60-70 s deep under DDS / perception / OpenAI log noise.
+    on_session_ready: Optional[Callable[[], None]] = None
 
     def __post_init__(self):
         super().__post_init__()
+        self._session_ready_fired: bool = False
         if self.skill_server is None:
             log.warning(
                 "BrainRealtimeAgent created without skill_server; tool calls "
@@ -283,6 +289,13 @@ class BrainRealtimeAgent(RealtimeAgent):
                    # GA split conversation.item.created into added + done.
                    "conversation.item.added", "conversation.item.done",
                    "conversation.item.created"):
+            if t == "session.created" and not self._session_ready_fired:
+                self._session_ready_fired = True
+                if self.on_session_ready is not None:
+                    try:
+                        self.on_session_ready()
+                    except Exception:
+                        log.exception("on_session_ready raised")
             log.debug("rt event: %s", t)
         else:
             log.debug("rt event (unhandled): %s", t)

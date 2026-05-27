@@ -1290,6 +1290,20 @@ async def _run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(1.0)
         else:
             if sm is not None:
+                # Loud, unmissable "now listening" banner once the Realtime
+                # session is actually up. Startup takes ~60-70 s (perception
+                # models, DDS, memory) during which the wake-word backend isn't
+                # even ready, so operators were shouting "Hi Sparky" into the
+                # void; this tells them the exact moment it will be heard.
+                def _print_ready_banner() -> None:
+                    print(
+                        "\n"
+                        "============================================================\n"
+                        "  ✅ Sparky is READY — say \"Hi Sparky\" to start talking\n"
+                        "============================================================\n",
+                        flush=True,
+                    )
+                brain_agent.on_session_ready = _print_ready_banner
                 await sm.start()
             else:
                 brain_agent.set_uplink_enabled(True)

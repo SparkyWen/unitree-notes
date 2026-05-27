@@ -16,10 +16,12 @@ import json
 import logging
 import os
 import shutil
+import signal
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .codex_client import terminate_process_group
 from .schemas import AskResult
 
 log = logging.getLogger(__name__)
@@ -452,6 +454,13 @@ class CodexDaemon:
             stderr=asyncio.subprocess.PIPE,
             env=env,
             limit=self._stdout_buffer_bytes,
+            # Own session: a terminal Ctrl-C (SIGINT to the foreground process
+            # group) must NOT reach the daemon's codex subprocess. Previously it
+            # did — the subprocess died early in shutdown, the read loop saw EOF
+            # while _state was still READY, and "restarting codex daemon after
+            # crash" fired *during* teardown. We reap it via the process group
+            # in _cleanup_proc().
+            start_new_session=True,
         )
         assert self._proc.stdin and self._proc.stdout and self._proc.stderr
         self._stdin = self._proc.stdin
@@ -721,10 +730,10 @@ class CodexDaemon:
                     try:
                         await asyncio.wait_for(proc.wait(), timeout=0.5)
                     except asyncio.TimeoutError:
-                        try:
-                            proc.kill()
-                        except ProcessLookupError:
-                            pass
+                        # SIGKILL the whole group — proc is a node wrapper whose
+                        # Rust child would otherwise orphan now that Ctrl-C no
+                        # longer reaches the group (start_new_session=True).
+                        terminate_process_group(proc, signal.SIGKILL)
                         try:
                             await asyncio.wait_for(proc.wait(), timeout=1.0)
                         except asyncio.TimeoutError:

@@ -22,6 +22,23 @@ from typing import List, Optional
 log = logging.getLogger(__name__)
 
 
+def terminate_process_group(proc, sig) -> None:
+    """Send ``sig`` to the subprocess's whole process group.
+
+    The codex CLI is a thin node wrapper that spawns a separate Rust binary as
+    its child; signalling only ``proc`` (the node parent) would orphan the Rust
+    grandchild. Codex subprocesses are spawned with ``start_new_session=True``,
+    so ``proc.pid`` IS the process-group leader and ``killpg(proc.pid, sig)``
+    reaps the whole tree. No-op if the group is already gone.
+    """
+    if proc is None or proc.pid is None:
+        return
+    try:
+        os.killpg(proc.pid, sig)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
 class CodexExecError(Exception):
     """Raised when codex exec returns no usable text or hits an unrecoverable error."""
 
@@ -141,6 +158,12 @@ class CodexClient:
             stderr=asyncio.subprocess.PIPE,
             env=env,
             limit=self._stdout_buffer_bytes,
+            # Own session so a terminal Ctrl-C (SIGINT to the foreground process
+            # group) does NOT reach codex. Without this, the shutdown-time
+            # Phase1 extraction died mid-flight ("produced no assistant text")
+            # because the user's Ctrl-C killed this child too. We reap it
+            # explicitly via the process group in _kill().
+            start_new_session=True,
         )
         assert proc.stdin and proc.stdout and proc.stderr
 
@@ -277,17 +300,12 @@ class CodexClient:
 
     @staticmethod
     async def _kill(proc: asyncio.subprocess.Process) -> None:
-        try:
-            proc.terminate()
-        except ProcessLookupError:
-            return
+        # Signal the whole group (codex is a node wrapper + a Rust child).
+        terminate_process_group(proc, signal.SIGTERM)
         try:
             await asyncio.wait_for(proc.wait(), timeout=3.0)
         except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                return
+            terminate_process_group(proc, signal.SIGKILL)
             try:
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
             except asyncio.TimeoutError:

@@ -16,6 +16,7 @@ from g1_brain.memory.codex_client import (
     CodexExecError,
     CodexQuotaExhausted,
     _looks_like_quota,
+    terminate_process_group,
 )
 
 
@@ -234,3 +235,53 @@ print(json.dumps({{"type": "agent_message", "message": "ok"}}))
     )
     result = await client.exec_once("p", timeout_s=10)
     assert str(home) in result.stderr_tail
+
+
+@pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX-only")
+def test_terminate_process_group_reaps_whole_tree() -> None:
+    """The shutdown fix: codex is a node wrapper + a Rust child. With
+    start_new_session=True, proc.pid is the group leader; killing the group
+    must reap BOTH — otherwise the grandchild orphans now that Ctrl-C no longer
+    reaches the group.
+    """
+    import signal
+    import time
+
+    async def _run() -> bool:
+        # sh (group leader) spawns a `sleep` grandchild and waits — two PIDs in
+        # one new session, exactly like codex's two-process tree.
+        proc = await asyncio.create_subprocess_exec(
+            "sh", "-c", "sleep 60 & echo $!; wait",
+            stdout=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        line = await asyncio.wait_for(proc.stdout.readline(), timeout=3.0)
+        grandchild = int(line.strip())
+        # start_new_session makes proc its own group leader, and the grandchild
+        # inherits that group.
+        assert os.getpgid(proc.pid) == proc.pid
+        assert os.getpgid(grandchild) == proc.pid
+
+        terminate_process_group(proc, signal.SIGKILL)
+        await asyncio.wait_for(proc.wait(), timeout=3.0)
+
+        for _ in range(40):  # let the kernel deliver the signal
+            try:
+                os.kill(grandchild, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.05)
+        return False
+
+    assert asyncio.run(_run()) is True
+
+
+def test_terminate_process_group_is_noop_on_dead_proc() -> None:
+    """Must not raise when the process/group is already gone."""
+    import signal
+
+    class _Dead:
+        pid = 2147480000  # almost certainly not a live pid
+
+    terminate_process_group(_Dead(), signal.SIGKILL)  # no exception
+    terminate_process_group(None, signal.SIGKILL)

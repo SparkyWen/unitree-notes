@@ -347,6 +347,89 @@ async def test_drain_respects_max_wait_cap():
 
 
 @pytest.mark.asyncio
+async def test_plan_watchdog_fire_hard_resets_stuck_speaking():
+    """The recovery watchdog must force IDLE from a stuck SPEAKING so wake works.
+
+    Regression: a wedged drain / phone-call teardown could trap the SM in
+    SPEAKING; wake is only honoured from IDLE, so 'Hi Sparky' silently died.
+    """
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    sm.speaker.set_pending(12345)  # pretend audio still queued
+    sm._plan_watchdog_fire()
+    assert sm.state == State.IDLE
+    assert sm.agent.uplink_enabled is False
+    assert sm.speaker.cleared >= 1
+    # Wake must work again now that we're back in IDLE.
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    assert sm.state == State.CAPTURING
+
+
+@pytest.mark.asyncio
+async def test_plan_done_rearms_watchdog_so_a_wedged_drain_is_recovered():
+    """plan_done re-arms (not cancels) the watchdog; firing it recovers IDLE."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        idle_after_plan_enabled=True,
+        drain_threshold_bytes=0,
+        drain_max_wait_s=5.0,           # drain stays in its loop, never lands IDLE
+        plan_watchdog_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    assert sm.state == State.SPEAKING
+
+    sm.speaker.set_pending(99999)       # drain will loop for the full 5 s
+    sm._handle_plan_done()
+    await asyncio.sleep(0.05)           # drain is now looping; still SPEAKING
+    assert sm.state == State.SPEAKING
+    # The watchdog must be armed as the safety net (NOT cancelled by plan_done).
+    assert sm._plan_watchdog_task is not None and not sm._plan_watchdog_task.done()
+    # Simulate the watchdog firing: it must cancel the wedged drain and recover.
+    sm._plan_watchdog_fire()
+    assert sm.state == State.IDLE
+
+
+@pytest.mark.asyncio
+async def test_successful_drain_disarms_watchdog():
+    """Normal drain → IDLE must leave no lingering recovery watchdog running."""
+    cfg = BrainConversationConfig(
+        no_speech_timeout_s=10.0,
+        idle_after_plan_enabled=True,
+        drain_threshold_bytes=10,
+        drain_max_wait_s=1.0,
+        plan_watchdog_s=10.0,
+        barge_in_min_capture_age_s=0.0,
+    )
+    sm = _make_sm(cfg=cfg)
+    await _start_no_mic_loop(sm)
+    sm.handle_wake(_StubWakeEvent(text="hi sparky"))
+    await asyncio.sleep(0)
+    sm.vad.set_next_status("commit_silence")
+    sm._on_audio_chunk(b"\x00" * 16)
+    sm._handle_response_audio_delta()
+    sm.speaker.set_pending(5)           # already below threshold → drains at once
+    sm._handle_plan_done()
+    await asyncio.sleep(0.1)
+    assert sm.state == State.IDLE
+    assert sm._plan_watchdog_task is None or sm._plan_watchdog_task.done()
+
+
+@pytest.mark.asyncio
 async def test_barge_in_from_speaking_calls_cancel_clear_stop():
     stop_calls = []
 

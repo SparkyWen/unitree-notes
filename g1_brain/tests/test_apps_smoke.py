@@ -129,3 +129,86 @@ def test_skill_debug_imports():
     assert hasattr(mod, "main")
     assert hasattr(mod, "KEY_TO_SKILL")
     assert "1" in mod.KEY_TO_SKILL and "q" not in mod.KEY_TO_SKILL
+
+
+def test_start_perception_bg_does_not_block_event_loop():
+    """Regression: perception.start() must run OFF the event-loop thread.
+
+    Loading YOLO→CUDA / MediaPipe / a head-cam MjModel synchronously on the
+    event loop froze audio/VAD and the wake-word path for ~49 s at boot, so
+    "Hi Sparky" was silently dropped until it finished. _start_perception_bg
+    runs start() in a worker thread; a concurrent coroutine must keep making
+    progress while perception "loads".
+    """
+    import asyncio
+    import time
+
+    from g1_brain.apps import agent_main
+
+    load_s = 0.4
+
+    class _SlowPerception:
+        def __init__(self):
+            self.started = False
+
+        def start(self):
+            # time.sleep releases the GIL — stands in for a blocking model load.
+            time.sleep(load_s)
+            self.started = True
+
+    async def _drive():
+        perc = _SlowPerception()
+        start_task = asyncio.create_task(agent_main._start_perception_bg(perc))
+        ticks = 0
+        t0 = time.monotonic()
+        while not start_task.done() and time.monotonic() - t0 < 2.0:
+            await asyncio.sleep(0.02)
+            ticks += 1
+        await start_task
+        return perc.started, ticks
+
+    started, ticks = asyncio.run(_drive())
+    assert started is True
+    # If start() had run on the loop, the ~0.02 s ticker would have been frozen
+    # for the whole load window and ticked only once or twice. In a worker
+    # thread it keeps cycling, so we see many ticks across load_s.
+    assert ticks >= 5, f"event loop appears blocked during perception load (ticks={ticks})"
+
+
+def test_drain_pending_tasks_cancels_stragglers():
+    """Regression: _drain_pending_tasks must cancel + await tasks still pending
+    at teardown, so the loop doesn't GC them with "Task was destroyed but it is
+    pending!".
+    """
+    import asyncio
+
+    from g1_brain.apps import agent_main
+
+    loop = asyncio.new_event_loop()
+    try:
+        async def _forever():
+            while True:
+                await asyncio.sleep(10)
+
+        task = loop.create_task(_forever())
+        loop.run_until_complete(asyncio.sleep(0))  # let it start
+        assert not task.done()
+
+        agent_main._drain_pending_tasks(loop)
+
+        assert task.done()
+        assert task.cancelled()
+    finally:
+        loop.close()
+
+
+def test_drain_pending_tasks_noop_when_nothing_pending():
+    import asyncio
+
+    from g1_brain.apps import agent_main
+
+    loop = asyncio.new_event_loop()
+    try:
+        agent_main._drain_pending_tasks(loop)  # must not raise
+    finally:
+        loop.close()

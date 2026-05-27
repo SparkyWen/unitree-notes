@@ -611,6 +611,37 @@ async def _announce_ready_when_warm(
     print(banner, flush=True)
 
 
+async def _start_perception_bg(perception) -> None:
+    """Run ``PerceptionRunner.start()`` OFF the event-loop thread.
+
+    ``start()`` loads YOLO→CUDA, MediaPipe pose, and clones a head-cam MjModel —
+    tens of seconds of GIL-heavy work. Done synchronously on the event loop (the
+    old behaviour) it froze audio/VAD/log handling for the entire load: the
+    heartbeat measured a single 1 s sleep taking ~49 s, the wake-word worker
+    could not run, and "Hi Sparky" was silently dropped — the reported "卡住,
+    多次唤醒没用". Run in a worker thread the event loop keeps servicing audio
+    while perception warms up in the background, so the wake-word path comes up
+    in seconds. Movement stays gated by the safety watchdogs (head_frame /
+    ground constraint) until perception produces fresh frames, so starting it
+    in the background is safe.
+    """
+    import time
+
+    t0 = time.monotonic()
+    try:
+        await asyncio.to_thread(perception.start)
+    except asyncio.CancelledError:
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("perception background start failed (continuing degraded)")
+        return
+    log.info(
+        "perception: background start complete in %.1fs "
+        "(event loop stayed responsive during model load)",
+        time.monotonic() - t0,
+    )
+
+
 async def _run(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
     run_mode = args.mode or cfg.get("run_mode", "confirm")
@@ -1029,15 +1060,22 @@ async def _run(args: argparse.Namespace) -> int:
             watchdogs = None
 
     # ---- perception ----
+    # PerceptionRunner.start() is launched in the BACKGROUND (a worker thread)
+    # rather than synchronously here: its model load (YOLO→CUDA, MediaPipe,
+    # head-cam MjModel) used to block the event loop for ~49 s at boot, starving
+    # the wake-word path so "Hi Sparky" did nothing until it finished. Nothing
+    # built after this point needs perception to have *finished* — downstream
+    # consumers (skill_server, brain, vision) read ``scene_bus`` + the separate
+    # ``camera_hub`` (built at line ~752), and movement is gated by the safety
+    # watchdogs until perception publishes fresh frames. See _start_perception_bg.
     perception = None
+    perception_start_task = None
     if not args.no_perception:
         perception = _try_build_perception_runner(cfg, scene_bus, robot_bus)
         if perception is not None:
-            try:
-                perception.start()
-            except Exception as e:  # noqa: BLE001
-                log.warning("PerceptionRunner.start failed: %s", e)
-                perception = None
+            perception_start_task = asyncio.create_task(
+                _start_perception_bg(perception), name="perception-start",
+            )
 
     # ---- TTS + vision ----
     from openai import OpenAI
@@ -1392,6 +1430,11 @@ async def _run(args: argparse.Namespace) -> int:
                 log.exception("conversation sm.stop failed")
         if auto_trigger is not None:
             await _shutdown_step("auto_trigger.stop", auto_trigger.stop)
+        if perception_start_task is not None:
+            # If perception is still loading in its worker thread, abandon the
+            # await (the thread can't be force-killed, but the process is going
+            # away). perception.stop() below is defensive against partial init.
+            perception_start_task.cancel()
         if perception is not None:
             await _shutdown_step("perception.stop", perception.stop)
         if watchdogs is not None:
@@ -1613,6 +1656,33 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def _drain_pending_tasks(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) -> None:
+    """Cancel and await every task still pending before the loop closes.
+
+    main() drives the loop manually (not ``asyncio.run``), so it otherwise
+    skips the cancel-all-tasks step ``asyncio.run`` performs internally — and
+    any straggler (a subsystem whose ``stop()`` timed out, the daemon/phase1
+    background loops, a subprocess transport's ``_connect_pipes``) gets GC'd
+    while pending, emitting "Task was destroyed but it is pending!". This
+    mirrors ``asyncio.runners._cancel_all_tasks`` with a bounded wait so a task
+    that ignores cancellation can't hang shutdown.
+    """
+    to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    if not to_cancel:
+        return
+    for task in to_cancel:
+        task.cancel()
+    try:
+        loop.run_until_complete(
+            asyncio.wait_for(
+                asyncio.gather(*to_cancel, return_exceptions=True),
+                timeout=timeout,
+            )
+        )
+    except Exception:  # noqa: BLE001 — timeout or task error; proceed to close
+        pass
+
+
 def main() -> int:
     _ensure_sibling_repos_on_path()
     args = parse_args()
@@ -1663,8 +1733,12 @@ def main() -> int:
         pass
     finally:
         sup_task.cancel()
+        # Drain stragglers so the loop doesn't GC them with "Task was destroyed
+        # but it is pending!" (subsystem stop()s that timed out, daemon/phase1
+        # loops, subprocess transports). Replaces the old single sleep(0).
+        _drain_pending_tasks(loop)
         try:
-            loop.run_until_complete(asyncio.sleep(0))
+            loop.run_until_complete(loop.shutdown_asyncgens())
         except Exception:  # noqa: BLE001
             pass
         loop.close()

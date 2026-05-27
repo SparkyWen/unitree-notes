@@ -123,8 +123,11 @@ class MemoryConfig:
     defer_when_conversation_active: bool = True
     # Historical backfill only enqueues Phase1 jobs, but we still keep it off
     # the synchronous start() path and let startup settle first so it can't
-    # pile onto the perception-model-load stall at boot.
-    backfill_delay_s: float = 20.0
+    # pile onto the perception-model-load stall at boot. The window the worker
+    # stays GIL-starved after the Realtime session connects is ~30 s, so this
+    # default must clear it with margin (the old 20 s landed in the operator's
+    # first "Hi Sparky"). See configs/g1_brain.yaml.
+    backfill_delay_s: float = 90.0
 
     slow_brain_model: str = ""
     ask_default_timeout_s: float = 20.0

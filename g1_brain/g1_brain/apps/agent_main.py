@@ -551,6 +551,66 @@ async def _event_loop_lag_monitor(
 # ---------------------------------------------------------------------------
 
 
+async def _announce_ready_when_warm(
+    session_ready_evt: asyncio.Event,
+    wake,
+    *,
+    max_wait_s: float = 90.0,
+    poll_s: float = 0.5,
+) -> None:
+    """Print the "say Hi Sparky" banner only once the system can actually hear.
+
+    Two gates must both pass: (1) the Realtime session is up (session.created),
+    and (2) the wake-word worker thread is cycling at ~its configured rate —
+    i.e. it is no longer starved of the GIL by the boot-time perception + codex
+    load. Firing the banner on (1) alone (the old behaviour) printed "Sparky is
+    READY" ~30 s before the detector could run, so the operator's wake word was
+    dropped and the app looked frozen ("无论我怎么 hi sparky 都没有用").
+
+    A ``max_wait_s`` cap guarantees the banner always eventually prints (with a
+    caveat) so behaviour is never worse than the old unconditional banner.
+    """
+    banner = (
+        "\n"
+        "============================================================\n"
+        "  ✅ Sparky is READY — say \"Hi Sparky\" to start talking\n"
+        "============================================================\n"
+    )
+    try:
+        await session_ready_evt.wait()
+    except asyncio.CancelledError:
+        return
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max_wait_s
+    warming_announced = False
+    capped = False
+    while True:
+        try:
+            healthy = wake.worker_healthy()
+        except Exception:  # noqa: BLE001 — never let a probe bug suppress READY
+            healthy = True
+        if healthy:
+            break
+        if loop.time() >= deadline:
+            capped = True
+            break
+        if not warming_announced:
+            print(
+                "\n[g1_brain] session connected — warming up "
+                "(perception + memory still settling); "
+                "\"Hi Sparky\" will start working in a few seconds …",
+                flush=True,
+            )
+            warming_announced = True
+        try:
+            await asyncio.sleep(poll_s)
+        except asyncio.CancelledError:
+            return
+    if capped:
+        banner += "  (note: still under heavy boot load — the first wake may lag)\n"
+    print(banner, flush=True)
+
+
 async def _run(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
     run_mode = args.mode or cfg.get("run_mode", "confirm")
@@ -1283,6 +1343,7 @@ async def _run(args: argparse.Namespace) -> int:
                 auto_trigger = None
 
     # ---- main loop ----
+    ready_banner_task = None
     try:
         if brain_agent is None:
             log.info("realtime disabled; idling. Ctrl-C to exit.")
@@ -1290,26 +1351,30 @@ async def _run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(1.0)
         else:
             if sm is not None:
-                # Loud, unmissable "now listening" banner once the Realtime
-                # session is actually up. Startup takes ~60-70 s (perception
-                # models, DDS, memory) during which the wake-word backend isn't
-                # even ready, so operators were shouting "Hi Sparky" into the
-                # void; this tells them the exact moment it will be heard.
-                def _print_ready_banner() -> None:
-                    print(
-                        "\n"
-                        "============================================================\n"
-                        "  ✅ Sparky is READY — say \"Hi Sparky\" to start talking\n"
-                        "============================================================\n",
-                        flush=True,
-                    )
-                brain_agent.on_session_ready = _print_ready_banner
+                # Loud, unmissable "now listening" banner — but ONLY once the
+                # wake-word worker can actually run. Startup takes ~60-70 s
+                # (perception models, DDS, memory) and for ~30 s AFTER the
+                # Realtime session connects the perception inference burst +
+                # codex backfill keep the wake-word worker thread starved of the
+                # GIL. Firing the banner on session.created alone told operators
+                # to talk into a detector that physically couldn't run yet — the
+                # reported "stuck at READY, Hi Sparky does nothing". So we gate
+                # the banner on session-up AND worker liveness. See
+                # _announce_ready_when_warm.
+                session_ready_evt = asyncio.Event()
+                brain_agent.on_session_ready = session_ready_evt.set
                 await sm.start()
+                ready_banner_task = asyncio.create_task(
+                    _announce_ready_when_warm(session_ready_evt, sm.wake_word),
+                    name="ready-banner",
+                )
             else:
                 brain_agent.set_uplink_enabled(True)
             await brain_agent.run()
     finally:
         log.info("shutting down ...")
+        if ready_banner_task is not None:
+            ready_banner_task.cancel()
         if lag_monitor_task is not None:
             lag_monitor_task.cancel()
         # sm.stop() is a coroutine; the rest are sync. Each step is bounded

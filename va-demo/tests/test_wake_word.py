@@ -134,6 +134,43 @@ def test_phrase_match_normalizes_punctuation():
     assert len(received) >= 1
 
 
+# ---- worker liveness heartbeat --------------------------------------------
+#
+# agent_main gates the "say Hi Sparky" banner on worker_healthy() so the
+# banner never prints while the worker thread is starved of the GIL by the
+# boot-time perception/codex load (the reported "stuck at READY, wake does
+# nothing"). These lock the heartbeat semantics.
+
+
+def test_worker_healthy_false_before_start():
+    d, _, _, _ = _make_detector(scripted=[])
+    assert d.worker_healthy() is False  # no ticks recorded yet
+
+
+def test_worker_healthy_true_once_thread_runs():
+    d, _, _, _ = _make_detector(scripted=[], inference_rate_hz=50.0)
+    d.start()
+    try:
+        time.sleep(0.3)  # ~15 ticks at 50 Hz
+        assert d.worker_healthy() is True
+    finally:
+        d.stop()
+
+
+def test_worker_healthy_requires_sustained_ticking():
+    # At 2 Hz the health window spans a few periods; a worker that ticked only
+    # twice (GIL-starved) is below min_ticks and reports unhealthy, while a
+    # worker that ticked several times recently reports healthy.
+    d, _, _, _ = _make_detector(scripted=[], inference_rate_hz=2.0)
+    now = time.monotonic()
+    with d._tick_lock:
+        d._tick_times.extend([now - 1.0, now - 0.5])
+    assert d.worker_healthy() is False
+    with d._tick_lock:
+        d._tick_times.extend([now - 0.4, now - 0.3, now - 0.2])
+    assert d.worker_healthy() is True
+
+
 # ---- AEC subtraction ------------------------------------------------------
 #
 # These exercise the path that fixes operator-reported "Hi Sparky can't

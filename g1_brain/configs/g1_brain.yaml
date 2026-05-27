@@ -415,9 +415,13 @@ memory:
   # stealing the GIL/CPU from audio/VAD/wake mid-conversation.
   defer_when_conversation_active: true
   # Historical backfill is deferred off the synchronous startup path and waits
-  # this long before enqueueing, so it can't pile onto the boot-time
-  # perception-model-load stall.
-  backfill_delay_s: 20
+  # this long before enqueueing. It must clear the whole boot-warmup window:
+  # for ~30 s after the Realtime session connects, perception's initial
+  # inference burst already starves the wake-word worker thread, and a codex
+  # backfill storm landing on top of that (the old 20 s value fired right into
+  # the operator's first "Hi Sparky") kept wake dead. 90 s pushes backfill well
+  # past the point the operator is talking.
+  backfill_delay_s: 90
 
   # ask_slow_brain persistent Codex daemon (codex mcp-server)
   slow_brain_model: ""

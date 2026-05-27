@@ -1041,3 +1041,41 @@ async def test_voice_barge_in_inactive_outside_speaking():
     assert sm.state == State.CAPTURING
     assert sm.agent.cancel_calls == 0
     assert sm.speaker.cleared == 0
+
+
+# --------------------------------------------------------------------------
+# force_idle: Realtime reconnect resets the SM to a clean wake-ready state
+# --------------------------------------------------------------------------
+#
+# When BrainRealtimeAgent.run() reconnects after a transient WS drop it calls
+# on_reconnect → sm.force_idle(). Wherever the drop left us
+# (CAPTURING/THINKING/SPEAKING), we must land in IDLE with the uplink muted so
+# the next "Hi Sparky" starts a clean turn on the fresh session.
+
+@pytest.mark.asyncio
+async def test_force_idle_from_speaking_resets_to_idle():
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm._set_state(State.SPEAKING, reason="test")
+    sm.agent.uplink_calls.clear()
+    sm.agent.reset_plan_calls = 0
+
+    sm.force_idle()
+
+    assert sm.state == State.IDLE
+    # Uplink muted so stale mic audio isn't fed into the fresh session.
+    assert sm.agent.uplink_calls and sm.agent.uplink_calls[-1] is False
+    assert sm.agent.reset_plan_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_force_idle_is_noop_after_stop():
+    sm = _make_sm()
+    await _start_no_mic_loop(sm)
+    sm._set_state(State.SPEAKING, reason="test")
+    await sm.stop()
+    sm.agent.uplink_calls.clear()
+
+    sm.force_idle()  # must not raise or touch state once stopped
+
+    assert sm.agent.uplink_calls == []

@@ -250,6 +250,32 @@ class BrainConversationStateMachine:
     def state(self) -> State:
         return self._state
 
+    def force_idle(self, *, reason: str = "reconnect") -> None:
+        """Force the machine back to a clean wake-ready IDLE state.
+
+        Called when the Realtime session reconnects under us (see
+        BrainRealtimeAgent.on_reconnect): the previous turn's server-side
+        state died with the old socket, so any CAPTURING/THINKING/SPEAKING
+        progress is moot. Cancel the in-flight drain + plan watchdog, mute the
+        uplink (so stale mic audio buffered for the dead session isn't fed into
+        the fresh one), reset the agent's plan tracker, and land in IDLE so the
+        next "Hi Sparky" starts a clean turn. Must run on the loop thread (the
+        reconnect callback already does).
+        """
+        if self._stopped:
+            return
+        self._cancel_drain()
+        self._cancel_plan_watchdog()
+        try:
+            self.agent.set_uplink_enabled(False)
+        except Exception:  # noqa: BLE001
+            log.exception("force_idle: set_uplink_enabled failed")
+        try:
+            self.agent.reset_plan_tracker()
+        except AttributeError:
+            pass
+        self._set_state(State.IDLE, reason=reason)
+
     # ---- callbacks (thread-safe entrypoints) --------------------------------
 
     def handle_wake(self, evt) -> None:

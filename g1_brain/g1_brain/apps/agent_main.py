@@ -1452,6 +1452,11 @@ async def _run(args: argparse.Namespace) -> int:
                 # _announce_ready_when_warm.
                 session_ready_evt = asyncio.Event()
                 brain_agent.on_session_ready = session_ready_evt.set
+                # If the Realtime WS drops and reconnects (see
+                # BrainRealtimeAgent.run), the old turn's state died with the
+                # socket — reset the SM to a clean wake-ready IDLE so the next
+                # "Hi Sparky" works on the fresh session.
+                brain_agent.on_reconnect = sm.force_idle
                 await sm.start()
                 ready_banner_task = asyncio.create_task(
                     _announce_ready_when_warm(session_ready_evt, sm.wake_word),

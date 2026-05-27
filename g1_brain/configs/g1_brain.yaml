@@ -434,10 +434,16 @@ memory:
 
   # ask_slow_brain persistent Codex daemon (codex mcp-server)
   slow_brain_model: ""
-  ask_default_timeout_s: 20
+  # 45 s was too short for xhigh deliberation; 90 s is the default/ceiling.
+  # Supervisor clamps per-call timeout_s requests to [3, 90].
+  ask_default_timeout_s: 90
   ask_queue_max: 2
   daemon_ping_interval_s: 30
   daemon_restart_max_attempts: 5
+  # Codex subscription tier for every codex call (daemon + phase1/2):
+  # deepest reasoning (xhigh) on the 1.5x-speed Fast priority tier.
+  codex_reasoning_effort: "xhigh"
+  codex_service_tier: "fast"
 
   # Recall budgets exposed to the fast brain
   passive_summary_max_tokens: 2500

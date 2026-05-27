@@ -586,10 +586,10 @@ def _ask_slow_brain() -> dict:
         "type": "function",
         "name": "ask_slow_brain",
         "description": (
-            "Consult the slow deliberative brain (Codex) for queries that "
-            "need multi-step reasoning, planning, or deep recall over many "
-            "past sessions. SLOW: 5-30 seconds on a warm daemon, up to 60s "
-            "for deep cross-session searches. Use SPARINGLY. Good cases: "
+            "Consult the slow deliberative brain (Codex, xhigh reasoning) for "
+            "queries that need multi-step reasoning, planning, or deep recall "
+            "over many past sessions. SLOW: 10-60 seconds on a warm daemon, up "
+            "to 90s for deep cross-session searches. Use SPARINGLY. Good cases: "
             "(1) user asks for a multi-step plan; (2) recall_grep returned "
             "nothing useful and you suspect rare historical knowledge "
             "buried in jsonl transcripts; (3) deep think about a non-obvious "
@@ -607,8 +607,8 @@ def _ask_slow_brain() -> dict:
                 },
                 "timeout_s": {
                     "type": "number",
-                    "description": "Wait budget in seconds (3-60, default 30). "
-                                   "Bump to 45-60 when asking the slow brain "
+                    "description": "Wait budget in seconds (3-90, default 90). "
+                                   "Keep near 90 when asking the slow brain "
                                    "to grep many old sessions; lower for "
                                    "quick plan-style queries.",
                 },

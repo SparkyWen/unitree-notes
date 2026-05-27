@@ -221,7 +221,7 @@ class CodexDaemon:
         self,
         query: str,
         *,
-        timeout_s: float = 20.0,
+        timeout_s: float = 90.0,
         cancel_event: Optional[asyncio.Event] = None,
     ) -> AskResult:
         """Send a query through the daemon. Returns AskResult.

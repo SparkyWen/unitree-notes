@@ -172,6 +172,19 @@ Reply in the user's language (default Chinese), under 80 words.
 """
 
 
+PHONE_DIAL_GUIDANCE = """\
+PLACING CALLS: You can place an outbound call with start_phone_call. When the \
+operator asks you to call THEM — "call me", "call my number", "call my phone", \
+"给我打电话", "打我的号码", "用我的号码打过来" — call start_phone_call with NO \
+arguments. That dials the pre-configured operator number directly and cannot be \
+thrown off by mishearing a digit. Do NOT try to read back or transcribe the \
+spoken number into `to`; you already have the operator's number configured. \
+Only pass `to` when the operator clearly dictates a DIFFERENT destination, and \
+if that number is not on the saved allow-list the call will be refused — in \
+that case tell the operator you can only call their own configured number.
+"""
+
+
 PHONE_CALL_PREAMBLE = """\
 You are Sparky speaking to the operator over a regular phone call.
 

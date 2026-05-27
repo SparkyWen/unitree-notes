@@ -379,14 +379,21 @@ START_PHONE_CALL_SCHEMA = {
     "name": "start_phone_call",
     "description": (
         "Place an outbound phone call so the operator can talk to Sparky "
-        "from anywhere. Returns when the call is dialled (not when answered)."
+        "from anywhere. Returns when the call is dialled (not when answered). "
+        "IMPORTANT: when the operator asks you to call THEM ('call me', 'call "
+        "my number', 'call my phone', '给我打电话', '打我的号码'), call this "
+        "tool with NO arguments — that dials the pre-configured operator "
+        "number and is immune to mishearing digits. Do NOT transcribe a "
+        "spoken phone number into `to`; only pass `to` for a different, "
+        "explicitly dictated destination, and expect it to be rejected unless "
+        "it is on the saved allow-list."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "to": {
                 "type": "string",
-                "description": "E.164 number (e.g. +14155550199). If omitted, defaults to the configured operator number.",
+                "description": "E.164 number (e.g. +14155550199). OMIT THIS to dial the configured operator number — the correct choice whenever the operator asks to be called.",
             }
         },
     },

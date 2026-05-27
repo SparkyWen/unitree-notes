@@ -39,6 +39,7 @@ from va_demo.realtime_agent import RealtimeAgent  # type: ignore
 
 from ..scene_state.fusion import SceneStateBus
 from .prompts import (
+    PHONE_DIAL_GUIDANCE,
     REALTIME_SYSTEM_PROMPT_BRAIN,
     REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY,
 )
@@ -149,6 +150,12 @@ class BrainRealtimeAgent(RealtimeAgent):
             if self.vision_only
             else REALTIME_SYSTEM_PROMPT_BRAIN
         )
+        # When this agent can actually place calls (start_phone_call is in its
+        # tool list), teach it the "omit `to` to call the operator" rule so a
+        # misheard digit can't derail "call me". The phone-side session filters
+        # start_phone_call out, so it never needs this.
+        if self.phone_enabled and not self.vision_only:
+            base = base + "\n\n" + PHONE_DIAL_GUIDANCE
         if self._instructions_addendum:
             return base + "\n\n" + self._instructions_addendum
         return base

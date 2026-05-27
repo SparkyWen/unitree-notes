@@ -84,6 +84,25 @@ _TURN_DURATION_PER_DEG = math.pi / (180.0 * _TURN_YAW_RATE_RAD_S)  # ≈ 0.0698 
 _TURN_MAX_DURATION_S = 14.0
 
 
+def _normalize_e164(number: str) -> str:
+    """Best-effort canonicalise a phone number to bare E.164 (``+`` + digits).
+
+    The Realtime model often passes a spoken number with separators it heard
+    ("+61 411 706 848", "+61-411-706-848") or with the international call
+    prefix instead of ``+`` ("0061411706848"). All of those denote the SAME
+    destination as the whitelisted "+61411706848", so we strip separators and
+    fold a leading "00" to "+" before comparing against the allowlist. We do
+    NOT invent a missing country code or a missing "+": a genuinely different
+    digit must still fail the whitelist check (the misheard-digit safety gate).
+    """
+    if not number:
+        return ""
+    s = "".join(ch for ch in number if ch.isdigit() or ch == "+")
+    if s.startswith("00"):
+        s = "+" + s[2:]
+    return s
+
+
 class SkillServer:
     """Validate-then-dispatch wrapper around the motion / vision / TTS layer.
 
@@ -717,19 +736,28 @@ class SkillServer:
         if self._dialer is None:
             return {"ok": False, "skill": "start_phone_call",
                     "reason": "phone bridge not enabled"}
-        dest = to or self._default_phone_to
-        if not dest:
+        # When the operator just says "call me" / "call my number", the model
+        # should omit `to` so we dial the configured operator number — that
+        # path can never be derailed by ASR mishearing a digit.
+        dest_raw = to or self._default_phone_to
+        if not dest_raw:
             return {"ok": False, "skill": "start_phone_call",
                     "reason": "no destination configured"}
+        dest = _normalize_e164(dest_raw)
         # Whitelist-enforce dest. Wake-word ASR can mishear a single digit and
-        # without this gate the LLM happily dials whoever it heard.
-        allowed = set(self._allowed_phone_callers or [])
+        # without this gate the LLM happily dials whoever it heard. We compare
+        # on the NORMALIZED form so harmless formatting variance ("+61 411 706
+        # 848", "+61-411-706-848", "0061411706848") still matches a whitelisted
+        # number, while a genuine wrong digit is still rejected.
+        allowed = {_normalize_e164(n) for n in (self._allowed_phone_callers or [])}
         if self._default_phone_to:
-            allowed.add(self._default_phone_to)
+            allowed.add(_normalize_e164(self._default_phone_to))
         if allowed and dest not in allowed:
             return {"ok": False, "skill": "start_phone_call",
-                    "reason": f"refusing dial: {dest} not in allowed callers "
-                              f"(use the configured operator number)"}
+                    "reason": f"refusing dial: {dest_raw} is not a saved number. "
+                              f"To call the operator's own phone, call "
+                              f"start_phone_call with no arguments (it dials the "
+                              f"configured operator number)."}
         try:
             sid = await self._dialer.dial(dest)
         except Exception as e:  # noqa: BLE001

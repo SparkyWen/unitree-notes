@@ -212,3 +212,19 @@ def test_drain_pending_tasks_noop_when_nothing_pending():
         agent_main._drain_pending_tasks(loop)  # must not raise
     finally:
         loop.close()
+
+
+def test_prewarm_torch_fully_imports_torch():
+    """Regression: backgrounding perception moved `import torch` to a worker
+    thread, racing scipy's import-time `getattr(torch, "Tensor")` (phone bridge)
+    on a half-built module. _prewarm_torch must leave torch FULLY imported so
+    every later access sees a complete module.
+    """
+    import sys
+
+    pytest.importorskip("torch")
+    from g1_brain.apps import agent_main
+
+    agent_main._prewarm_torch()
+    assert "torch" in sys.modules
+    assert hasattr(sys.modules["torch"], "Tensor")

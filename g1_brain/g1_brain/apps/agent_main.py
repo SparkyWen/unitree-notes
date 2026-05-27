@@ -642,6 +642,32 @@ async def _start_perception_bg(perception) -> None:
     )
 
 
+def _prewarm_torch() -> None:
+    """Fully import ``torch`` on the calling (event-loop) thread.
+
+    Backgrounding perception moved its ``import torch`` (via ultralytics) onto a
+    worker thread. If the main thread then imports scipy (phone bridge →
+    audio_codec → ``scipy.signal``/``scipy.stats``), scipy's import-time
+    array-API probe does an UNGUARDED ``getattr(torch, "Tensor")`` and crashes
+    on the half-initialised torch module ("partially initialized module 'torch'
+    … most likely due to a circular import"). torch gets imported either way;
+    completing it here first makes every later ``import torch`` a cache hit and
+    every ``getattr(torch, …)`` see a fully-built module, so the race is gone.
+    One-time cost (~1.5 s); a no-op/fast path if torch is already imported.
+    """
+    import time
+
+    t0 = time.monotonic()
+    try:
+        import torch  # noqa: F401
+    except Exception:  # noqa: BLE001 — perception will surface its own error
+        return
+    log.info(
+        "perception: pre-imported torch in %.1fs (serializes the bg import race)",
+        time.monotonic() - t0,
+    )
+
+
 async def _run(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
     run_mode = args.mode or cfg.get("run_mode", "confirm")
@@ -1073,6 +1099,10 @@ async def _run(args: argparse.Namespace) -> int:
     if not args.no_perception:
         perception = _try_build_perception_runner(cfg, scene_bus, robot_bus)
         if perception is not None:
+            # MUST complete torch's import on this thread BEFORE the background
+            # loader starts importing it, or scipy's import-time torch probe
+            # (phone bridge, below) races the half-built module and crashes.
+            _prewarm_torch()
             perception_start_task = asyncio.create_task(
                 _start_perception_bg(perception), name="perception-start",
             )

@@ -79,11 +79,20 @@ perception:
     enabled: true
     weights: "yolo11s.pt"
     conf: 0.4
-    inference_hz: 15
+    # Each detector source thread saturates one CPU core per inference and
+    # holds the GIL through ultralytics' Python-side pre/post (object_detector
+    # line 62). At 15 Hz × 2 sources + pose @ 15 Hz this kept the asyncio event
+    # loop GIL-starved (see agent_main `_event_loop_lag_monitor`), so mic chunks
+    # stopped reaching the wake worker and "Hi Sparky" was dropped "in various
+    # situations". 5 Hz cuts that contention ~3× while staying responsive enough
+    # for vision-gate / obstacle checks. Drop `usb` from sources below for a
+    # further halving if wake is still flaky on this box.
+    inference_hz: 5
     sources: ["head", "usb"]    # which streams to detect on
   pose:
     enabled: true
-    inference_hz: 15
+    # Lowered 15 -> 5 for the same wake/event-loop GIL reason as yolo above.
+    inference_hz: 5
     min_visibility: 0.5
     gesture_persist_frames: 3
     gesture_min_confidence: 0.7

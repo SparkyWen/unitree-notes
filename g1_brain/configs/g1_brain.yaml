@@ -225,14 +225,19 @@ wakeword:
   # delivers ~5 real attempts per user utterance without inflating
   # OpenAI cost (the gate filters out the calls that produced no value).
   inference_rate_hz: 5.0
-  # 300 is the operator-preferred gate: 100 was too lax — ambient room
-  # noise / keyboard / fan kept opening the transcribe gate, which is
-  # both a billing cost (every gate-open is one OpenAI transcribe call)
-  # and the main source of perceived "any-sound interruption" during
-  # SPEAKING. 300 still passes ~conversation-volume speech on a desk mic
-  # while keeping idle noise below the gate (idle measured at <50 on
-  # this rig). Drop back toward 100 only if "hi sparky" stops firing
-  # because the mic is unusually quiet.
+  # IMPORTANT: this is the PEAK-sub-window RMS threshold (see
+  # va_demo.wake_word.WakeWordDetector._peak_subwindow_rms). Previously this
+  # gate compared against the full-rolling-window average, which diluted a
+  # 500-700 ms "Hi Sparky" by sqrt(speech_s / window_s) ≈ 0.58 — operator's
+  # conversation-volume wake phrase (peak RMS ~400) averaged to ~230 and was
+  # silently dropped most of the time (reported as "偶尔能唤醒，绝大部分时候
+  # 是无法唤醒"). The gate now answers "is there any 0.5 s segment in the
+  # buffer above this threshold?", which matches the question we actually
+  # want to ask. Stationary background noise still rejected because its peak
+  # ≈ its average. 300 keeps the anti-false-positive headroom (idle peak
+  # measured at <80 on this rig) while letting normal voice through reliably.
+  # Drop toward 200 only if "hi sparky" still misses on an unusually quiet
+  # mic; raise toward 400 if keyboard / fan starts triggering transcribes.
   rms_threshold: 300
   cooldown_s: 2.0
   language: null
@@ -277,12 +282,15 @@ wakeword:
   # which is what fixes the operator-reported "first Hi-Sparky misses,
   # second interrupts" pattern during TTS playback.
   #
+  # Also a PEAK-sub-window measurement (matches the raw gate above) — a
+  # short user "Hi Sparky" buried in 1.5 s of mostly-AEC-residual used to
+  # be diluted the same way and barge-in during TTS would silently miss.
   # 600 is calibrated for a desk mic with the AEC defaults above:
-  # idle SPEAKING cleaned RMS measured at ~300-500, user-talking
-  # cleaned RMS at ~1500-3000. Drop toward 300 if "Hi Sparky" gets
-  # gated out (mic unusually quiet); raise toward 900 if too many
-  # idle-SPEAKING transcribes still leak through. 0 disables the
-  # gate (pre-fix behaviour, useful for A/B comparison).
+  # idle SPEAKING cleaned peak ≈ 400-700 (AEC residual spikes), user-talking
+  # cleaned peak ≈ 1500-3000 (voice survives the subtraction). Drop toward
+  # 400 if "Hi Sparky" gets gated out (mic unusually quiet); raise toward
+  # 900 if too many idle-SPEAKING transcribes still leak through. 0
+  # disables the gate (pre-fix behaviour, useful for A/B comparison).
   cleaned_rms_threshold: 600
 
 utterance:

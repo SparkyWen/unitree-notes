@@ -91,6 +91,93 @@ def test_rms_gate_blocks_quiet_audio():
     assert received == []
 
 
+# ---- peak sub-window RMS gate ----------------------------------------------
+#
+# Regression for operator-reported "Hi Sparky 偶尔能唤醒，绝大部分时候是无法唤醒".
+# Root cause: the raw RMS gate averaged over the FULL rolling_window (e.g. 1.5 s)
+# diluted a short utterance ("Hi Sparky" ≈ 500-700 ms) so a conversation-volume
+# wake phrase often failed the gate even though its speech segment alone was
+# well above threshold. The fix gates on the peak RMS of a short sub-window
+# slid across the snapshot — the transcribe input is still the full window
+# (so the ASR sees full context), but the gate now answers "is there a chunk
+# of real speech anywhere in the buffer?" instead of "is the whole buffer
+# averaged loud?".
+
+
+def conversational_voice_chunk(ms: int = 500, amplitude: int = 565) -> bytes:
+    """500 ms of 220 Hz sine — RMS = amplitude/sqrt(2). amplitude=565 → RMS≈400,
+    typical desk-mic conversation volume (Hi Sparky said normally).
+    """
+    n = int(SR * ms / 1000)
+    samples = [int(amplitude * math.sin(2 * math.pi * 220 * i / SR)) for i in range(n)]
+    return struct.pack(f"<{n}h", *samples)
+
+
+def test_short_utterance_at_end_of_window_passes_gate():
+    """A 500ms conversation-volume wake phrase preceded by 1s of silence in a
+    1.5s window MUST pass a 300-threshold gate. The full-window average is
+    diluted (RMS≈400 × sqrt(1/3) ≈ 230 < 300) but the peak sub-window sees the
+    real ~400 RMS of the speech. Pre-fix this was the "Hi Sparky 偶尔能唤醒"
+    case — operator's normal voice averaged below the gate ~2/3 of the time.
+    """
+    backend = _CapturingBackend("hi sparky")
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    silence = quiet_audio_chunk(1000)
+    voice = conversational_voice_chunk(500, amplitude=565)  # RMS ≈ 400
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.5, inference_rate_hz=50.0,
+        rms_threshold=300, cooldown_s=0.05,
+        phrases=["hi sparky"],
+    )
+    d.start()
+    try:
+        d.feed(silence)
+        d.feed(voice)
+        time.sleep(0.3)  # let worker drain
+    finally:
+        d.stop()
+    assert backend.received, (
+        "conversation-volume utterance at end of window must clear the gate "
+        "(peak sub-window RMS, not full-window average)"
+    )
+    assert received, "wake should fire on short utterance"
+
+
+def test_peak_gate_still_rejects_long_low_level_noise():
+    """Stationary background noise below threshold (RMS ~150) must NOT pass
+    even though it fills the whole window — peak sub-window RMS is also low.
+    """
+    backend = _CapturingBackend("hi sparky")
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    # Pure tone at amplitude 200 → RMS = 200/sqrt(2) ≈ 141, well below
+    # threshold=300. Fills the whole window so window-RMS and peak-sub-RMS
+    # both ≈ 141. Gate must block.
+    n = int(SR * 1.5)
+    noise = struct.pack(
+        f"<{n}h",
+        *[int(200 * math.sin(2 * math.pi * 220 * i / SR)) for i in range(n)],
+    )
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.5, inference_rate_hz=50.0,
+        rms_threshold=300, cooldown_s=0.05,
+        phrases=["hi sparky"],
+    )
+    d.start()
+    try:
+        d.feed(noise)
+        time.sleep(0.3)
+    finally:
+        d.stop()
+    assert backend.received == [], (
+        f"low-level stationary noise must NOT trip the gate; got {len(backend.received)} calls"
+    )
+    assert received == []
+
+
 def test_cooldown_throttles_repeats():
     d, _, received, _ = _make_detector(
         scripted=["hi sparky", "hi sparky", "hi sparky"], cooldown_s=10.0

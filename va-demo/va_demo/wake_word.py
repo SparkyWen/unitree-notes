@@ -213,6 +213,24 @@ class WakeWordDetector:
         self._stopped = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_fire = 0.0
+        # Peak sub-window length used by the raw-RMS gate. We slide a window
+        # of this length across the snapshot and gate on the LOUDEST segment,
+        # not the full-window average. Reason: a typical "Hi Sparky" lasts
+        # ~500-700 ms; averaging over the full 1.5 s rolling window dilutes
+        # the speech segment by sqrt(speech_s / window_s) — for a 400-RMS
+        # utterance, the window average drops to ~230, well below the
+        # production rms_threshold=300, so most "Hi Sparky" attempts were
+        # silently gated out even though their voice segment was clearly
+        # above the threshold. That is the "偶尔能唤醒，绝大部分时候是无法
+        # 唤醒" operator report. A peak measurement matches the question
+        # the gate is actually trying to answer: "is there a chunk of real
+        # speech anywhere in the buffer?". Stationary background noise is
+        # rejected as before because its peak ≈ its average.
+        self._peak_subwindow_s = 0.5
+        # Step size for the sliding peak scan (50 ms) — coarse enough that
+        # the scan is cheap (~30 RMS calls on a 1.5 s window), fine enough
+        # to catch any 0.5 s speech segment regardless of phase.
+        self._peak_step_s = 0.05
 
         # Worker-thread liveness heartbeat. Each loop iteration appends a
         # monotonic timestamp; worker_healthy() reports whether the thread is
@@ -300,11 +318,24 @@ class WakeWordDetector:
                     log.debug("buf too small: %d < %d", len(self._buf), self._window_bytes // 2)
                     continue
                 snapshot = bytes(self._buf)
-            rms_val = self._rms(snapshot)
+            # Peak-sub-window RMS, not full-window average. A 500–700 ms
+            # "Hi Sparky" in a 1.5 s buffer used to be diluted by the
+            # surrounding silence to ~58% of its true speech RMS, so
+            # conversation-volume wake attempts at the production threshold
+            # (300) failed the gate most of the time and only "lucky"
+            # (louder + better-timed) attempts triggered a transcribe. See
+            # _peak_subwindow_rms for the full rationale.
+            rms_val = self._peak_subwindow_rms(snapshot)
             if rms_val < self._rms_threshold:
-                log.debug("rms gate: %.0f < %d (skip)", rms_val, self._rms_threshold)
+                log.debug(
+                    "rms gate (peak %.1fs): %.0f < %d (skip)",
+                    self._peak_subwindow_s, rms_val, self._rms_threshold,
+                )
                 continue
-            log.debug("rms gate: %.0f >= %d (transcribe)", rms_val, self._rms_threshold)
+            log.debug(
+                "rms gate (peak %.1fs): %.0f >= %d (transcribe)",
+                self._peak_subwindow_s, rms_val, self._rms_threshold,
+            )
             transcribe_input = self._aec_subtract(snapshot)
             # Post-AEC gate: if the cleaned signal is below threshold the
             # snapshot is bot-residual only (or silence); transcribing it
@@ -320,16 +351,25 @@ class WakeWordDetector:
                 and self._aec_gain > 0.0
                 and transcribe_input is not snapshot
             ):
-                cleaned_rms = self._rms(transcribe_input)
+                # Same peak-sub-window logic as the raw gate above: a short
+                # "Hi Sparky" inside a 1.5 s post-AEC snapshot averages to
+                # ~58% of its real RMS, so the cleaned gate would silently
+                # drop barge-in attempts at the production threshold for
+                # the same reason the raw gate did pre-fix.
+                cleaned_rms = self._peak_subwindow_rms(transcribe_input)
                 if cleaned_rms < self._cleaned_rms_threshold:
                     log.debug(
-                        "cleaned rms gate: %.0f < %.0f (skip; raw was %.0f)",
-                        cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                        "cleaned rms gate (peak %.1fs): %.0f < %.0f "
+                        "(skip; raw was %.0f)",
+                        self._peak_subwindow_s, cleaned_rms,
+                        self._cleaned_rms_threshold, rms_val,
                     )
                     continue
                 log.debug(
-                    "cleaned rms gate: %.0f >= %.0f (transcribe; raw %.0f)",
-                    cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                    "cleaned rms gate (peak %.1fs): %.0f >= %.0f "
+                    "(transcribe; raw %.0f)",
+                    self._peak_subwindow_s, cleaned_rms,
+                    self._cleaned_rms_threshold, rms_val,
                 )
             try:
                 text = self._backend.transcribe(transcribe_input, self._samplerate)
@@ -363,6 +403,35 @@ class WakeWordDetector:
             return 0.0
         arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
         return float(np.sqrt(np.mean(arr * arr)))
+
+    def _peak_subwindow_rms(self, pcm: bytes) -> float:
+        """Largest RMS over any sub-window of length ``_peak_subwindow_s``.
+
+        Slides a fixed-length window across the int16 PCM in fixed steps and
+        returns the maximum RMS encountered. Falls back to the full-buffer
+        RMS when the buffer is shorter than one sub-window — at boot the
+        rolling buffer may not yet hold a full sub-window's worth of audio
+        and we still want the gate to behave sensibly. Vectorised with one
+        cumulative-sum pass over (samples²) so the cost is O(N) regardless
+        of how many sub-windows fit; perceptibly cheaper than calling
+        ``_rms`` per step in Python.
+        """
+        if not pcm:
+            return 0.0
+        sub_samples = int(self._samplerate * self._peak_subwindow_s)
+        step_samples = max(1, int(self._samplerate * self._peak_step_s))
+        arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+        if arr.size < sub_samples or sub_samples <= 0:
+            return float(np.sqrt(np.mean(arr * arr))) if arr.size else 0.0
+        sq = arr * arr
+        # cumulative sum trick: sum over [i, i+sub_samples) =
+        # cumsum[i+sub_samples] - cumsum[i]. Pad with a leading zero so the
+        # subtraction lines up at index 0.
+        csum = np.concatenate(([0.0], np.cumsum(sq, dtype=np.float64)))
+        # Indices where each sub-window starts.
+        starts = np.arange(0, arr.size - sub_samples + 1, step_samples)
+        sums = csum[starts + sub_samples] - csum[starts]
+        return float(np.sqrt(np.max(sums) / sub_samples))
 
     def _aec_subtract(self, mic_pcm: bytes) -> bytes:
         """Subtract time-aligned speaker output from the mic snapshot.

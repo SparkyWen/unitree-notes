@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import List
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from va_demo.spoken_cache import SpokenTranscriptCache
@@ -337,15 +339,29 @@ class _StubSpeakerRef:
     Always returns the same bytes regardless of window_s/delay_s. That
     matches how the real SpeakerStream behaves once steady-state playback
     fills its 3 s pcm history; tests don't need the timing nuance.
+
+    Also exposes ``recent_played_rms`` derived from the same buffer so the
+    cleaned-RMS gate's "is the speaker actually emitting audio?" check has
+    a realistic signal (the gate only applies when the speaker is loud,
+    matching the SPEAKING-state scenario it was designed for).
     """
 
     def __init__(self, pcm: bytes):
         self._pcm = pcm
         self.calls: List[float] = []
+        # Pre-compute the RMS once; in tests, bytes never change after init.
+        if pcm:
+            arr = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+            self._rms = float(np.sqrt(np.mean(arr * arr))) if arr.size else 0.0
+        else:
+            self._rms = 0.0
 
     def recent_played_pcm(self, window_s: float, *, delay_s: float = 0.0) -> bytes:
         self.calls.append(window_s)
         return self._pcm
+
+    def recent_played_rms(self, window_s: float = 0.2) -> float:
+        return self._rms
 
 
 def test_aec_subtract_no_op_without_speaker_ref():
@@ -502,6 +518,119 @@ def test_cleaned_rms_gate_passes_when_user_voice_survives():
     _drive(d, n_chunks=5, chunk=mic_chunk)
     assert backend.received, "user-voice case must NOT be gated out"
     assert received, "wake should fire on user-voice case"
+
+
+def test_cleaned_rms_gate_skipped_when_speaker_is_silent():
+    """Silent speaker → cleaned gate must NOT apply; raw gate is the floor.
+
+    Regression for the field bug "Hi Sparky doesn't wake after a phone
+    call". During IDLE (or any quiet window with no TTS playing), the
+    speaker callback emits zero-padded blocks; AEC subtracts ≈ 0 from the
+    mic; cleaned ≈ raw. The cleaned gate was designed for SPEAKING-state
+    where AEC residual is the floor — applying it to a silent-speaker
+    snapshot turns it into a STRICTER raw gate, silently filtering normal-
+    volume "Hi Sparky" attempts whose peak RMS lands in
+    [rms_threshold, cleaned_rms_threshold) and produces zero log output.
+
+    Setup: user speaks at a level comfortably above the raw rms_threshold
+    but BELOW the cleaned_rms_threshold; the speaker is silent
+    (recent_played_rms ≈ 0). The pre-fix behaviour skipped every
+    transcribe. The fix probes ``recent_played_rms`` and treats the silent-
+    speaker case as "raw gate only" — the transcribe runs and the wake
+    event fires.
+    """
+    # User voice RMS sits between 1000 (raw) and 4000 (cleaned). A pure
+    # int16 sine of amplitude 2500 has RMS ≈ 1768 — in the failure window.
+    n = int(SR * 1.0)
+    mic_arr = np.array(
+        [int(2500 * math.sin(2 * math.pi * 220 * i / SR)) for i in range(n)],
+        dtype=np.int16,
+    )
+    mic_chunk = mic_arr.tobytes()
+    # Speaker is silent → recent_played_rms == 0 → _speaker_is_hot is False.
+    spk_ref = _StubSpeakerRef(quiet_audio_chunk(1000))
+    backend = _CapturingBackend("hi sparky")
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.0, inference_rate_hz=50.0,
+        rms_threshold=1000, cooldown_s=0.05,
+        phrases=["hi sparky"],
+        speaker_ref=spk_ref, aec_gain=1.0, aec_delay_s=0.0,
+        # PRE-FIX: threshold 4000 with mic peak ~1800 would gate every
+        # attempt out even though raw gate (1000) clearly passes. POST-FIX:
+        # speaker is silent so cleaned gate is skipped entirely.
+        cleaned_rms_threshold=4000.0,
+    )
+    _drive(d, n_chunks=5, chunk=mic_chunk)
+    assert backend.received, (
+        "silent-speaker case must NOT be gated out by the cleaned RMS gate; "
+        "the gate is only meaningful when the speaker is actually emitting "
+        "audio (SPEAKING state). Pre-fix this was the silent-wake-miss bug."
+    )
+    assert received, "wake should fire when the raw gate passes and speaker is silent"
+
+
+def test_loop_body_survives_unexpected_exception():
+    """Worker thread must NOT die on an unexpected raise.
+
+    Pre-fix the wake worker's _loop only caught backend.transcribe
+    exceptions; anything raised earlier in the body (numpy edge case,
+    speaker_ref race, threading bug) would silently kill the thread and
+    "Hi Sparky" would stop working permanently with no ERROR log. The fix
+    wraps the inner body in a guard so the worker stays alive on the
+    next tick.
+    """
+
+    class _ExplodingBackend:
+        """Raises EVERY call so the wake never advances past transcribe."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def transcribe(self, pcm, samplerate):
+            self.calls += 1
+            raise RuntimeError("backend exploded")
+
+    backend = _ExplodingBackend()
+    cache = SpokenTranscriptCache()
+    received: List[WakeEvent] = []
+    d = WakeWordDetector(
+        backend=backend, spoken_cache=cache, on_wake=received.append,
+        samplerate=SR, rolling_window_s=1.0, inference_rate_hz=50.0,
+        rms_threshold=1000, cooldown_s=0.05, phrases=["hi sparky"],
+    )
+    chunk = loud_audio_chunk(500)
+    # Drive the worker through several iterations; the guard around the
+    # backend call already covers this case (existing behaviour).
+    _drive(d, n_chunks=5, chunk=chunk)
+    assert backend.calls >= 2, (
+        "worker thread must keep iterating after a backend exception"
+    )
+
+    # Now stress the OUTER guard: monkey-patch _peak_subwindow_rms (which
+    # was not inside any try/except pre-fix) to raise. The thread must
+    # still keep ticking instead of dying silently.
+    raise_count = {"n": 0}
+    orig_peak = d._peak_subwindow_rms
+
+    def _boom(pcm):
+        raise_count["n"] += 1
+        if raise_count["n"] <= 3:
+            raise ValueError("simulated numpy edge case")
+        return orig_peak(pcm)
+
+    d._peak_subwindow_rms = _boom  # type: ignore[assignment]
+    ticks_before = sum(1 for _ in d._tick_times)
+    _drive(d, n_chunks=8, chunk=chunk)
+    ticks_after = sum(1 for _ in d._tick_times)
+    assert raise_count["n"] >= 3, (
+        "monkey-patched _peak_subwindow_rms should have been hit"
+    )
+    assert ticks_after > ticks_before, (
+        "worker thread must keep ticking after _peak_subwindow_rms raises"
+    )
 
 
 def test_cleaned_rms_gate_disabled_by_default():

@@ -231,6 +231,27 @@ class WakeWordDetector:
         # the scan is cheap (~30 RMS calls on a 1.5 s window), fine enough
         # to catch any 0.5 s speech segment regardless of phase.
         self._peak_step_s = 0.05
+        # Speaker-hot threshold for the cleaned_rms gate. The gate is only
+        # MEANINGFUL when the speaker is actively playing audio that AEC
+        # would subtract — that is the SPEAKING-state scenario it was
+        # designed for. When the speaker is silent (IDLE, or between TTS
+        # chunks), the cleaned signal equals the raw signal and the cleaned
+        # gate becomes a STRICTER raw gate: a normal-volume "Hi Sparky" whose
+        # peak RMS falls between ``rms_threshold`` and ``cleaned_rms_threshold``
+        # is silently filtered without any log entry — wake silently misses.
+        # We measure ``speaker_ref.recent_played_rms(0.2 s)`` and only apply
+        # the cleaned gate when that RMS exceeds this floor; otherwise the
+        # raw gate is the only RMS filter, which is the correct behaviour for
+        # IDLE/silent-speaker conditions. 50 is well above the device's
+        # silent-callback noise floor (which is ~0 for the zero-padded blocks
+        # SpeakerStream emits when its buffer is empty) but well below any
+        # real TTS playback (typical SPEAKING speaker peak RMS > 2000).
+        self._speaker_hot_rms = 50.0
+        # Throttle INFO logs about the cleaned gate so we surface real
+        # failures (the silent-miss bug) without spamming the logs every
+        # 200 ms during a long TTS reply.
+        self._last_clean_skip_log_at: float = 0.0
+        self._clean_skip_log_min_interval_s: float = 2.0
 
         # Worker-thread liveness heartbeat. Each loop iteration appends a
         # monotonic timestamp; worker_healthy() reports whether the thread is
@@ -308,49 +329,82 @@ class WakeWordDetector:
         return recent >= min_ticks
 
     def _loop(self) -> None:
+        # Outer guard: if the inner body raises for any unexpected reason
+        # (numpy edge case in _peak_subwindow_rms / _aec_subtract, threading
+        # race in _played_pcm_history, etc.) the worker thread used to die
+        # silently — no further wake attempts, no ERROR log, "Hi Sparky"
+        # permanently broken until the next process restart. Catching and
+        # logging here keeps the worker alive on the next tick instead.
         while not self._stopped.is_set():
             time.sleep(self._period_s)
             self._record_tick()
-            if self._paused.is_set():
-                continue
-            with self._buf_lock:
-                if len(self._buf) < self._window_bytes // 2:
-                    log.debug("buf too small: %d < %d", len(self._buf), self._window_bytes // 2)
-                    continue
-                snapshot = bytes(self._buf)
-            # Peak-sub-window RMS, not full-window average. A 500–700 ms
-            # "Hi Sparky" in a 1.5 s buffer used to be diluted by the
-            # surrounding silence to ~58% of its true speech RMS, so
-            # conversation-volume wake attempts at the production threshold
-            # (300) failed the gate most of the time and only "lucky"
-            # (louder + better-timed) attempts triggered a transcribe. See
-            # _peak_subwindow_rms for the full rationale.
-            rms_val = self._peak_subwindow_rms(snapshot)
-            if rms_val < self._rms_threshold:
-                log.debug(
-                    "rms gate (peak %.1fs): %.0f < %d (skip)",
-                    self._peak_subwindow_s, rms_val, self._rms_threshold,
+            try:
+                self._loop_body_once()
+            except Exception:
+                log.exception(
+                    "wake-word loop iteration raised; continuing — "
+                    "worker thread stays alive"
                 )
-                continue
+
+    def _loop_body_once(self) -> None:
+        if self._paused.is_set():
+            return
+        with self._buf_lock:
+            if len(self._buf) < self._window_bytes // 2:
+                log.debug("buf too small: %d < %d", len(self._buf), self._window_bytes // 2)
+                return
+            snapshot = bytes(self._buf)
+        # Peak-sub-window RMS, not full-window average. A 500–700 ms
+        # "Hi Sparky" in a 1.5 s buffer used to be diluted by the
+        # surrounding silence to ~58% of its true speech RMS, so
+        # conversation-volume wake attempts at the production threshold
+        # (300) failed the gate most of the time and only "lucky"
+        # (louder + better-timed) attempts triggered a transcribe. See
+        # _peak_subwindow_rms for the full rationale.
+        rms_val = self._peak_subwindow_rms(snapshot)
+        if rms_val < self._rms_threshold:
             log.debug(
-                "rms gate (peak %.1fs): %.0f >= %d (transcribe)",
+                "rms gate (peak %.1fs): %.0f < %d (skip)",
                 self._peak_subwindow_s, rms_val, self._rms_threshold,
             )
-            transcribe_input = self._aec_subtract(snapshot)
-            # Post-AEC gate: if the cleaned signal is below threshold the
-            # snapshot is bot-residual only (or silence); transcribing it
-            # just burns network round-trip on a result that can't match
-            # the wake phrase and starves the next snapshot — which is the
-            # one that finally has the user's voice. Skip and loop again.
-            # Only applied when the threshold is configured AND AEC is
-            # actually active; otherwise the cleaned signal equals the raw
-            # mic and the gate would be redundant with the raw RMS gate.
-            if (
-                self._cleaned_rms_threshold > 0.0
-                and self._speaker_ref is not None
-                and self._aec_gain > 0.0
-                and transcribe_input is not snapshot
-            ):
+            return
+        log.debug(
+            "rms gate (peak %.1fs): %.0f >= %d (transcribe)",
+            self._peak_subwindow_s, rms_val, self._rms_threshold,
+        )
+        transcribe_input = self._aec_subtract(snapshot)
+        # Post-AEC gate: when the speaker is actually playing TTS, the raw
+        # mic is dominated by speaker echo and the cleaned (AEC-subtracted)
+        # signal is the better predictor of "is the user actually
+        # speaking?". Gating on cleaned RMS during SPEAKING avoids spending
+        # one transcribe per loop iteration on echo-only audio (each
+        # transcribe is a synchronous 200-500 ms network round-trip on
+        # this single worker thread; a permanently-tripped raw gate during
+        # TTS would starve the user's "Hi Sparky" window).
+        #
+        # CRITICAL: this gate must NOT apply when the speaker is silent
+        # (IDLE state, or between TTS chunks). When speaker is silent, AEC
+        # subtracts ~0 and cleaned ≈ raw — so the cleaned gate becomes a
+        # STRICTER raw gate, silently filtering normal-volume "Hi Sparky"
+        # whose peak RMS lands in [rms_threshold, cleaned_rms_threshold).
+        # That was the field bug: after a phone call (or any quiet idle
+        # window) the operator says "Hi Sparky" 30 times, voice peak is
+        # solidly above the 300 raw threshold but lands in the 300-600
+        # range, the cleaned gate kicks every attempt out without any log,
+        # and wake "silently stops working" for minutes at a time.
+        # The fix: probe ``speaker_ref.recent_played_rms`` and only apply
+        # the cleaned gate when the speaker is actually emitting audio
+        # (above ``_speaker_hot_rms``). On a silent speaker, the raw gate
+        # is the only RMS filter — which is exactly correct because then
+        # there is no echo to subtract.
+        if (
+            self._cleaned_rms_threshold > 0.0
+            and self._speaker_ref is not None
+            and self._aec_gain > 0.0
+            and transcribe_input is not snapshot
+        ):
+            speaker_hot = self._speaker_is_hot()
+            if speaker_hot:
                 # Same peak-sub-window logic as the raw gate above: a short
                 # "Hi Sparky" inside a 1.5 s post-AEC snapshot averages to
                 # ~58% of its real RMS, so the cleaned gate would silently
@@ -358,44 +412,86 @@ class WakeWordDetector:
                 # the same reason the raw gate did pre-fix.
                 cleaned_rms = self._peak_subwindow_rms(transcribe_input)
                 if cleaned_rms < self._cleaned_rms_threshold:
+                    # INFO (throttled) — this used to be the silent-miss
+                    # path. Surfacing it lets the operator see "the gate
+                    # ate your wake attempt" instead of guessing.
+                    now = time.monotonic()
+                    if now - self._last_clean_skip_log_at >= self._clean_skip_log_min_interval_s:
+                        self._last_clean_skip_log_at = now
+                        log.info(
+                            "wake skipped: cleaned RMS %.0f < %.0f "
+                            "(raw %.0f; speaker hot — AEC residual gate "
+                            "active). If 'Hi Sparky' fires while bot is "
+                            "silent but misses here, that's the SPEAKING-"
+                            "state gate doing its job.",
+                            cleaned_rms, self._cleaned_rms_threshold, rms_val,
+                        )
                     log.debug(
                         "cleaned rms gate (peak %.1fs): %.0f < %.0f "
-                        "(skip; raw was %.0f)",
+                        "(skip; raw was %.0f, speaker hot)",
                         self._peak_subwindow_s, cleaned_rms,
                         self._cleaned_rms_threshold, rms_val,
                     )
-                    continue
+                    return
                 log.debug(
                     "cleaned rms gate (peak %.1fs): %.0f >= %.0f "
-                    "(transcribe; raw %.0f)",
+                    "(transcribe; raw %.0f, speaker hot)",
                     self._peak_subwindow_s, cleaned_rms,
                     self._cleaned_rms_threshold, rms_val,
                 )
-            try:
-                text = self._backend.transcribe(transcribe_input, self._samplerate)
-            except Exception as e:
-                log.warning("wake-word backend error: %s", e)
-                continue
-            log.debug("transcript: %r", text)
-            if not text:
-                continue
-            normalized = self._normalize(text)
-            if not any(p in normalized for p in self._phrases):
-                log.debug("no phrase match in normalized=%r (phrases=%r)", normalized, self._phrases)
-                continue
-            cache_text = self._cache.recent_text(self._selfecho_window_s)
-            if any(p in cache_text for p in self._phrases):
-                log.debug("wake suppressed by self-echo dedup: %r", text)
-                continue
-            now = time.monotonic()
-            if now - self._last_fire < self._cooldown_s:
-                log.debug("wake suppressed by cooldown")
-                continue
-            self._last_fire = now
-            try:
-                self._on_wake(WakeEvent(text=text, t=now))
-            except Exception as e:
-                log.exception("on_wake handler raised: %s", e)
+            else:
+                log.debug(
+                    "cleaned rms gate skipped: speaker silent "
+                    "(raw %.0f >= %d, no echo to filter)",
+                    rms_val, self._rms_threshold,
+                )
+        try:
+            text = self._backend.transcribe(transcribe_input, self._samplerate)
+        except Exception as e:
+            log.warning("wake-word backend error: %s", e)
+            return
+        log.debug("transcript: %r", text)
+        if not text:
+            return
+        normalized = self._normalize(text)
+        if not any(p in normalized for p in self._phrases):
+            log.debug("no phrase match in normalized=%r (phrases=%r)", normalized, self._phrases)
+            return
+        cache_text = self._cache.recent_text(self._selfecho_window_s)
+        if any(p in cache_text for p in self._phrases):
+            log.debug("wake suppressed by self-echo dedup: %r", text)
+            return
+        now = time.monotonic()
+        if now - self._last_fire < self._cooldown_s:
+            log.debug("wake suppressed by cooldown")
+            return
+        self._last_fire = now
+        try:
+            self._on_wake(WakeEvent(text=text, t=now))
+        except Exception as e:
+            log.exception("on_wake handler raised: %s", e)
+
+    def _speaker_is_hot(self) -> bool:
+        """True if the speaker is actively emitting audio above the floor.
+
+        Probes ``speaker_ref.recent_played_rms`` over a short trailing
+        window (0.2 s) so the answer reflects what the device is playing
+        RIGHT NOW, not what was queued seconds ago. Returns False when no
+        speaker reference is wired, when the API is missing, or when the
+        call raises — defaults to "silent" because that is the
+        conservative answer (cleaned gate skipped, raw gate is still
+        applied above).
+        """
+        ref = self._speaker_ref
+        if ref is None:
+            return False
+        getter = getattr(ref, "recent_played_rms", None)
+        if getter is None:
+            return False
+        try:
+            return float(getter(0.2)) >= self._speaker_hot_rms
+        except Exception:  # noqa: BLE001 — must never break wake path
+            return False
 
     @staticmethod
     def _rms(pcm: bytes) -> float:

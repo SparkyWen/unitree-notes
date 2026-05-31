@@ -8,15 +8,12 @@ by running g1_sim_rl_walk.py and g1_sim_keyboard.py at the same time.
 
 Architecture
 ------------
-- 50 Hz RL tick: builds 98-D obs from rt/lowstate, runs policy.onnx,
-  converts raw_action -> q_target (29-D).
-- The policy controls all 29 joints by default. Arms are only
-  overridden while an arm gesture is actively playing or queued; as
-  soon as the last keyframe finishes the arm slice (15..28) is handed
-  back to the policy. This matches the canonical C++ deployment
-  (`unitree_rl_mjlab/deploy/robots/g1/src/State_RLBase.cpp`), which
-  writes all 29 joints of the policy output to lowcmd unmodified.
-- Legs (0..11) and waist (12..14) are *always* under the RL policy.
+- 50 Hz RL tick: builds obs from rt/lowstate, runs policy.onnx,
+  converts raw_action -> q_target. Obs/action dim auto-detected from ONNX.
+- The policy controls all joints by default. Arms are only overridden
+  while an arm gesture is actively playing or queued; as soon as the
+  last keyframe finishes the arm slice is handed back to the policy.
+- Legs (0..arm_start-1) are *always* under the RL policy.
 - Only ONE publisher writes to rt/lowcmd, so no DDS race.
 
 Why arm gestures don't break the policy
@@ -30,8 +27,8 @@ Why arm gestures don't break the policy
 
   The current approach removes that envelope and instead **masks the
   arm slice of the policy observation** while a gesture is active.
-  Specifically, `_build_obs` zeroes `joint_pos_rel[15:29]`,
-  `joint_vel_rel[15:29]`, and `last_raw_action[15:29]` whenever
+  Specifically, `_build_obs` zeroes `joint_pos_rel[13:23]`,
+  `joint_vel_rel[13:23]`, and `last_raw_action[13:23]` whenever
   ``_arm_obs_masked == True``. The policy then sees "arms at default,
   not moving" and produces in-distribution leg/waist outputs, even
   while the arms physically swing all the way through the joint
@@ -95,7 +92,7 @@ Run order
 
 Walking keys:   w/s, a/d, q/e, r (stop), f (full forward)
 Arm gestures:   1 wave R, 2 wave L, 3 hands up, 4 T-pose,
-                5 salute, 6 clap, 7 guard, 8 punch combo, 0 release
+                5 salute, 6 clap, 7 guard, 8 punch combo, b bow, 0 release
 System:         space (soften), ? (help), x (quit)
 """
 
@@ -134,12 +131,16 @@ from unitree_sdk2py.utils.thread import RecurrentThread
 
 
 # ---------------------------------------------------------------------------
-# Joint indices (G1 29-DOF, PR mode). Same layout as g1_sim_keyboard.py.
+# Joint indices (G1 23-DOF, PR mode).
+# Policy space: 0..22. SDK slots: joint_ids_map = [0..12, 15..19, 22..26].
+# Excluded SDK slots: 13,14 (WaistRoll/Pitch), 20,21 (LeftWristPitch/Yaw),
+#                     27,28 (RightWristPitch/Yaw).
 # ---------------------------------------------------------------------------
-G1_NUM_MOTOR = 29
-ARM_START = 15        # joints 15..28 are arms (left 15..21, right 22..28)
-ARM_END = 29          # exclusive
-ARM_DIM = ARM_END - ARM_START   # 14
+G1_NUM_MOTOR = 23
+ARM_START = 13        # joints 13..22 are arms (left 13..17, right 18..22)
+ARM_END = 23          # exclusive
+ARM_DIM = ARM_END - ARM_START   # 10
+G1_SDK_MOTOR_TOTAL = 29  # G1 always exposes 29 SDK slots
 
 
 class J:
@@ -156,22 +157,21 @@ class J:
     RightAnklePitch    = 10
     RightAnkleRoll     = 11
     WaistYaw           = 12
-    WaistRoll          = 13
-    WaistPitch         = 14
-    LeftShoulderPitch  = 15
-    LeftShoulderRoll   = 16
-    LeftShoulderYaw    = 17
-    LeftElbow          = 18
-    LeftWristRoll      = 19
-    LeftWristPitch     = 20
-    LeftWristYaw       = 21
-    RightShoulderPitch = 22
-    RightShoulderRoll  = 23
-    RightShoulderYaw   = 24
-    RightElbow         = 25
-    RightWristRoll     = 26
-    RightWristPitch    = 27
-    RightWristYaw      = 28
+    LeftShoulderPitch  = 13
+    LeftShoulderRoll   = 14
+    LeftShoulderYaw    = 15
+    LeftElbow          = 16
+    LeftWristRoll      = 17
+    RightShoulderPitch = 18
+    RightShoulderRoll  = 19
+    RightShoulderYaw   = 20
+    RightElbow         = 21
+    RightWristRoll     = 22
+
+
+def _slot(j: int) -> int:
+    """Convert a policy-space joint index (J.*) to an arm-local index."""
+    return j - ARM_START
 
 
 # Resolve the policy artifact directory relative to *this script*, not to
@@ -179,13 +179,31 @@ class J:
 # cloned. The script lives at <repo_root>/g1_sim_demo/g1_sim_rl_combo.py,
 # so the repo root is its parent's parent.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-POLICY_DIR = (
-    _REPO_ROOT
-    / "unitree_rl_mjlab/deploy/robots/g1"
-    / "config/policy/velocity/v0"
-)
-POLICY_ONNX = POLICY_DIR / "exported" / "policy.onnx"
-POLICY_YAML = POLICY_DIR / "params" / "deploy.yaml"
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+# Both the ONNX and the deploy config live in g1_sim_demo/policy/ so this
+# file is portable when copied to any repo (e.g. cs47-command-center).
+POLICY_ONNX = _SCRIPT_DIR / "policy" / "policy.onnx"
+POLICY_YAML = _SCRIPT_DIR / "policy" / "params" / "deploy.yaml"
+
+# ---------------------------------------------------------------------------
+# Gesture library (gestures_23dof.npz, built from build_arm_actions at 50 Hz).
+# obs: gesture_onehot [N_g] + arm_qpos_ref_horizon [k * ARM_DIM].
+# ---------------------------------------------------------------------------
+_GESTURE_FILE = _SCRIPT_DIR / "policy" / "gestures_23dof.npz"
+_GESTURE_FPS = 50.0       # Hz at which the library was sampled
+_GESTURE_K   = 5          # look-ahead horizon in obs
+# gesture key → library index (must match names order in gestures_23dof.npz)
+_KEY_TO_GESTURE_IDX: dict = {
+    "1": 0,  # wave_right
+    "2": 1,  # wave_left
+    "3": 2,  # hands_up
+    "4": 3,  # t_pose
+    # keys 5-8 intentionally absent: gestures_23dof.npz was baked from the
+    # old (wrong) pose functions, so the library trajectories are incorrect.
+    # Falling through to the keyframe else-branch picks up the fixed poses.
+    "hug": 8,  # for keyframe_extras / SkillServer
+}
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +217,14 @@ class DeployCfg:
         self.kp = np.asarray(cfg["stiffness"], dtype=np.float64)
         self.kd = np.asarray(cfg["damping"], dtype=np.float64)
         self.default_q = np.asarray(cfg["default_joint_pos"], dtype=np.float64)
+
+        # joint_ids_map[i] = SDK motor slot that carries policy joint i.
+        self.joint_ids_map: List[int] = list(cfg["joint_ids_map"])
+        self.num_motors: int = len(self.joint_ids_map)
+        # SDK slots not in joint_ids_map; zeroed in _publish for safety.
+        self.excluded_sdk_slots: frozenset = (
+            frozenset(range(G1_SDK_MOTOR_TOTAL)) - frozenset(self.joint_ids_map)
+        )
 
         action = cfg["actions"]["JointPositionAction"]
         self.action_scale = np.asarray(action["scale"], dtype=np.float64)
@@ -219,10 +245,10 @@ class DeployCfg:
             ("action_scale", self.action_scale),
             ("action_offset", self.action_offset),
         ]:
-            if arr.shape != (G1_NUM_MOTOR,):
+            if arr.shape != (self.num_motors,):
                 raise ValueError(
                     f"deploy.yaml '{name}' has shape {arr.shape}, "
-                    f"expected ({G1_NUM_MOTOR},)"
+                    f"expected ({self.num_motors},)"
                 )
 
 
@@ -230,9 +256,6 @@ class DeployCfg:
 # ONNX policy wrapper
 # ---------------------------------------------------------------------------
 class Policy:
-    OBS_DIM = 98          # 3 + 3 + 3 + 2 + 29 + 29 + 29
-    ACT_DIM = G1_NUM_MOTOR
-
     def __init__(self, onnx_path: Path):
         if not onnx_path.exists():
             raise FileNotFoundError(f"policy not found: {onnx_path}")
@@ -243,19 +266,17 @@ class Policy:
         outs = self.session.get_outputs()
         self.in_name = ins[0].name
         self.out_name = outs[0].name
-        if ins[0].shape[-1] != self.OBS_DIM:
+        self.obs_dim: int = ins[0].shape[-1]
+        self.act_dim: int = outs[0].shape[-1]
+        if self.act_dim != G1_NUM_MOTOR:
             raise RuntimeError(
-                f"policy expects obs dim {ins[0].shape[-1]}, demo builds {self.OBS_DIM}."
-            )
-        if outs[0].shape[-1] != self.ACT_DIM:
-            raise RuntimeError(
-                f"policy outputs dim {outs[0].shape[-1]}, demo expects {self.ACT_DIM}."
+                f"policy outputs {self.act_dim} actions; expected {G1_NUM_MOTOR} (G1_NUM_MOTOR)."
             )
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
-        x = obs.astype(np.float32, copy=False).reshape(1, self.OBS_DIM)
+        x = obs.astype(np.float32, copy=False).reshape(1, self.obs_dim)
         y = self.session.run([self.out_name], {self.in_name: x})[0]
-        return y.reshape(self.ACT_DIM)
+        return y.reshape(self.act_dim)
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +300,8 @@ GRAVITY_W = np.array([0.0, 0.0, -1.0], dtype=np.float64)
 # ---------------------------------------------------------------------------
 # Arm gesture poses.
 #
-# Each gesture is encoded as a 14-D *absolute* target for the arm slice
-# (joints 15..28). Targets only set the joints the gesture actually moves;
+# Each gesture is encoded as a 10-D *absolute* target for the arm slice
+# (joints 13..22). Targets only set the joints the gesture actually moves;
 # unset joints stay at the policy's arm_rest. Values were chosen to
 # reproduce the recognisable poses from the legacy g1_sim_keyboard.py demo
 # (which the user remembers as "the gestures looked right") and are
@@ -298,20 +319,14 @@ GRAVITY_W = np.array([0.0, 0.0, -1.0], dtype=np.float64)
 # while a gesture override is active — see ``_arm_obs_masked`` flag.
 # Sign convention (matches the MJCF):
 #   shoulder_pitch  − = arm forward/up
-#   shoulder_roll   + = arm out (left side; mirrored on right)
+#   shoulder_roll   + = arm out (left side; − on right side = arm out)
 #   elbow           + = elbow bent
-#   wrist_pitch     − = palm down / forward
 # ---------------------------------------------------------------------------
-def _slot(j: int) -> int:
-    """Map global joint index (15..28) to arm-local index (0..13)."""
-    return j - ARM_START
-
-
 def _abs_pose_from(arm_rest: np.ndarray, **overrides: float) -> np.ndarray:
     """Start from the policy's arm_rest and override the named joints.
 
     `overrides` keys must be attribute names on `J` (e.g. RightShoulderPitch).
-    Returns a fresh 14-D pose; arm_rest is not mutated.
+    Returns a fresh arm_dim-D pose; arm_rest is not mutated.
     """
     p = arm_rest.copy()
     for name, value in overrides.items():
@@ -363,45 +378,67 @@ def t_pose_pose(arm_rest: np.ndarray) -> np.ndarray:
 
 
 def salute_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Right hand to forehead."""
+    """Right hand to forehead — military salute.
+
+    Upper arm elevated and to the right (pitch=-0.8, roll=-1.0), similar
+    to wave_right but more elevated.  At yaw=0 the elbow's natural bend
+    plane (set by the MJCF shoulder chain) swings the forearm upward and
+    inward toward the head at this arm elevation — no axial yaw needed.
+    Elbow=1.55 rad gives enough bend to bring the hand to the forehead.
+    """
     return _abs_pose_from(
         arm_rest,
-        RightShoulderPitch=-0.6,
-        RightShoulderRoll=-0.4,
+        RightShoulderPitch=-0.8,
+        RightShoulderRoll=-1.0,
         RightElbow=1.55,
-        RightWristPitch=-0.3,
     )
 
 
 def clap_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Both hands meeting at chest/face height — real clap geometry.
+
+    Both arms come forward (pitch=-0.8) and cross INWARD (roll=-0.5 left,
+    +0.5 right).  At yaw=0 the natural elbow bend swings the forearms
+    upward and inward so the hands meet in front of the face — no axial
+    yaw needed.
+    """
     return _abs_pose_from(
         arm_rest,
         LeftShoulderPitch=-0.8,
-        LeftShoulderRoll=0.4,
-        LeftElbow=1.2,
-        RightShoulderPitch=-0.8,
-        RightShoulderRoll=-0.4,
-        RightElbow=1.2,
-    )
-
-
-def guard_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Boxer guard: both fists in front of face."""
-    return _abs_pose_from(
-        arm_rest,
-        LeftShoulderPitch=-0.6,
-        LeftShoulderRoll=0.5,
+        LeftShoulderRoll=-0.5,
         LeftElbow=1.4,
-        RightShoulderPitch=-0.6,
-        RightShoulderRoll=-0.5,
+        RightShoulderPitch=-0.8,
+        RightShoulderRoll=0.5,
         RightElbow=1.4,
     )
 
 
+def guard_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Boxer guard: two vertical forearms ( I I ) in front of the face.
+
+    pitch=-1.2 tilts the upper arm forward-and-upward (mostly forward,
+    slightly down from horizontal).  At that elevation the MJCF shoulder
+    chain's natural elbow bend plane (yaw=0) already swings the forearm
+    mostly UPWARD (+Z ≈ 0.93) with only a slight forward lean — producing
+    the 'I I' shape without any axial yaw twist.  roll=±0.4 spaces the
+    arms slightly wider than the body so both forearms are visible
+    side-by-side from the front.
+    """
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-1.2,
+        LeftShoulderRoll=0.4,
+        LeftElbow=1.5,
+        RightShoulderPitch=-1.2,
+        RightShoulderRoll=-0.4,
+        RightElbow=1.5,
+    )
+
+
 def punch_right_pose(arm_rest: np.ndarray) -> np.ndarray:
-    """Right arm extended forward (jab), left arm in guard."""
+    """Right arm extended forward (jab), left arm stays in guard."""
     p = guard_pose(arm_rest)
-    p[_slot(J.RightShoulderPitch)] = -1.0
+    p[_slot(J.RightShoulderPitch)] = -1.2
     p[_slot(J.RightShoulderRoll)]  = -0.1
     p[_slot(J.RightElbow)]         =  0.1
     return p
@@ -409,14 +446,37 @@ def punch_right_pose(arm_rest: np.ndarray) -> np.ndarray:
 
 def punch_left_pose(arm_rest: np.ndarray) -> np.ndarray:
     p = guard_pose(arm_rest)
-    p[_slot(J.LeftShoulderPitch)] = -1.0
+    p[_slot(J.LeftShoulderPitch)] = -1.2
     p[_slot(J.LeftShoulderRoll)]  =  0.1
     p[_slot(J.LeftElbow)]         =  0.1
     return p
 
 
+def bow_pose(arm_rest: np.ndarray) -> np.ndarray:
+    """Namaste / prayer-hands bow substitute for 23-DOF.
+
+    23-DOF has no WaistPitch, so the torso cannot lean forward — a
+    physically correct forward bow is impossible.  The closest recognisable
+    gesture is bringing both hands together at chest height (合掌 / namaste),
+    which reads universally as a respectful bow.
+
+    Both arms come forward (-0.7 pitch) and strongly INWARD (roll -0.4 left,
+    +0.4 right) with elbows bent (1.3), so the hands meet at roughly
+    chest/sternum height in front of the body.
+    """
+    return _abs_pose_from(
+        arm_rest,
+        LeftShoulderPitch=-0.7,
+        LeftShoulderRoll=-0.4,
+        LeftElbow=1.3,
+        RightShoulderPitch=-0.7,
+        RightShoulderRoll=0.4,
+        RightElbow=1.3,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Action = ordered list of (duration_seconds, arm_pose_14d) keyframes.
+# Action = ordered list of (duration_seconds, arm_pose_10d) keyframes.
 # The arm controller blends the live "from" arm pose to the keyframe target
 # over `duration` using cosine ease-in-out, then advances to the next.
 # Every gesture ends with a keyframe back to ARM_REST so we hand control
@@ -437,7 +497,7 @@ def build_arm_actions(arm_rest: np.ndarray,
                       arm_scale: np.ndarray) -> List[ArmAction]:
     """Build the gesture table.
 
-    Each pose is an *absolute* 14-D arm target (see the gesture pose
+    Each pose is an *absolute* 10-D arm target (see the gesture pose
     builders above). Targets are clamped at runtime by
     `_clamp_arm_to_safe_envelope` to physical joint limits, and the
     policy obs has its arm slice masked while the override is active so
@@ -462,6 +522,7 @@ def build_arm_actions(arm_rest: np.ndarray,
     grd     = guard_pose(arm_rest)
     pr      = punch_right_pose(arm_rest)
     pl      = punch_left_pose(arm_rest)
+    bw      = bow_pose(arm_rest)
 
     return [
         ArmAction("1", "wave right arm",
@@ -490,6 +551,9 @@ def build_arm_actions(arm_rest: np.ndarray,
                    (0.4, pr), (0.35, grd),
                    (0.4, pl), (0.35, grd),
                    (1.2, arm_rest)]),
+        ArmAction("b", "bow (namaste — no waist pitch on 23DOF)",
+                  [(1.8, bw), hold(bw, 1.0),
+                   (1.8, arm_rest)]),
     ]
 
 
@@ -499,27 +563,20 @@ def build_arm_actions(arm_rest: np.ndarray,
 class ComboController:
     LOWSTATE_TIMEOUT = 0.2     # seconds; if no lowstate, hold default pose
 
-    # Per-arm-joint physical limits (rad). Sourced from g1_29dof.xml's
-    # <joint range=...> attributes, then shrunk by ~5% on each side so the
-    # commanded target never sits *exactly* on the soft-stop (which causes
-    # the actuator to fight a hard wall and emit large reaction forces).
-    # Indices 0..13 correspond to ARM_START..ARM_START+13 (i.e. left arm
-    # then right arm in the same order as the deploy.yaml joint table).
-    ARM_JOINT_LIMITS: tuple = (
-        (-3.05, 2.65),   # 15 LeftShoulderPitch  (xml -3.0892, 2.6704)
-        (-1.55, 2.20),   # 16 LeftShoulderRoll   (xml -1.5882, 2.2515)
-        (-2.55, 2.55),   # 17 LeftShoulderYaw    (xml -2.618 , 2.618 )
-        (-1.00, 2.05),   # 18 LeftElbow          (xml -1.0472, 2.0944)
-        (-1.95, 1.95),   # 19 LeftWristRoll      (xml -1.9722, 1.9722)
-        (-1.55, 1.55),   # 20 LeftWristPitch     (xml -1.6144, 1.6144)
-        (-1.55, 1.55),   # 21 LeftWristYaw       (xml -1.6144, 1.6144)
-        (-3.05, 2.65),   # 22 RightShoulderPitch
-        (-2.20, 1.55),   # 23 RightShoulderRoll  (xml -2.2515, 1.5882)
-        (-2.55, 2.55),   # 24 RightShoulderYaw
-        (-1.00, 2.05),   # 25 RightElbow
-        (-1.95, 1.95),   # 26 RightWristRoll
-        (-1.55, 1.55),   # 27 RightWristPitch
-        (-1.55, 1.55),   # 28 RightWristYaw
+    # Per-arm-joint physical limits (rad), sourced from MJCF with ~5% margin.
+    # Indices 0..9 correspond to policy joints ARM_START..ARM_END-1 (arm-local).
+    # 23-DOF has no WaistRoll/Pitch or WristPitch/Yaw.
+    ARM_JOINT_LIMITS: Tuple[Tuple[float, float], ...] = (
+        (-3.05, 2.65),   # 13 LeftShoulderPitch  (SDK 15)
+        (-1.55, 2.20),   # 14 LeftShoulderRoll   (SDK 16)
+        (-2.55, 2.55),   # 15 LeftShoulderYaw    (SDK 17)
+        (-1.00, 2.05),   # 16 LeftElbow          (SDK 18)
+        (-1.95, 1.95),   # 17 LeftWristRoll      (SDK 19)
+        (-3.05, 2.65),   # 18 RightShoulderPitch (SDK 22)
+        (-2.20, 1.55),   # 19 RightShoulderRoll  (SDK 23)
+        (-2.55, 2.55),   # 20 RightShoulderYaw   (SDK 24)
+        (-1.00, 2.05),   # 21 RightElbow         (SDK 25)
+        (-1.95, 1.95),   # 22 RightWristRoll     (SDK 26)
     )
 
     # `ARM_GESTURE_K` previously gated the *gesture amplitude* itself (clamp
@@ -529,10 +586,10 @@ class ComboController:
     # or hands-up). Now gestures are clamped only to the *physical* joint
     # range (ARM_JOINT_LIMITS); the OOD risk this used to guard against is
     # eliminated by masking the arm slice of the policy's observation
-    # while a gesture is active (see `_arm_obs_masked` and `_build_obs`).
+    # while a gesture is active via the gesture_onehot / arm_qpos_ref_horizon obs.
     #
     # ARM_GESTURE_K is still used for one thing: clipping the value we
-    # write into `last_raw_action[15:29]` so the next obs's last_action
+    # write into `last_raw_action[13:23]` so the next obs's last_action
     # entry stays in roughly the same magnitude range as the policy's own
     # outputs (raw_action ∈ ~[-1, 1]). Capping at K=4 keeps the
     # reverse-mapped action bounded even when the commanded arm pose
@@ -733,7 +790,7 @@ class ComboController:
         #     to take over while the robot was still mid-air on the
         #     elastic band, fed garbage actions to the legs, and the
         #     robot "flew around" needing repeated MuJoCo resets.
-        #   POLICY: policy controls all 29 joints. The first POLICY_WARMUP_S
+        #   POLICY: policy controls all joints. The first POLICY_WARMUP_S
         #     blends policy output with the held default action and clips
         #     raw_action to ±POLICY_WARMUP_CLIP so a single bad inference
         #     can't slingshot a leg.
@@ -763,22 +820,26 @@ class ComboController:
         # automatically once the last queued keyframe finishes.
         self._arm_override_active = False
         self._arm_lock = threading.Lock()
-        # Snapshot of the last 14-D arm slice we actually wrote to lowcmd;
+        # Snapshot of the last arm slice we actually wrote to lowcmd;
         # used by _rate_limit_arm_step. Seeded lazily in _tick.
         self._last_arm_q_published: Optional[np.ndarray] = None
-        # While an arm gesture is active the policy obs has its arm slice
-        # masked (joint_pos_rel / joint_vel_rel / last_raw_action all set
-        # to 0 for the 14 arm joints). This lets gestures be expressive
-        # in absolute joint space without putting the policy OOD on legs.
-        self._arm_obs_masked = False
-        # Cached arm slice of action_offset / action_scale (== default_q
-        # for arms / per-joint action scale). Used by the override math.
-        self._arm_lo = np.array(
-            [lo for (lo, _) in self.ARM_JOINT_LIMITS], dtype=np.float64
-        )
-        self._arm_hi = np.array(
-            [hi for (_, hi) in self.ARM_JOINT_LIMITS], dtype=np.float64
-        )
+        self._arm_lo = np.array([lo for lo, _ in self.ARM_JOINT_LIMITS], dtype=np.float64)
+        self._arm_hi = np.array([hi for _, hi in self.ARM_JOINT_LIMITS], dtype=np.float64)
+
+        # Gesture library (gestures_23dof.npz) for the arm-disturbance policy.
+        # Library gestures (keys 1-8, hug) bypass the keyframe blend and use
+        # pre-sampled 50Hz trajectories directly — matching training exactly.
+        if _GESTURE_FILE.exists():
+            _gdata = np.load(str(_GESTURE_FILE))
+            self._gest_qpos: np.ndarray = _gdata["arm_qpos"].astype(np.float64)  # (N_g, T_max, arm_dim)
+            self._gest_len: np.ndarray  = _gdata["lengths"]                       # (N_g,) int
+            self._n_gestures: int       = int(self._gest_qpos.shape[0])           # 9
+        else:
+            self._gest_qpos  = np.zeros((0, 1, ARM_DIM), dtype=np.float64)
+            self._gest_len   = np.zeros(0, dtype=np.int32)
+            self._n_gestures = 0
+        self._gest_id: int     = -1    # -1 = no library gesture; 0..N_g-1 = active
+        self._gest_frame: float = 0.0  # current frame index (advances 1/tick @ 50Hz)
 
         # Soft Kp scale.
         self.kp_scale = 1.0
@@ -789,7 +850,7 @@ class ComboController:
         # Per-arm Kp/Kd boost while an arm gesture override is active. Idle
         # value 1.0 (= deploy.yaml's training Kp). Slewed in `_tick` toward
         # ARM_GESTURE_KP_SCALE while `_arm_override_active`, back to 1.0
-        # when the gesture queue drains. Applied only to indices 15..28 in
+        # when the gesture queue drains. Applied only to arm indices in
         # `_publish` so leg/waist gains stay at the policy's training value.
         self._arm_kp_boost = 1.0
 
@@ -798,7 +859,7 @@ class ComboController:
         # Idle 1.0 (deploy.yaml's policy-training gains); slewed in `_tick`
         # toward STAND_KP_BOOST_TARGET while either the stand-still bypass
         # or the watchdog safe-hold is active, back to 1.0 the moment the
-        # policy is driving (walk/turn). Applied only to indices 0..14 in
+        # policy is driving (walk/turn). Applied only to indices 0..12 in
         # `_publish` so the policy still sees its training-time arm gains.
         self._leg_kp_boost = 1.0
 
@@ -888,17 +949,37 @@ class ComboController:
             self.arm_blend_t = 0.0
             self._arm_override_active = True
 
-    def release_arms(self):
-        """If a gesture is in progress, ramp arms back to rest and hand
-        them back to the policy. If arms are already policy-controlled
-        this is a no-op (don't grab arms just to release them).
+    def start_library_gesture(self, gesture_id: int) -> None:
+        """Start a library gesture (keys 1-8, hug). Arms are driven directly from
+        the pre-sampled 50Hz trajectory in gestures_23dof.npz so the policy
+        receives the same arm_qpos_ref_horizon obs it saw during training.
 
-        Uses a 1.5s ramp; with the rate-limit + envelope clamp this
-        produces a well-conditioned final blend regardless of where the
-        arms were when release_arms was called."""
+        gesture_id: index into the gesture library (see _KEY_TO_GESTURE_IDX).
+        Falls back to a no-op if the library wasn't loaded or id is out of range.
+        """
+        if gesture_id < 0 or gesture_id >= self._n_gestures:
+            return
         with self._arm_lock:
-            if not self._arm_override_active and not self.arm_queue:
+            # Clear any in-flight keyframe queue and set library mode.
+            self.arm_queue.clear()
+            self.arm_blend_from = None
+            self.arm_blend_to = None
+            self._gest_id = gesture_id
+            self._gest_frame = 0.0
+            self._arm_override_active = True
+
+    def release_arms(self):
+        """Stop any in-flight gesture and blend arms back to rest over 1.5s.
+        No-op if arms are already policy-controlled."""
+        with self._arm_lock:
+            has_library = self._gest_id >= 0
+            has_keyframe = self._arm_override_active or bool(self.arm_queue)
+            if not has_library and not has_keyframe:
                 return
+            # Stop library playback.
+            self._gest_id = -1
+            self._gest_frame = 0.0
+            # Start a keyframe ramp from wherever arms are now → arm_rest.
             self.arm_q_target = self._clamp_arm_to_safe_envelope(
                 self._read_current_arm_q()
             )
@@ -959,7 +1040,8 @@ class ComboController:
         while not self.first_state_received:
             time.sleep(0.05)
         measured = np.array(
-            [self.low_state.motor_state[i].q for i in range(G1_NUM_MOTOR)],
+            [self.low_state.motor_state[self.cfg.joint_ids_map[i]].q
+             for i in range(G1_NUM_MOTOR)],
             dtype=np.float64,
         )
         self.boot_q_from = measured.copy()
@@ -1169,32 +1251,22 @@ class ComboController:
         self.last_raw_action[:] = raw_action
         self._last_policy_q_target = q_target.copy()
 
-        # ---- Arm overlay: only override q_target[15:29] if a gesture is
-        # actively playing. Otherwise the policy keeps full control of the
-        # arms (it learned to swing them for balance during walking).
-        arm_q = self._advance_arms()
-        if arm_q is not None:
-            # Belt + suspenders: even though _advance_arms only emits poses
-            # that came through clamp at queue time, also enforce the
-            # envelope here in case a future change wires in another
-            # source. Then rate-limit the per-tick change so a snapped
-            # blend can't cause a joint_vel_rel spike larger than the
-            # training distribution.
-            arm_q = self._clamp_arm_to_safe_envelope(arm_q)
-            arm_q = self._rate_limit_arm_step(arm_q)
-            q_target[ARM_START:ARM_END] = arm_q
-
-            # The policy obs has the arm slice masked (see _build_obs),
-            # so it sees joint_pos_rel == 0 / last_action == 0 for all
-            # arm joints regardless of the actual gesture amplitude.
-            # That keeps the leg outputs in-distribution. We still write
-            # `last_raw_action[ARM_START:ARM_END]` for diagnostics, but
-            # use the *masked* value (0) so the next obs stays consistent
-            # with what the policy was fed.
-            self.last_raw_action[ARM_START:ARM_END] = 0.0
-            self._arm_obs_masked = True
+        # ---- Arm override: library gesture (trained matching) or keyframe fallback.
+        if self._gest_id >= 0:
+            # Library gesture: drive arms from pre-sampled trajectory.
+            # The arm-disturbance policy was trained with this exact arm reference,
+            # so no obs masking is needed — the policy sees real arm positions +
+            # gesture_onehot + arm_qpos_ref_horizon and compensates on the legs.
+            arm_q = self._advance_library_gesture()
+            if arm_q is not None:
+                q_target[ARM_START:ARM_END] = self._clamp_arm_to_safe_envelope(arm_q)
         else:
-            self._arm_obs_masked = False
+            # Keyframe-based arm overlay (non-library gestures like bow).
+            arm_q = self._advance_arms()
+            if arm_q is not None:
+                arm_q = self._clamp_arm_to_safe_envelope(arm_q)
+                arm_q = self._rate_limit_arm_step(arm_q)
+                q_target[ARM_START:ARM_END] = arm_q
 
         self._publish(q_target)
         # Stash what we just published; rate limiter and restart-from-live
@@ -1223,22 +1295,22 @@ class ComboController:
 
         try:
             q = np.fromiter(
-                (s.motor_state[i].q for i in range(G1_NUM_MOTOR)),
+                (s.motor_state[self.cfg.joint_ids_map[i]].q
+                 for i in range(G1_NUM_MOTOR)),
                 dtype=np.float64, count=G1_NUM_MOTOR,
             )
             dq = np.fromiter(
-                (s.motor_state[i].dq for i in range(G1_NUM_MOTOR)),
+                (s.motor_state[self.cfg.joint_ids_map[i]].dq
+                 for i in range(G1_NUM_MOTOR)),
                 dtype=np.float64, count=G1_NUM_MOTOR,
             )
         except Exception:  # noqa: BLE001
             return False
-        # Pose / vel: only judge legs and waist (joints 0..14). Arms get
-        # held by the same default-pose PD as the legs but their absolute
-        # angles matter much less to balance, and the elastic band
-        # transient sometimes leaves wrists in an odd offset that we don't
-        # want to use as a reason to refuse engagement forever.
-        pose_err = np.abs(q[:15] - self.cfg.default_q[:15]).max()
-        vel_err = np.abs(dq[:15]).max()
+        # Pose / vel: only judge legs and waist (policy joints 0..ARM_START-1).
+        # Arms matter much less to balance, and wrist transients shouldn't
+        # block engagement forever.
+        pose_err = np.abs(q[:ARM_START] - self.cfg.default_q[:ARM_START]).max()
+        vel_err = np.abs(dq[:ARM_START]).max()
 
         try:
             quat = np.array([
@@ -1284,7 +1356,7 @@ class ComboController:
         return False
 
     def _clamp_arm_to_safe_envelope(self, arm_q: np.ndarray) -> np.ndarray:
-        """Clamp a 14-D arm pose to the physical joint limits.
+        """Clamp a 10-D arm pose to the physical joint limits.
 
         The previous implementation clamped to `default ± K*action_scale`
         which kept every gesture inside the policy's training
@@ -1323,14 +1395,15 @@ class ComboController:
         if s is None:
             return self.arm_rest.copy()
         return np.fromiter(
-            (s.motor_state[ARM_START + i].q for i in range(ARM_DIM)),
+            (s.motor_state[self.cfg.joint_ids_map[ARM_START + i]].q
+             for i in range(ARM_DIM)),
             dtype=np.float64, count=ARM_DIM,
         )
 
     def _advance_arms(self) -> Optional[np.ndarray]:
         """Run one tick of the arm keyframe blender.
 
-        Returns the 14-D arm pose to overlay onto q_target while a
+        Returns the 10-D arm pose to overlay onto q_target while a
         gesture is active, or None when arms should stay under policy
         control. The override auto-disengages once the last queued
         keyframe completes.
@@ -1369,33 +1442,41 @@ class ComboController:
                 return None
             return self.arm_q_target.copy()
 
+    def _advance_library_gesture(self) -> Optional[np.ndarray]:
+        """Advance one control tick of a library gesture playback.
+
+        Returns the arm_dim-D absolute arm pose for this tick, or None when
+        the gesture finishes (which also clears _gest_id and _arm_override_active).
+        Each tick advances by exactly 1 frame (step_dt=0.02s × fps=50Hz).
+        """
+        if self._gest_id < 0:
+            return None
+        fi = int(self._gest_frame)
+        g_len = int(self._gest_len[self._gest_id])
+        if fi >= g_len:
+            self._gest_id = -1
+            self._gest_frame = 0.0
+            self._arm_override_active = False
+            return None
+        arm_pose = self._gest_qpos[self._gest_id, fi].copy()
+        self._gest_frame += self.cfg.step_dt * _GESTURE_FPS  # = 1.0 at 50Hz
+        return arm_pose
+
     def _build_obs(self) -> np.ndarray:
         s = self.low_state
         q = np.fromiter(
-            (s.motor_state[i].q for i in range(G1_NUM_MOTOR)),
+            (s.motor_state[self.cfg.joint_ids_map[i]].q
+             for i in range(G1_NUM_MOTOR)),
             dtype=np.float64, count=G1_NUM_MOTOR,
         )
         dq = np.fromiter(
-            (s.motor_state[i].dq for i in range(G1_NUM_MOTOR)),
+            (s.motor_state[self.cfg.joint_ids_map[i]].dq
+             for i in range(G1_NUM_MOTOR)),
             dtype=np.float64, count=G1_NUM_MOTOR,
         )
         joint_pos_rel = q - self.cfg.default_q
         joint_vel_rel = dq.copy()
         last_action_obs = self.last_raw_action.copy()
-
-        # ---- Mask the arm slice while a gesture override is active.
-        # The actual arm position and velocity are wherever the gesture
-        # has driven them, which can be far outside the policy's
-        # training distribution. Feeding that into the policy used to
-        # corrupt its leg outputs even though the leg observations
-        # themselves were fine. By zeroing the arm slice we tell the
-        # policy "arms are at default and stationary" — the legs then
-        # stay in their walking/standing distribution and the policy
-        # can ignore the gesture entirely.
-        if self._arm_obs_masked:
-            joint_pos_rel[ARM_START:ARM_END] = 0.0
-            joint_vel_rel[ARM_START:ARM_END] = 0.0
-            last_action_obs[ARM_START:ARM_END] = 0.0
 
         ang_vel = np.array(
             [s.imu_state.gyroscope[0],
@@ -1425,30 +1506,61 @@ class ComboController:
             theta = 2.0 * np.pi * self.global_phase
             gait = np.array([np.sin(theta), np.cos(theta)])
 
-        return np.concatenate([
+        base_obs = np.concatenate([
             ang_vel,                  # 3
             projected_gravity,        # 3
             cmd,                      # 3
             gait,                     # 2
-            joint_pos_rel,            # 29
-            joint_vel_rel,            # 29
-            last_action_obs,          # 29
-        ])  # -> 98
+            joint_pos_rel,            # num_motors
+            joint_vel_rel,            # num_motors
+            last_action_obs,          # num_motors
+        ])  # -> 11 + 3*num_motors = 80
+
+        # Arm-disturbance policy (obs_dim > 80): append gesture obs.
+        if self.policy.obs_dim > len(base_obs):
+            # gesture_onehot [N_g]: one-hot for active library gesture, else zeros.
+            if self._gest_id >= 0 and self._n_gestures > 0:
+                onehot = np.zeros(self._n_gestures, dtype=np.float64)
+                onehot[self._gest_id] = 1.0
+            else:
+                onehot = np.zeros(self._n_gestures, dtype=np.float64)
+            # arm_qpos_ref_horizon [k * arm_dim]: next k library frames, else zeros.
+            horizon = np.zeros(_GESTURE_K * ARM_DIM, dtype=np.float64)
+            if self._gest_id >= 0:
+                g_len = int(self._gest_len[self._gest_id])
+                for i in range(_GESTURE_K):
+                    fi = min(int(self._gest_frame) + i, g_len - 1)
+                    horizon[i * ARM_DIM : (i + 1) * ARM_DIM] = (
+                        self._gest_qpos[self._gest_id, fi]
+                    )
+            return np.concatenate([base_obs, onehot, horizon])
+
+        return base_obs
 
     def _publish(self, q_des: np.ndarray):
         self.low_cmd.mode_pr = 0
         self.low_cmd.mode_machine = self.mode_machine
         # Per-joint Kp/Kd factor:
-        #   - arms (15..28) get an extra `_arm_kp_boost` multiplier so a
+        #   - arms (13..22) get an extra `_arm_kp_boost` multiplier so a
         #     gesture can drive them to the commanded pose without raising
         #     the gain on balance-critical joints.
-        #   - legs / waist (0..14) get `_leg_kp_boost` which slews up while
+        #   - legs / waist (0..12) get `_leg_kp_boost` which slews up while
         #     the controller is publishing default_q for static balance and
         #     back to 1.0 while the policy is driving torques (walk/turn).
         # Both boosts default to 1.0, so the policy still sees its
         # training-time deploy.yaml gains during an active walk command.
+        # Zero SDK slots not in joint_ids_map (unused joints for this DOF config).
+        for sdk_slot in self.cfg.excluded_sdk_slots:
+            m = self.low_cmd.motor_cmd[sdk_slot]
+            m.mode = 0
+            m.q = 0.0
+            m.dq = 0.0
+            m.tau = 0.0
+            m.kp = 0.0
+            m.kd = 0.0
+
         for i in range(G1_NUM_MOTOR):
-            m = self.low_cmd.motor_cmd[i]
+            m = self.low_cmd.motor_cmd[self.cfg.joint_ids_map[i]]
             m.mode = 1
             m.q = float(q_des[i])
             m.dq = 0.0
@@ -1518,12 +1630,20 @@ def main():
     print(
         f"[combo] loaded deploy.yaml "
         f"(vx in {cfg.vx_range}, vy in {cfg.vy_range}, wz in {cfg.wz_range}, "
-        f"period={cfg.gait_period:.2f}s, step_dt={cfg.step_dt}s)"
+        f"period={cfg.gait_period:.2f}s, step_dt={cfg.step_dt}s, "
+        f"num_motors={G1_NUM_MOTOR}, arm_start={ARM_START})"
     )
     policy = Policy(POLICY_ONNX)
-    print(f"[combo] loaded policy: {POLICY_ONNX}")
+    print(
+        f"[combo] loaded policy: {POLICY_ONNX} "
+        f"(obs_dim={policy.obs_dim}, act_dim={policy.act_dim})"
+    )
 
     ctl = ComboController(cfg, policy)
+    if ctl._n_gestures > 0:
+        print(f"[combo] gesture library: {ctl._n_gestures} gestures loaded from {_GESTURE_FILE.name}")
+    else:
+        print(f"[combo] WARN: gesture library not found at {_GESTURE_FILE}; gesture obs will be zeros")
     actions = build_arm_actions(ctl.arm_rest, ctl.arm_scale)
     actions_by_key = {a.key: a for a in actions}
 
@@ -1573,6 +1693,23 @@ def main():
             elif ch == "0":
                 print("[combo] release arms -> policy default")
                 ctl.release_arms()
+                continue
+            elif ch in _KEY_TO_GESTURE_IDX and ctl._n_gestures > 0:
+                # Library gesture: arm targets come from gestures_23dof.npz;
+                # the policy receives matching gesture_onehot + arm_qpos_ref_horizon.
+                # Fall back to keyframes if the library was built with fewer
+                # gestures than needed (e.g. only 4 of the 9) — without this
+                # check, start_library_gesture silently no-ops and nothing happens.
+                gid = _KEY_TO_GESTURE_IDX[ch]
+                act = actions_by_key.get(ch)
+                name = act.name if act else f"gesture {gid}"
+                if gid < ctl._n_gestures:
+                    print(f"[combo] library gesture '{ch}' = {name} (id={gid})")
+                    ctl.start_library_gesture(gid)
+                elif act is not None:
+                    print(f"[combo] arm gesture '{ch}' = {name} "
+                          f"(keyframe fallback; library has {ctl._n_gestures} gestures)")
+                    ctl.push_arm_action(act.keyframes)
                 continue
             else:
                 act = actions_by_key.get(ch)

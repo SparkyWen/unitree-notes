@@ -52,6 +52,11 @@ log = logging.getLogger("g1_brain")
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "g1_brain" / "configs" / "g1_brain.yaml"
 
+# Expose the workspace root for ${WORKSPACE_ROOT} substitution in yaml configs
+# (mjcf_path, log_dir, ...). Anchored on __file__ so it works whether the
+# checkout is at ~/unitree-notes or nested under ~/unitree/unitree-notes.
+os.environ.setdefault("WORKSPACE_ROOT", str(REPO_ROOT))
+
 
 # ---------------------------------------------------------------------------
 # Path / logging / config helpers
@@ -59,15 +64,17 @@ DEFAULT_CONFIG = REPO_ROOT / "g1_brain" / "configs" / "g1_brain.yaml"
 
 
 def _ensure_sibling_repos_on_path() -> None:
-    """Add ~/unitree/unitree-notes/{va-demo,g1_sim_demo} to sys.path.
+    """Add the sibling {va-demo,g1_sim_demo} clones to sys.path.
 
     Both packages live alongside g1_brain in the unitree-notes workspace and
-    are imported directly; we do not pip-install them.
+    are imported directly; we do not pip-install them. We anchor on
+    ``REPO_ROOT`` (derived from ``__file__``) rather than ``Path.home()`` so
+    this works whether the workspace is at ``~/unitree-notes`` or nested
+    under another dir like ``~/unitree/unitree-notes``.
     """
-    home = Path.home()
     candidates = [
-        home / "unitree" / "unitree-notes" / "va-demo",
-        home / "unitree" / "unitree-notes" / "g1_sim_demo",
+        REPO_ROOT / "va-demo",
+        REPO_ROOT / "g1_sim_demo",
     ]
     for p in candidates:
         sp = str(p)
@@ -884,7 +891,7 @@ async def _run(args: argparse.Namespace) -> int:
                     "process failed to import. Falling back to --no-skills.\n"
                     "  -> Start the simulator in another terminal:\n"
                     "       conda activate unitree && export MUJOCO_GL=glfw\n"
-                    "       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python\n"
+                    "       cd ~/unitree-notes/unitree_mujoco/simulate_python\n"
                     "       python unitree_mujoco.py"
                 )
                 try:
@@ -977,7 +984,7 @@ async def _run(args: argparse.Namespace) -> int:
                             "running.\n"
                             "  -> Start it in another terminal:\n"
                             "       conda activate unitree && export MUJOCO_GL=glfw\n"
-                            "       cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python\n"
+                            "       cd ~/unitree-notes/unitree_mujoco/simulate_python\n"
                             "       python unitree_mujoco.py\n"
                             "  -> Or rerun with --no-skills (or --vision-only) "
                             "to bypass the RL controller."

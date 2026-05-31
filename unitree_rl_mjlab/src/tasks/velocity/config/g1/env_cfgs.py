@@ -1,5 +1,7 @@
 """Unitree G1 velocity environment configurations."""
 
+from pathlib import Path
+
 from src.assets.robots import (
   G1_ACTION_SCALE,
   get_g1_robot_cfg,
@@ -7,12 +9,28 @@ from src.assets.robots import (
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg, RayCastSensorCfg
 from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
+from src.tasks.velocity.mdp.arm_disturbance import (
+  ArmDisturbanceActionCfg,
+  ArmReferenceCommandCfg,
+  _ARM_JOINT_PATTERNS_29DOF,
+  arm_track_l2,
+  gesture_intensity,
+  gesture_onehot_obs,
+  arm_qpos_ref_horizon_obs,
+)
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+
+_SRC_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent  # .../src
+_GESTURES_NPZ = str(
+    _SRC_ROOT / "assets" / "motions" / "g1" / "gestures.npz"
+)
 
 
 def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -195,5 +213,123 @@ def unitree_g1_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     twist_cmd.ranges.lin_vel_x = (-0.5, 1.0)
     twist_cmd.ranges.lin_vel_y = (-0.5, 0.5)
     twist_cmd.ranges.ang_vel_z = (-0.5, 0.5)
+
+  return cfg
+
+
+def unitree_g1_flat_arm_disturbance_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Unitree G1 flat-terrain env with randomised arm-gesture disturbance.
+
+  Extends ``unitree_g1_flat_env_cfg`` with:
+    - ``ArmReferenceCommand`` (``commands["arm_ref"]``): Poisson-triggered
+      gesture playback at 4–8 s random intervals.
+    - ``ArmDisturbanceAction`` replacing the standard ``JointPositionAction``:
+      arm joint targets are overridden with the gesture reference when a gesture
+      is active.
+    - New actor + critic observations: ``gesture_onehot`` (9-D) and
+      ``arm_qpos_ref_horizon`` (5×14 = 70-D).
+    - ``pose`` reward arm stds set to 1e6 (effectively disabled) so the arm
+      joints don't fight the gesture override.
+    - Weak ``arm_track_l2`` reward (weight 0.05) to encourage the arm to track
+      the commanded trajectory smoothly.
+    - ``gesture_intensity`` curriculum: starts with longer trigger intervals
+      (8–16 s, less frequent disturbance) and ramps to the nominal (4–8 s)
+      after 120 k steps.
+
+  Obs dimension: 98 (base) + 9 (gesture_onehot) + 70 (arm_qpos_ref_horizon)
+                 = 177-D actor obs.
+  """
+  cfg = unitree_g1_flat_env_cfg(play=play)
+
+  # ── Arm-reference command ────────────────────────────────────────────────
+  cfg.commands["arm_ref"] = ArmReferenceCommandCfg(
+    gesture_file=_GESTURES_NPZ,
+    fps=50.0,
+    trigger_interval_range_s=(8.0, 16.0),  # starts infrequent; curriculum ramps it down
+    entity_name="robot",
+    resampling_time_range=(1e9, 1e9),  # disable base-class auto-resample; we manage it
+  )
+
+  # ── Replace standard action with arm-override variant ───────────────────
+  cfg.actions["joint_pos"] = ArmDisturbanceActionCfg(
+    entity_name="robot",
+    actuator_names=(".*",),
+    scale=G1_ACTION_SCALE,
+    use_default_offset=True,
+    command_name="arm_ref",
+    arm_joint_patterns=_ARM_JOINT_PATTERNS_29DOF,  # 29-DOF: 7 per arm
+  )
+
+  # ── Additional observations ──────────────────────────────────────────────
+  # gesture_onehot: 9-D one-hot indicating which gesture is playing (0 = idle).
+  new_obs = {
+    "gesture_onehot": ObservationTermCfg(
+      func=gesture_onehot_obs,
+      params={"command_name": "arm_ref"},
+    ),
+    # arm_qpos_ref_horizon: 5 future arm frames × 14 joints = 70-D.
+    "arm_qpos_ref_horizon": ObservationTermCfg(
+      func=arm_qpos_ref_horizon_obs,
+      params={"command_name": "arm_ref", "k": 5},
+    ),
+  }
+  cfg.observations["actor"].terms.update(new_obs)
+  cfg.observations["critic"].terms.update(new_obs)
+
+  # ── Mask pose reward on arm joints ──────────────────────────────────────
+  # std_standing uses a catch-all ".*"; replace the whole dict to avoid a
+  # multiple-match error when arm patterns are added alongside it.
+  # std_walking/running use per-joint patterns already — .update() is fine.
+  _arm_loose_std = 1e6
+  cfg.rewards["pose"].params["std_standing"] = {
+    r".*_hip_pitch.*":   0.05,
+    r".*_hip_roll.*":    0.05,
+    r".*_hip_yaw.*":     0.05,
+    r".*_knee.*":        0.05,
+    r".*_ankle_pitch.*": 0.05,
+    r".*_ankle_roll.*":  0.05,
+    r".*waist_yaw.*":    0.05,
+    r".*waist_roll.*":   0.05,
+    r".*waist_pitch.*":  0.05,
+    r".*shoulder_pitch.*": _arm_loose_std,
+    r".*shoulder_roll.*":  _arm_loose_std,
+    r".*shoulder_yaw.*":   _arm_loose_std,
+    r".*elbow.*":          _arm_loose_std,
+    r".*wrist.*":          _arm_loose_std,
+  }
+  for std_key in ("std_walking", "std_running"):
+    cfg.rewards["pose"].params[std_key].update({
+      r".*shoulder_pitch.*": _arm_loose_std,
+      r".*shoulder_roll.*":  _arm_loose_std,
+      r".*shoulder_yaw.*":   _arm_loose_std,
+      r".*elbow.*":          _arm_loose_std,
+      r".*wrist.*":          _arm_loose_std,
+    })
+
+  # ── Arm tracking reward ──────────────────────────────────────────────────
+  # Penalise L2 deviation from the gesture reference while it is active.
+  # Weight is kept small (0.05) relative to balance rewards (~1.0) so the
+  # policy learns balance first and arm-tracking second.
+  cfg.rewards["arm_track_l2"] = RewardTermCfg(
+    func=arm_track_l2,
+    weight=0.05,
+    params={"command_name": "arm_ref", "arm_start": 15, "arm_end": 29},
+  )
+
+  # ── Curriculum: ramp disturbance frequency ───────────────────────────────
+  # Step 0–120k: trigger interval 8–16 s (sparse disturbance, easy)
+  # Step 120k+ : trigger interval 4–8 s  (nominal disturbance, full training)
+  cfg.curriculum["gesture_intensity"] = CurriculumTermCfg(
+    func=gesture_intensity,
+    params={
+      "command_name": "arm_ref",
+      "stages": [
+        {"step": 0,                    "trigger_interval_range_s": (8.0, 16.0)},
+        {"step": 120_000 * 24,         "trigger_interval_range_s": (4.0, 8.0)},
+      ],
+    },
+  )
 
   return cfg

@@ -6,12 +6,12 @@ sends static joint-angle keyframes (good for waving / posing while the
 elastic band holds the robot up), this demo loads the trained ONNX policy
 shipped with `unitree_rl_mjlab` and runs the *full* RL deployment pipeline:
 
-    rt/lowstate  ─►  build 98-D obs  ─►  policy.onnx  ─►  29-D raw action
+    rt/lowstate  ─►  build 80-D obs  ─►  policy.onnx  ─►  23-D raw action
         ▲                                                       │
         │                                                       ▼
         └───  publish lowcmd (q_target, Kp, Kd)  ◄─  scale + offset
 
-The same pipeline runs on the real G1 (see `unitree_rl_mjlab/deploy/robots/g1/`).
+The same pipeline runs on the real G1 (see `unitree_rl_mjlab/deploy/robots/g1_23dof/`).
 
 Run order:
   Terminal 1:
@@ -40,7 +40,7 @@ Dependencies (one-time):
   # OR pip install onnxruntime-gpu # if you really want CUDA
 
 The policy and its deployment yaml come from:
-  ~/unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1/config/policy/velocity/v0/
+  ~/unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1_23dof/config/policy/velocity/v0/
 
 Note: this policy was trained with vx ∈ [-0.5, 1.0] m/s. So 'f' is "fast walk",
 not real running. To get real running, retrain with a wider velocity range
@@ -56,6 +56,7 @@ import threading
 import time
 import tty
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import yaml
@@ -79,11 +80,12 @@ from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.utils.thread import RecurrentThread
 
 
-G1_NUM_MOTOR = 29
+# G1 hardware always has 29 SDK motor slots.
+G1_SDK_MOTOR_TOTAL = 29
 
 POLICY_DIR = (
     Path.home()
-    / "unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1"
+    / "unitree/unitree-notes/unitree_rl_mjlab/deploy/robots/g1_23dof"
     / "config/policy/velocity/v0"
 )
 POLICY_ONNX = POLICY_DIR / "exported" / "policy.onnx"
@@ -101,7 +103,14 @@ class DeployCfg:
         self.kp = np.asarray(cfg["stiffness"], dtype=np.float64)
         self.kd = np.asarray(cfg["damping"], dtype=np.float64)
         self.default_q = np.asarray(cfg["default_joint_pos"], dtype=np.float64)
-        self.joint_ids_map = list(cfg["joint_ids_map"])
+
+        # joint_ids_map[i] = SDK motor slot that carries policy joint i.
+        self.joint_ids_map: List[int] = list(cfg["joint_ids_map"])
+        self.num_motors: int = len(self.joint_ids_map)
+        # SDK slots not commanded by this policy; zeroed in _publish for safety.
+        self.excluded_sdk_slots: frozenset = (
+            frozenset(range(G1_SDK_MOTOR_TOTAL)) - frozenset(self.joint_ids_map)
+        )
 
         action = cfg["actions"]["JointPositionAction"]
         self.action_scale = np.asarray(action["scale"], dtype=np.float64)
@@ -123,10 +132,10 @@ class DeployCfg:
             ("action_scale", self.action_scale),
             ("action_offset", self.action_offset),
         ]:
-            if arr.shape != (G1_NUM_MOTOR,):
+            if arr.shape != (self.num_motors,):
                 raise ValueError(
                     f"deploy.yaml '{name}' has shape {arr.shape}, "
-                    f"expected ({G1_NUM_MOTOR},)"
+                    f"expected ({self.num_motors},)"
                 )
 
 
@@ -134,10 +143,7 @@ class DeployCfg:
 # Policy wrapper
 # ---------------------------------------------------------------------------
 class Policy:
-    OBS_DIM = 98          # 3 + 3 + 3 + 2 + 29 + 29 + 29
-    ACT_DIM = G1_NUM_MOTOR
-
-    def __init__(self, onnx_path: Path):
+    def __init__(self, onnx_path: Path, cfg: "DeployCfg"):
         if not onnx_path.exists():
             raise FileNotFoundError(f"policy not found: {onnx_path}")
         self.session = ort.InferenceSession(
@@ -152,22 +158,24 @@ class Policy:
             )
         self.in_name = ins[0].name
         self.out_name = outs[0].name
-        in_shape = ins[0].shape
-        out_shape = outs[0].shape
-        # Allow batch dim or fixed; just verify the trailing dim.
-        if in_shape[-1] != self.OBS_DIM:
+        self.obs_dim: int = ins[0].shape[-1]
+        self.act_dim: int = outs[0].shape[-1]
+        expected_obs = 11 + 3 * cfg.num_motors  # ang_vel(3)+grav(3)+cmd(3)+gait(2)+joints*3
+        if self.obs_dim != expected_obs:
             raise RuntimeError(
-                f"policy expects obs dim {in_shape[-1]}, demo builds {self.OBS_DIM}."
+                f"policy expects obs dim {self.obs_dim}; "
+                f"with {cfg.num_motors} motors we build {expected_obs}-D obs."
             )
-        if out_shape[-1] != self.ACT_DIM:
+        if self.act_dim != cfg.num_motors:
             raise RuntimeError(
-                f"policy outputs dim {out_shape[-1]}, demo expects {self.ACT_DIM}."
+                f"policy outputs {self.act_dim} actions; "
+                f"deploy.yaml joint_ids_map has {cfg.num_motors} joints."
             )
 
     def __call__(self, obs: np.ndarray) -> np.ndarray:
-        x = obs.astype(np.float32, copy=False).reshape(1, self.OBS_DIM)
+        x = obs.astype(np.float32, copy=False).reshape(1, self.obs_dim)
         y = self.session.run([self.out_name], {self.in_name: x})[0]
-        return y.reshape(self.ACT_DIM)
+        return y.reshape(self.act_dim)
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +224,7 @@ class RLController:
         self._cmd = np.zeros(3, dtype=np.float64)   # [vx, vy, wz]
 
         # State of the policy loop.
-        self.last_raw_action = np.zeros(G1_NUM_MOTOR, dtype=np.float64)
+        self.last_raw_action = np.zeros(cfg.num_motors, dtype=np.float64)
         self.global_phase = 0.0                      # in [0, 1)
 
         # Boot-up ramp from initial measured pose to default_joint_pos.
@@ -272,7 +280,8 @@ class RLController:
             time.sleep(0.05)
         # Seed the ramp: blend from measured initial pose to default_q.
         measured = np.array(
-            [self.low_state.motor_state[i].q for i in range(G1_NUM_MOTOR)],
+            [self.low_state.motor_state[self.cfg.joint_ids_map[i]].q
+             for i in range(self.cfg.num_motors)],
             dtype=np.float64,
         )
         self.boot_q_from = measured.copy()
@@ -341,12 +350,14 @@ class RLController:
         s = self.low_state
         # Joint pos / vel.
         q = np.fromiter(
-            (s.motor_state[i].q for i in range(G1_NUM_MOTOR)),
-            dtype=np.float64, count=G1_NUM_MOTOR,
+            (s.motor_state[self.cfg.joint_ids_map[i]].q
+             for i in range(self.cfg.num_motors)),
+            dtype=np.float64, count=self.cfg.num_motors,
         )
         dq = np.fromiter(
-            (s.motor_state[i].dq for i in range(G1_NUM_MOTOR)),
-            dtype=np.float64, count=G1_NUM_MOTOR,
+            (s.motor_state[self.cfg.joint_ids_map[i]].dq
+             for i in range(self.cfg.num_motors)),
+            dtype=np.float64, count=self.cfg.num_motors,
         )
         joint_pos_rel = q - self.cfg.default_q
         joint_vel_rel = dq
@@ -388,18 +399,22 @@ class RLController:
             projected_gravity,        # 3
             cmd,                      # 3
             gait,                     # 2
-            joint_pos_rel,            # 29
-            joint_vel_rel,            # 29
-            self.last_raw_action,     # 29
-        ])  # → 98
+            joint_pos_rel,            # num_motors
+            joint_vel_rel,            # num_motors
+            self.last_raw_action,     # num_motors
+        ])  # → 11 + 3*num_motors
 
     def _publish(self, q_des: np.ndarray):
         # mode_pr = 0 (PR mode); same as g1_sim_keyboard.py and the deploy
         # config. mode_machine echoes whatever the bridge reports first.
         self.low_cmd.mode_pr = 0
         self.low_cmd.mode_machine = self.mode_machine
-        for i in range(G1_NUM_MOTOR):
-            m = self.low_cmd.motor_cmd[i]
+        # Zero SDK slots not in joint_ids_map (unused joints for this DOF config).
+        for sdk_slot in self.cfg.excluded_sdk_slots:
+            m = self.low_cmd.motor_cmd[sdk_slot]
+            m.mode = 0; m.q = 0.0; m.dq = 0.0; m.tau = 0.0; m.kp = 0.0; m.kd = 0.0
+        for i in range(self.cfg.num_motors):
+            m = self.low_cmd.motor_cmd[self.cfg.joint_ids_map[i]]
             m.mode = 1
             m.q = float(q_des[i])
             m.dq = 0.0
@@ -460,7 +475,7 @@ def main():
         f"(vx∈{cfg.vx_range}, vy∈{cfg.vy_range}, wz∈{cfg.wz_range}, "
         f"period={cfg.gait_period:.2f}s, step_dt={cfg.step_dt}s)"
     )
-    policy = Policy(POLICY_ONNX)
+    policy = Policy(POLICY_ONNX, cfg)
     print(f"[rl] loaded policy: {POLICY_ONNX}")
 
     ctl = RLController(cfg, policy)

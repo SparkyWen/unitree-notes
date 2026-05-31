@@ -52,9 +52,9 @@ from unitree_sdk2py.utils.thread import RecurrentThread
 
 
 # ---------------------------------------------------------------------------
-# Joint layout (G1 29-DOF, mode_pr = PR variant; see g1_joint_index_dds.md)
+# Joint layout (G1 23-DOF, mode_pr = PR variant; see g1_joint_index_dds.md)
 # ---------------------------------------------------------------------------
-G1_NUM_MOTOR = 29
+G1_NUM_MOTOR = 23
 
 class J:
     LeftHipPitch       = 0
@@ -70,39 +70,32 @@ class J:
     RightAnklePitch    = 10
     RightAnkleRoll     = 11
     WaistYaw           = 12
-    WaistRoll          = 13   # = WaistA in AB mode
-    WaistPitch         = 14   # = WaistB in AB mode
-    LeftShoulderPitch  = 15
-    LeftShoulderRoll   = 16
-    LeftShoulderYaw    = 17
-    LeftElbow          = 18
-    LeftWristRoll      = 19
-    LeftWristPitch     = 20
-    LeftWristYaw       = 21
-    RightShoulderPitch = 22
-    RightShoulderRoll  = 23
-    RightShoulderYaw   = 24
-    RightElbow         = 25
-    RightWristRoll     = 26
-    RightWristPitch    = 27
-    RightWristYaw      = 28
+    LeftShoulderPitch  = 13
+    LeftShoulderRoll   = 14
+    LeftShoulderYaw    = 15
+    LeftElbow          = 16
+    LeftWristRoll      = 17
+    RightShoulderPitch = 18
+    RightShoulderRoll  = 19
+    RightShoulderYaw   = 20
+    RightElbow         = 21
+    RightWristRoll     = 22
 
 
-# Same gains as the upstream g1 example — tuned for the 29-DOF model.
 Kp = np.array([
-    60, 60, 60, 100, 40, 40,      # left leg
-    60, 60, 60, 100, 40, 40,      # right leg
-    60, 40, 40,                   # waist (yaw, roll/A, pitch/B)
-    40, 40, 40, 40, 40, 40, 40,   # left arm
-    40, 40, 40, 40, 40, 40, 40,   # right arm
+    60, 60, 60, 100, 40, 40,    # left leg
+    60, 60, 60, 100, 40, 40,    # right leg
+    60,                          # waist yaw
+    40, 40, 40, 40, 40,          # left arm
+    40, 40, 40, 40, 40,          # right arm
 ], dtype=np.float64)
 
 Kd = np.array([
     1, 1, 1, 2, 1, 1,
     1, 1, 1, 2, 1, 1,
-    1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1,
+    1,
+    1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1,
 ], dtype=np.float64)
 
 
@@ -112,7 +105,7 @@ class Mode:
 
 
 # ---------------------------------------------------------------------------
-# Pose helpers — every "pose" is a length-29 numpy array of joint angles (rad)
+# Pose helpers — every "pose" is a length-23 numpy array of joint angles (rad)
 # ---------------------------------------------------------------------------
 def zero_pose() -> np.ndarray:
     return np.zeros(G1_NUM_MOTOR, dtype=np.float64)
@@ -124,12 +117,6 @@ def wave_right_arm_pose() -> np.ndarray:
     p[J.RightShoulderRoll]  = -1.2    # out to the side
     p[J.RightElbow]         =  1.4    # bend elbow up
     p[J.RightWristRoll]     =  0.0
-    return p
-
-
-def bow_pose() -> np.ndarray:
-    p = zero_pose()
-    p[J.WaistPitch] = 0.5             # lean forward ~28 deg
     return p
 
 
@@ -158,10 +145,8 @@ def clap_pose() -> np.ndarray:
 # first target over `duration`, then to the second, etc.
 TRAJECTORIES = {
     "z": [(2.0, zero_pose())],
-    "w": [(1.5, wave_right_arm_pose()),
-          (0.6, wave_right_arm_pose() * np.array([1]*26 + [1, 1, 1])),  # hold
+    "w": [(1.5, wave_right_arm_pose()), (0.6, wave_right_arm_pose()),
           (1.5, zero_pose())],
-    "b": [(1.5, bow_pose()), (1.0, bow_pose()), (1.5, zero_pose())],
     "k": [(1.5, lift_left_knee_pose()), (1.0, lift_left_knee_pose()),
           (1.5, zero_pose())],
     "a": [(1.2, clap_pose()), (0.4, zero_pose()), (0.4, clap_pose()),
@@ -172,7 +157,6 @@ KEY_HELP = """
 Keys (focus this terminal):
   z = ramp to zero pose
   w = wave right arm
-  b = bow (waist pitch)
   k = lift left knee
   a = clap (twice)
   q = quit  (ramps to zero first, then exits)

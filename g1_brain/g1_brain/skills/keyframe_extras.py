@@ -1,5 +1,5 @@
 """Convert g1_sim_keyboard's arm-only static poses into ComboController-safe
-ArmActions.
+ArmActions (23-DOF, arm joints 13..22).
 
 g1_sim_keyboard ships 11 static poses; ComboController already exposes 8 of
 them as RL-policy-tolerant gestures. The two remaining arm-only poses
@@ -8,7 +8,7 @@ here. The other 3 (bow / lean / squat / kick / lift_knee / twist) move the
 waist or legs, which would corrupt `projected_gravity` and crash the RL
 policy — they're intentionally NOT exposed as gestures (see plan §4.2).
 
-These poses are absolute 29-D joint targets. We clamp the arm slice to
+These poses are absolute joint targets. We clamp the arm slice to
 the physical joint limits (matching `ComboController.ARM_JOINT_LIMITS`)
 before queuing — that's the only structural safety net we still need
 because ComboController masks the arm slice of the policy observation
@@ -20,9 +20,7 @@ so the gesture's visual fidelity loss is visible, but we never panic.
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
@@ -30,47 +28,19 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
-# 29-DOF joint indices (must match g1_sim_keyboard.J / g1_sim_rl_combo.J).
-# We hardcode the 4 we need so this file doesn't need to import the heavy
-# combo / keyboard modules at import time.
-ARM_START = 15
-ARM_END = 29
-ARM_DIM = ARM_END - ARM_START   # 14
+# Joint indices (must match g1_sim_rl_combo.J).
+# Hardcoded here so this file doesn't need to import the heavy combo module.
+# 23-DOF policy space: arms are joints 13..22.
+ARM_START = 13
+ARM_END = 23
+ARM_DIM = ARM_END - ARM_START   # 10
 
-_LEFT_SHOULDER_PITCH  = 15
-_LEFT_SHOULDER_ROLL   = 16
-_LEFT_ELBOW           = 18
-_RIGHT_SHOULDER_PITCH = 22
-_RIGHT_SHOULDER_ROLL  = 23
-_RIGHT_ELBOW          = 25
-_RIGHT_WRIST_PITCH    = 27
-
-
-# ---- Pose extraction (mirrors g1_sim_keyboard.salute_pose / hug_pose) -----
-
-def _salute_pose_29d() -> np.ndarray:
-    """29-D absolute joint target for the salute pose, mirroring
-    g1_sim_keyboard.salute_pose() exactly. Hardcoded to avoid importing
-    the keyboard module (which has its own DDS side effects)."""
-    p = np.zeros(29, dtype=np.float64)
-    p[_RIGHT_SHOULDER_PITCH] = -0.6
-    p[_RIGHT_SHOULDER_ROLL]  = -0.4
-    p[_RIGHT_ELBOW]          =  1.55
-    p[_RIGHT_WRIST_PITCH]    = -0.3
-    return p
-
-
-def _hug_pose_29d() -> np.ndarray:
-    """29-D absolute joint target for the hug pose, mirroring
-    g1_sim_keyboard.hug_pose() exactly."""
-    p = np.zeros(29, dtype=np.float64)
-    p[_LEFT_SHOULDER_PITCH]  = -0.8
-    p[_LEFT_SHOULDER_ROLL]   =  0.6
-    p[_LEFT_ELBOW]           =  1.5
-    p[_RIGHT_SHOULDER_PITCH] = -0.8
-    p[_RIGHT_SHOULDER_ROLL]  = -0.6
-    p[_RIGHT_ELBOW]          =  1.5
-    return p
+_LEFT_SHOULDER_PITCH  = 13
+_LEFT_SHOULDER_ROLL   = 14
+_LEFT_ELBOW           = 16
+_RIGHT_SHOULDER_PITCH = 18
+_RIGHT_SHOULDER_ROLL  = 19
+_RIGHT_ELBOW          = 21
 
 
 # ---- ArmAction container --------------------------------------------------
@@ -87,66 +57,76 @@ class ArmAction:
 # Per-arm-joint physical limits (rad). Mirrors
 # `ComboController.ARM_JOINT_LIMITS` (g1_sim_rl_combo.py). Kept locally
 # so this module doesn't have to import the heavy combo module at import
-# time. Indices 0..13 correspond to ARM_START..ARM_START+13.
+# time. Indices 0..9 correspond to ARM_START..ARM_END-1.
 _ARM_JOINT_LIMITS: Tuple[Tuple[float, float], ...] = (
-    (-3.05, 2.65),   # 15 LeftShoulderPitch
-    (-1.55, 2.20),   # 16 LeftShoulderRoll
-    (-2.55, 2.55),   # 17 LeftShoulderYaw
-    (-1.00, 2.05),   # 18 LeftElbow
-    (-1.95, 1.95),   # 19 LeftWristRoll
-    (-1.55, 1.55),   # 20 LeftWristPitch
-    (-1.55, 1.55),   # 21 LeftWristYaw
-    (-3.05, 2.65),   # 22 RightShoulderPitch
-    (-2.20, 1.55),   # 23 RightShoulderRoll
-    (-2.55, 2.55),   # 24 RightShoulderYaw
-    (-1.00, 2.05),   # 25 RightElbow
-    (-1.95, 1.95),   # 26 RightWristRoll
-    (-1.55, 1.55),   # 27 RightWristPitch
-    (-1.55, 1.55),   # 28 RightWristYaw
+    (-3.05, 2.65),   # 13 LeftShoulderPitch  (SDK 15)
+    (-1.55, 2.20),   # 14 LeftShoulderRoll   (SDK 16)
+    (-2.55, 2.55),   # 15 LeftShoulderYaw    (SDK 17)
+    (-1.00, 2.05),   # 16 LeftElbow          (SDK 18)
+    (-1.95, 1.95),   # 17 LeftWristRoll      (SDK 19)
+    (-3.05, 2.65),   # 18 RightShoulderPitch (SDK 22)
+    (-2.20, 1.55),   # 19 RightShoulderRoll  (SDK 23)
+    (-2.55, 2.55),   # 20 RightShoulderYaw   (SDK 24)
+    (-1.00, 2.05),   # 21 RightElbow         (SDK 25)
+    (-1.95, 1.95),   # 22 RightWristRoll     (SDK 26)
 )
 _ARM_LIMIT_LO = np.array([lo for (lo, _) in _ARM_JOINT_LIMITS], dtype=np.float64)
 _ARM_LIMIT_HI = np.array([hi for (_, hi) in _ARM_JOINT_LIMITS], dtype=np.float64)
 
 
+# ---- Arm-local pose builders ----------------------------------------------
+
+def _salute_arm_target(arm_rest: np.ndarray) -> np.ndarray:
+    """Arm-local target for the salute pose (right hand to forehead)."""
+    p = arm_rest.copy()
+    p[_RIGHT_SHOULDER_PITCH - ARM_START] = -0.6
+    p[_RIGHT_SHOULDER_ROLL  - ARM_START] = -0.4
+    p[_RIGHT_ELBOW          - ARM_START] =  1.55
+    return p
+
+
+def _hug_arm_target(arm_rest: np.ndarray) -> np.ndarray:
+    """Arm-local target for the hug pose (both arms forward/inward)."""
+    p = arm_rest.copy()
+    p[_LEFT_SHOULDER_PITCH  - ARM_START] = -0.8
+    p[_LEFT_SHOULDER_ROLL   - ARM_START] =  0.6
+    p[_LEFT_ELBOW           - ARM_START] =  1.5
+    p[_RIGHT_SHOULDER_PITCH - ARM_START] = -0.8
+    p[_RIGHT_SHOULDER_ROLL  - ARM_START] = -0.6
+    p[_RIGHT_ELBOW          - ARM_START] =  1.5
+    return p
+
+
+# ---- Clamping helper -------------------------------------------------------
+
 def _clamp_to_envelope(
-    arm_pose_14d: np.ndarray,
+    arm_pose: np.ndarray,
     arm_offset: np.ndarray,  # noqa: ARG001 — kept for API stability
     arm_scale: np.ndarray,   # noqa: ARG001 — kept for API stability
     *,
     k: float = 2.0,          # noqa: ARG001 — kept for API stability
     label: str = "",
 ) -> np.ndarray:
-    """Clamp a 14-D arm pose to the physical joint limits.
-
-    Earlier this clamped to ``arm_offset ± k * arm_scale``, an envelope
-    derived from the policy's training distribution. That envelope was
-    too tight (for example salute's shoulder_pitch=-0.6 was clipped to
-    -0.53 with k=2.0, hug's -0.8 was clipped to -0.53 — both poses lost
-    their character). The OOD risk that envelope guarded against is now
-    eliminated by `ComboController._build_obs` masking the arm slice of
-    the policy observation while a gesture is active, so we only need
-    to enforce the physical limits here.
-
-    The signature is preserved for backward compatibility; arm_offset,
-    arm_scale, and k are no longer used.
-    """
-    clipped = np.clip(arm_pose_14d, _ARM_LIMIT_LO, _ARM_LIMIT_HI)
-    if not np.allclose(clipped, arm_pose_14d, atol=1e-6):
-        violations = np.where(~np.isclose(clipped, arm_pose_14d, atol=1e-6))[0]
+    """Clamp an arm-local pose to the physical joint limits."""
+    clipped = np.clip(arm_pose, _ARM_LIMIT_LO, _ARM_LIMIT_HI)
+    if not np.allclose(clipped, arm_pose, atol=1e-6):
+        violations = np.where(~np.isclose(clipped, arm_pose, atol=1e-6))[0]
         log.warning(
             "[keyframe_extras] %s: clipped %d arm joints to physical limit "
             "(idx %s; abs deltas %s)",
             label or "unnamed",
             len(violations),
             violations.tolist(),
-            np.round(np.abs(arm_pose_14d - clipped)[violations], 3).tolist(),
+            np.round(np.abs(arm_pose - clipped)[violations], 3).tolist(),
         )
     return clipped
 
 
+# ---- Action builder --------------------------------------------------------
+
 def _build_action(
     name: str,
-    pose_29d: np.ndarray,
+    arm_target: np.ndarray,
     arm_rest: np.ndarray,
     arm_offset: np.ndarray,
     arm_scale: np.ndarray,
@@ -155,12 +135,8 @@ def _build_action(
     hold: float = 1.2,
     blend_out: float = 1.4,
 ) -> ArmAction:
-    """Slice arms 15..28 out of a 29-D pose, clamp to safe envelope, and
-    wrap into a 3-keyframe ArmAction (blend-in → hold → return-to-rest)."""
-    arm_target = pose_29d[ARM_START:ARM_END].copy()
-    arm_target = _clamp_to_envelope(
-        arm_target, arm_offset, arm_scale, label=name,
-    )
+    """Clamp arm_target to physical limits and wrap into a 3-keyframe ArmAction."""
+    arm_target = _clamp_to_envelope(arm_target, arm_offset, arm_scale, label=name)
     return ArmAction(
         key=name,           # extras keyed by name; combo's are keyed "1".."8"
         name=name,
@@ -183,13 +159,15 @@ def build_extra_arm_actions(
     `g1_sim_rl_combo.build_arm_actions()`.
 
     Same shape and conventions as build_arm_actions: each ArmAction is a
-    list of (duration_s, arm_pose_14d) keyframes; the final keyframe
+    list of (duration_s, arm_pose_Nd) keyframes; the final keyframe
     returns to ``arm_rest`` so the RL policy regains the arms cleanly.
+
+    Expects arm_dim=10 (23-DOF).
 
     Parameters
     ----------
     arm_rest, arm_scale, arm_offset
-        14-D vectors taken from a live ComboController instance
+        arm_dim-D vectors taken from a live ComboController instance
         (``ctl.arm_rest``, ``ctl.arm_scale``, ``ctl.arm_offset``).
     """
     if arm_rest.shape != (ARM_DIM,):
@@ -201,12 +179,12 @@ def build_extra_arm_actions(
 
     return [
         _build_action(
-            "salute", _salute_pose_29d(),
+            "salute", _salute_arm_target(arm_rest),
             arm_rest, arm_offset, arm_scale,
             blend_in=1.2, hold=1.2, blend_out=1.2,
         ),
         _build_action(
-            "hug", _hug_pose_29d(),
+            "hug", _hug_arm_target(arm_rest),
             arm_rest, arm_offset, arm_scale,
             blend_in=1.4, hold=1.0, blend_out=1.4,
         ),
@@ -216,7 +194,4 @@ def build_extra_arm_actions(
 __all__ = [
     "ArmAction",
     "build_extra_arm_actions",
-    "ARM_START",
-    "ARM_END",
-    "ARM_DIM",
 ]

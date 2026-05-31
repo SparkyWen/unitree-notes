@@ -41,8 +41,12 @@ log = logging.getLogger(__name__)
 # ---- ComboController loader (test-monkey-patchable) ------------------------
 
 def _ensure_g1_sim_demo_on_path() -> None:
-    """Make `import g1_sim_rl_combo` resolve. Mirrors va_demo.skills."""
-    p = Path.home() / "unitree" / "unitree-notes" / "g1_sim_demo"
+    """Make `import g1_sim_rl_combo` resolve. Mirrors va_demo.skills.
+
+    Anchored on ``__file__`` so it works whether the workspace is at
+    ``~/unitree-notes`` or nested under ``~/unitree/unitree-notes``.
+    """
+    p = Path(__file__).resolve().parents[3] / "g1_sim_demo"
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 

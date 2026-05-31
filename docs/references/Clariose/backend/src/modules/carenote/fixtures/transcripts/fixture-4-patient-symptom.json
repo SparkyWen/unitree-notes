@@ -1,0 +1,16 @@
+{
+  "name": "fixture-4-patient-symptom",
+  "language": "zh",
+  "turns": [
+    {
+      "item_id": "itm-1",
+      "previous_item_id": null,
+      "speaker_label": "patient",
+      "transcript": "我昨天吃了药以后有点恶心。"
+    }
+  ],
+  "expected": {
+    "must_not_have_drafts": ["medication_reminder"],
+    "force_invariants": ["every_draft_requires_confirmation"]
+  }
+}

@@ -56,7 +56,14 @@ cameras:
     camera_name: "head_camera"  # synthesized on attach_body if missing in MJCF
     width: 640
     height: 480
-    poll_hz: 20
+    # 10 Hz is the sweet spot on WSL2 where the head-cam renders on Mesa
+    # llvmpipe (CPU/SIMD) — NVIDIA's GL is not exposed in WSL2 (only D3D12
+    # translation, which is ~2x slower than llvmpipe for MuJoCo's draw
+    # pattern). At 20 Hz the render thread saturated a CPU core continuously
+    # and starved audio + the simulator window. The vision LLM is called
+    # at most every few seconds, ground watchdog only needs ~5 Hz, so 10 Hz
+    # is plenty of headroom.
+    poll_hz: 10
     # When the included MJCF has no <camera>, MuJoCoHeadCamera attaches one
     # via MjSpec onto this body. Defaults match unitree_mujoco's G1 torso.
     # To inspect the rendered head view live, run:
@@ -72,11 +79,20 @@ perception:
     enabled: true
     weights: "yolo11s.pt"
     conf: 0.4
-    inference_hz: 15
+    # Each detector source thread saturates one CPU core per inference and
+    # holds the GIL through ultralytics' Python-side pre/post (object_detector
+    # line 62). At 15 Hz × 2 sources + pose @ 15 Hz this kept the asyncio event
+    # loop GIL-starved (see agent_main `_event_loop_lag_monitor`), so mic chunks
+    # stopped reaching the wake worker and "Hi Sparky" was dropped "in various
+    # situations". 5 Hz cuts that contention ~3× while staying responsive enough
+    # for vision-gate / obstacle checks. Drop `usb` from sources below for a
+    # further halving if wake is still flaky on this box.
+    inference_hz: 5
     sources: ["head", "usb"]    # which streams to detect on
   pose:
     enabled: true
-    inference_hz: 15
+    # Lowered 15 -> 5 for the same wake/event-loop GIL reason as yolo above.
+    inference_hz: 5
     min_visibility: 0.5
     gesture_persist_frames: 3
     gesture_min_confidence: 0.7
@@ -141,20 +157,33 @@ safety:
     # run_mode. RISK -> fall through to the existing terminal y/N. With this
     # off, behaviour reverts bit-for-bit to the pre-design build.
     enabled: true
-    timeout_s: 5.0          # GPT-5.5 hard timeout; on timeout -> RISK
+    # Operator-requested 30 s budget (was 12 s). The shorter budget was
+    # tripping on cold-start gpt-5.5 calls and forcing every motion through
+    # the y/N confirm prompt; 30 s gives the model enough headroom to
+    # actually return a verdict even when the OpenAI route is warming up,
+    # so SAFE responses can short-circuit the prompt instead of timing out
+    # to a defensive RISK. VisionRiskGate plumbs (timeout_s + 1.0) down to
+    # the OpenAI SDK as an HTTP-level timeout so a hung call still frees
+    # its executor thread promptly.
+    timeout_s: 30.0         # vision hard timeout; on timeout -> RISK
     max_frame_age_s: 2.0    # head-cam JPEG older than this -> RISK
     min_brightness: 30      # 0-255 mean luminance; below -> RISK (too dark)
     max_brightness: 235     # 0-255 mean luminance; above -> RISK (white-out)
-    detail: "auto"          # OpenAI image detail: low / high / auto / original
+    # The safety gate only needs coarse hazard detection (people,
+    # stairs, obstacles, fragile items) — none of which require
+    # high-res image processing. "low" cuts vision latency materially.
+    # The user-facing describe_scene tool keeps its independent default
+    # (openai.vision_detail) so detailed scene narration is unaffected.
+    detail: "low"           # OpenAI image detail: low / high / auto / original
 
 openai:
-  # NOTE: gpt-realtime (the GA model) requires the new GA session.update
-  # shape; the va-demo client still sends the beta shape and OpenAI rejects
-  # the WS handshake with `beta_api_shape_disabled`. Pin to the preview
-  # model — it accepts the beta shape va-demo currently emits. Migrate to
-  # gpt-realtime + GA shape later (touches va-demo/realtime_agent.py).
-  realtime_model: "gpt-4o-realtime-preview"
-  vision_model: "gpt-5.5"
+  realtime_model: "gpt-realtime"
+  # gpt-5.5-mini is the fast-reasoning variant of gpt-5.5 — same vision
+  # capability for the binary SAFE/RISK classification the vision_gate
+  # needs, materially lower latency than the full gpt-5.5 (which was
+  # routinely tripping the gate's 12 s timeout). The operator can still
+  # override via OPENAI_VISION_MODEL=… at run time without editing yaml.
+  vision_model: "gpt-5.5-mini"
   tts_model: "gpt-4o-mini-tts"
   tts_voice: "alloy"
   realtime_voice: "alloy"
@@ -170,10 +199,45 @@ audio:
 wakeword:
   enabled: true
   backend: openai
-  openai_model: "gpt-4o-transcribe"
+  # gpt-4o-mini-transcribe is the lower-latency wake-word transcriber; the
+  # full gpt-4o-transcribe added ~300 ms per inference and the rolling window
+  # gating already filters out non-speech, so the cheaper model is a net win
+  # for perceived wake responsiveness. Override per-run via wakeword.openai_model.
+  openai_model: "gpt-4o-mini-transcribe"
   openai_prompt: "Sparky"
+  # Per-call HTTP timeout for the wake transcribe. The wake loop is a SINGLE
+  # worker thread doing a synchronous transcribe; the OpenAI SDK default
+  # (read=600 s, 2 retries) means one hung request freezes wake for ~10 min
+  # (field-observed "stuck, can't wake up"; py-spy caught the worker in
+  # ssl.read for >9 min). A normal transcribe of the 1.5 s window is
+  # ~0.2-0.5 s, so 8 s fails fast on a stall while never tripping the happy
+  # path. Retries are forced to 0 in code so a stall isn't multiplied.
+  openai_timeout_s: 8.0
   rolling_window_s: 1.5
-  inference_rate_hz: 2.0
+  # Bumped from 3 → 5 Hz to address operator-reported "first Hi-Sparky
+  # misses during TTS, second one interrupts". A "Hi Sparky" utterance
+  # is ~500-700 ms; at 3 Hz the user got 1-2 transcribe attempts that
+  # overlapped their phrase (and remember the synchronous OpenAI call
+  # itself adds 200-500 ms, so 3 Hz nominal is closer to 1.2 Hz
+  # effective during SPEAKING). With the post-AEC `cleaned_rms_threshold`
+  # gate below skipping silent-user iterations, the worker thread is
+  # no longer blocked on bot-only transcribes, so 5 Hz here actually
+  # delivers ~5 real attempts per user utterance without inflating
+  # OpenAI cost (the gate filters out the calls that produced no value).
+  inference_rate_hz: 5.0
+  # IMPORTANT: this is the PEAK-sub-window RMS threshold (see
+  # va_demo.wake_word.WakeWordDetector._peak_subwindow_rms). Previously this
+  # gate compared against the full-rolling-window average, which diluted a
+  # 500-700 ms "Hi Sparky" by sqrt(speech_s / window_s) ≈ 0.58 — operator's
+  # conversation-volume wake phrase (peak RMS ~400) averaged to ~230 and was
+  # silently dropped most of the time (reported as "偶尔能唤醒，绝大部分时候
+  # 是无法唤醒"). The gate now answers "is there any 0.5 s segment in the
+  # buffer above this threshold?", which matches the question we actually
+  # want to ask. Stationary background noise still rejected because its peak
+  # ≈ its average. 300 keeps the anti-false-positive headroom (idle peak
+  # measured at <80 on this rig) while letting normal voice through reliably.
+  # Drop toward 200 only if "hi sparky" still misses on an unusually quiet
+  # mic; raise toward 400 if keyboard / fan starts triggering transcribes.
   rms_threshold: 300
   cooldown_s: 2.0
   language: null
@@ -183,6 +247,51 @@ wakeword:
     - "hi sparkie"
     - "嗨 sparky"
     - "你好 sparky"
+  # Time-domain acoustic echo cancellation applied to the mic snapshot
+  # BEFORE the wake-word transcribe. Subtracts gain × (speaker bytes that
+  # played delay_s seconds ago) sample-by-sample, end-aligned with the
+  # mic snapshot. Without this, during a long TTS reply the mic is
+  # dominated by the bot's own narration and the transcribe call returns
+  # the bot's text — "Hi Sparky" never makes it through, so the wake
+  # path cannot interrupt a long reply (operator-reported bug). gain=0
+  # disables; gain ~0.5-1.0 is typical for a laptop with mic+speaker
+  # close together.
+  #
+  # delay_s = speaker_latency + mic_latency for the rig. On WSL2 with
+  # the PulseAudio bridge the SpeakerStream default is 0.20 s and the
+  # MicStream default is 0.10 s — total round-trip ≈ 0.30 s.
+  # PREVIOUS VALUE 0.20 was undercounting by one mic-latency (~100 ms),
+  # which at voice frequencies (200 Hz–4 kHz) is many waveform periods:
+  # the subtraction was uncorrelated with the actual echo and was
+  # ADDING noise instead of removing it. 0.30 matches the audio_io
+  # latency sum and produces real cancellation.
+  aec:
+    gain: 0.6
+    delay_s: 0.3
+  # Post-AEC RMS gate: skip the synchronous transcribe call when the
+  # AEC-cleaned snapshot is below this threshold. Raw mic RMS is always
+  # ≥ rms_threshold during SPEAKING (bot's echo dominates), so without
+  # this gate every loop iteration sends one OpenAI transcribe — the
+  # worker thread is permanently blocked on bot-only network calls, and
+  # the user's "Hi Sparky" lands inside a snapshot that the loop hasn't
+  # finished processing yet. The cleaned RMS, by contrast, is small
+  # when the user is silent (just AEC residual) and spikes when the
+  # user speaks (their voice is uncorrelated with the bot output and
+  # survives the subtraction). Gating on cleaned RMS focuses each
+  # transcribe call on snapshots that actually contain user voice,
+  # which is what fixes the operator-reported "first Hi-Sparky misses,
+  # second interrupts" pattern during TTS playback.
+  #
+  # Also a PEAK-sub-window measurement (matches the raw gate above) — a
+  # short user "Hi Sparky" buried in 1.5 s of mostly-AEC-residual used to
+  # be diluted the same way and barge-in during TTS would silently miss.
+  # 600 is calibrated for a desk mic with the AEC defaults above:
+  # idle SPEAKING cleaned peak ≈ 400-700 (AEC residual spikes), user-talking
+  # cleaned peak ≈ 1500-3000 (voice survives the subtraction). Drop toward
+  # 400 if "Hi Sparky" gets gated out (mic unusually quiet); raise toward
+  # 900 if too many idle-SPEAKING transcribes still leak through. 0
+  # disables the gate (pre-fix behaviour, useful for A/B comparison).
+  cleaned_rms_threshold: 600
 
 utterance:
   silence_threshold_ms: 1500
@@ -215,6 +324,17 @@ logging:
   log_dir: "${WORKSPACE_ROOT}/g1_brain/logs"
   rotate_mb: 50
 
+diagnostics:
+  # Event-loop lag heartbeat. Logs a WARNING when an asyncio.sleep overruns
+  # by more than lag_warn_ms — i.e. the loop was starved (GIL held by the
+  # head-cam render / YOLO / DDS). Use it to tell a real stall (lag spikes
+  # here) apart from a cosmetic terminal pause like Windows-Terminal
+  # QuickEdit/Mark mode (no lag logged — the bytes were already flushed,
+  # the terminal just withheld them until you pressed a key).
+  event_loop_lag_monitor: true
+  lag_interval_s: 1.0
+  lag_warn_ms: 500.0
+
 audio_control:
   # Wake-word barge-in: when "hi sparky" fires while the agent is talking,
   # running tools, or even mid-capture, drop everything in flight and start
@@ -230,6 +350,31 @@ audio_control:
     # entered. Counters the model's last word echoing into the new capture
     # window before the wake-word detector's rolling buffer flushes.
     min_capture_age_s: 0.4
+  # Echo-aware voice-onset barge-in. Active only in SPEAKING state, as a
+  # backup for the wake-word path — during SPEAKING the bot's own TTS leaks
+  # into the mic and dominates the wake-word ASR window, so "hi sparky"
+  # rarely survives that transcribe. This second path watches mic RMS and
+  # subtracts a prediction of the speaker echo (derived from the bytes
+  # PortAudio just consumed); when user voice clearly rides above the echo
+  # for ~200 ms it fires the same barge-in the wake-word would have.
+  #
+  # DEFAULT OFF: operator explicitly only wants "Hi Sparky" to interrupt —
+  # an envelope-only path is loudness-based, so any cough / desk thump /
+  # casual speech crossing the threshold trips it (observed: mic_rms=1093
+  # with speaker_rms=8 firing on stray speech). Re-enable only on setups
+  # where the wake-word transcribe genuinely can't survive the echo and
+  # the operator accepts the false-positive trade.
+  # Tune `margin_rms` / `min_rms` up if you see false barge-ins from a
+  # noisy room; tune `echo_gain` up (towards 1.5) if the mic picks up the
+  # speaker very loudly (e.g. PulseAudio loopback on WSL2 with a single
+  # device for both directions).
+  voice_barge_in:
+    enabled: false
+    echo_gain: 1.0
+    margin_rms: 350.0
+    min_rms: 500.0
+    streak_chunks: 4
+    speaker_window_s: 0.2
   # When the entire current plan finishes (all responses done, all tools
   # returned, speaker drained), go straight to IDLE — no follow-up VAD,
   # no LISTENING_WINDOW. The mic still streams to the wake-word detector
@@ -242,7 +387,24 @@ audio_control:
     drain_max_wait_s: 6.0
   # Force plan_done if a tool call never resolves (skill_server hangs).
   # Without this, the state machine could be stuck in SPEAKING forever.
-  plan_watchdog_s: 30.0
+  # Must stay larger than (safety.vision_gate.timeout_s + confirm timeout
+  # in supervisor._confirm_in_terminal) — otherwise the state machine
+  # forces plan_done while the operator is still reading a RISK prompt
+  # and deciding y/N. Current budget: 30 s vision + 60 s confirm = 90 s,
+  # plus margin for the skill itself.
+  plan_watchdog_s: 150.0
+  # Manual end-of-utterance. While the agent is listening (CAPTURING, right
+  # after "Hi Sparky"), pressing Enter in the terminal commits your message
+  # immediately instead of waiting for webrtcvad to detect end-of-speech.
+  # webrtcvad mis-classifies steady room noise as speech, so the silence
+  # counter never reaches utterance.silence_threshold_ms and capture runs to
+  # utterance.max_duration_s (30 s) — the "I finished talking but it waits the
+  # full 30 s" symptom. Enter is a deterministic override; the VAD stays as
+  # the automatic fallback. The watcher is only armed while listening, so it
+  # never steals the keystroke meant for the confirm-mode y/N prompt. No-ops
+  # automatically when stdin is not a TTY (piped / headless).
+  manual_commit:
+    enabled: true
   # Per-process conversation jsonl, Claude-shape so the future Claude
   # harness with memory retrieval / SQLite FTS5 can ingest these files.
   transcript:
@@ -252,3 +414,65 @@ audio_control:
     keep_last_n: 50
     # Trim text payloads larger than this (full text remains in agent.log).
     max_text_kb: 4
+
+# Memory subsystem (Codex-style cross-session memory + ask_slow_brain).
+# Spec: docs/harness-design.md
+memory:
+  enabled: true
+  root_dir: "~/.unitree/g1_brain"
+
+  # Phase1 / Phase2 LLM extraction — empty string = use Codex subscription default
+  phase1_model: ""
+  phase2_model: ""
+  # Debounce window after plan_done before enqueueing Phase1. Keeps a
+  # chatty user from re-triggering extraction on every turn.
+  phase1_debounce_s: 30
+  # Cap on JSONL bytes fed into the Phase1 prompt. Older turns are dropped first.
+  phase1_max_jsonl_bytes: 80000
+  # Top-N stage1 outputs to keep for Phase2 consolidation.
+  phase2_max_raw_memories: 256
+  # Drop stage1 outputs unused for this long when picking Phase2 inputs.
+  phase2_max_unused_days: 30
+
+  # Resource contention: when true, Phase1/Phase2 will NOT start new codex work
+  # while a conversation turn is active (state != IDLE). An in-flight job still
+  # finishes; nothing new starts until the operator is idle. Stops codex from
+  # stealing the GIL/CPU from audio/VAD/wake mid-conversation.
+  defer_when_conversation_active: true
+  # Historical backfill is deferred off the synchronous startup path and waits
+  # this long before enqueueing. It must clear the whole boot-warmup window:
+  # for ~30 s after the Realtime session connects, perception's initial
+  # inference burst already starves the wake-word worker thread, and a codex
+  # backfill storm landing on top of that (the old 20 s value fired right into
+  # the operator's first "Hi Sparky") kept wake dead. 90 s pushes backfill well
+  # past the point the operator is talking.
+  backfill_delay_s: 90
+
+  # ask_slow_brain persistent Codex daemon (codex mcp-server)
+  slow_brain_model: ""
+  # 45 s was too short for xhigh deliberation; 90 s is the default/ceiling.
+  # Supervisor clamps per-call timeout_s requests to [3, 90].
+  ask_default_timeout_s: 90
+  ask_queue_max: 2
+  daemon_ping_interval_s: 30
+  daemon_restart_max_attempts: 5
+  # Codex subscription tier for every codex call (daemon + phase1/2):
+  # deepest reasoning (xhigh) on the 1.5x-speed Fast priority tier.
+  codex_reasoning_effort: "xhigh"
+  codex_service_tier: "fast"
+
+  # Recall budgets exposed to the fast brain
+  passive_summary_max_tokens: 2500
+  passive_agents_md_max_tokens: 1500
+  recall_grep_default_max_lines: 50
+  recall_read_max_bytes: 4096
+
+phone:
+  enabled: false              # set true OR pass --enable-phone on agent_main
+  bind_host: "127.0.0.1"      # public path is via reverse tunnel only
+  bind_port: 8787
+  call_idle_timeout_s: 30
+  tool_timeout_s: 5.0
+  realtime_model: "gpt-realtime"
+  realtime_voice: "alloy"
+  greeting: "Hi, this is Sparky. What would you like me to do?"

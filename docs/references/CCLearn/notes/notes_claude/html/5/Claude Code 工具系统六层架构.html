@@ -1,0 +1,211 @@
+<style>
+.tt-root { padding: 1rem 0 0; font-family: var(--font-sans); color: var(--color-text-primary); }
+.tt-header { margin-bottom: 18px; }
+.tt-title { font-size: 22px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+.tt-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 14px; font-weight: 400; }
+.tt-rule { height: 0.5px; background: var(--color-border-tertiary); margin: 0 0 20px; }
+.tt-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; margin-bottom: 18px; }
+.tt-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tt-col-head { font-size: 9px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 2px; padding: 0 2px; }
+.tt-card { border-radius: 8px; border: 0.5px solid; padding: 10px 10px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tt-card-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.78; font-weight: 500; }
+.tt-card-title { font-size: 12px; font-weight: 500; line-height: 1.35; }
+.tt-card-desc { font-size: 10px; line-height: 1.55; opacity: 0.88; font-weight: 400; }
+.tt-card-path { font-size: 9px; font-family: var(--font-mono); padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-top: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-purple { --bg: #EEEDFE; --bd: #CECBF6; --tt: #26215C; --tx: #3C3489; --pill-bg: #CECBF6; --pill-tx: #26215C; }
+.ph-blue   { --bg: #E6F1FB; --bd: #B5D4F4; --tt: #042C53; --tx: #0C447C; --pill-bg: #B5D4F4; --pill-tx: #042C53; }
+.ph-amber  { --bg: #FAEEDA; --bd: #FAC775; --tt: #412402; --tx: #633806; --pill-bg: #FAC775; --pill-tx: #412402; }
+.ph-teal   { --bg: #E1F5EE; --bd: #9FE1CB; --tt: #04342C; --tx: #085041; --pill-bg: #9FE1CB; --pill-tx: #04342C; }
+.ph-coral  { --bg: #FAECE7; --bd: #F5C4B3; --tt: #4A1B0C; --tx: #712B13; --pill-bg: #F5C4B3; --pill-tx: #4A1B0C; }
+.ph-green  { --bg: #EAF3DE; --bd: #C0DD97; --tt: #173404; --tx: #27500A; --pill-bg: #C0DD97; --pill-tx: #173404; }
+@media (prefers-color-scheme: dark) {
+  .ph-purple { --bg: #3C3489; --bd: #7F77DD; --tt: #EEEDFE; --tx: #CECBF6; --pill-bg: #26215C; --pill-tx: #CECBF6; }
+  .ph-blue   { --bg: #0C447C; --bd: #378ADD; --tt: #E6F1FB; --tx: #B5D4F4; --pill-bg: #042C53; --pill-tx: #B5D4F4; }
+  .ph-amber  { --bg: #633806; --bd: #EF9F27; --tt: #FAEEDA; --tx: #FAC775; --pill-bg: #412402; --pill-tx: #FAC775; }
+  .ph-teal   { --bg: #085041; --bd: #1D9E75; --tt: #E1F5EE; --tx: #9FE1CB; --pill-bg: #04342C; --pill-tx: #9FE1CB; }
+  .ph-coral  { --bg: #712B13; --bd: #D85A30; --tt: #FAECE7; --tx: #F5C4B3; --pill-bg: #4A1B0C; --pill-tx: #F5C4B3; }
+  .ph-green  { --bg: #27500A; --bd: #639922; --tt: #EAF3DE; --tx: #C0DD97; --pill-bg: #173404; --pill-tx: #C0DD97; }
+}
+.tt-card { background: var(--bg); border-color: var(--bd); }
+.tt-card-label { color: var(--tx); }
+.tt-card-title { color: var(--tt); }
+.tt-card-desc { color: var(--tx); }
+.tt-card-path { background: var(--pill-bg); color: var(--pill-tx); }
+.tt-col-head { color: var(--tx); }
+.tt-strip { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 10px; color: var(--color-text-secondary); padding: 12px 0 4px; border-top: 0.5px solid var(--color-border-tertiary); }
+.tt-strip-item { display: flex; align-items: center; gap: 5px; }
+.tt-strip-dot { width: 8px; height: 8px; border-radius: 50%; border: 0.5px solid; flex-shrink: 0; }
+.tt-strip-arrow { color: var(--color-text-tertiary); font-size: 10px; }
+.dot-purple { background: #7F77DD; border-color: #534AB7; }
+.dot-blue   { background: #378ADD; border-color: #185FA5; }
+.dot-amber  { background: #EF9F27; border-color: #BA7517; }
+.dot-teal   { background: #1D9E75; border-color: #0F6E56; }
+.dot-coral  { background: #D85A30; border-color: #993C1D; }
+.dot-green  { background: #639922; border-color: #3B6D11; }
+</style>
+<div class="tt-root">
+  <div class="tt-header">
+    <h1 class="tt-title">Claude Code 工具系统六层架构</h1>
+    <p class="tt-sub">从类型契约到注册准入、核心编排执行、流式加速,再到四十二个具体工具实现的完整拓扑</p>
+    <div class="tt-rule"></div>
+  </div>
+  <div class="tt-grid">
+    <div class="tt-col">
+      <div class="tt-col-head ph-purple">01 · 类型契约</div>
+      <div class="tt-card ph-purple">
+        <div class="tt-card-label">INTERFACE</div>
+        <div class="tt-card-title">Tool 统一接口</div>
+        <div class="tt-card-desc">三十余个方法定义标识、Schema、执行、渲染与分类行为契约</div>
+        <div class="tt-card-path">Tool.ts · 792 lines</div>
+      </div>
+      <div class="tt-card ph-purple">
+        <div class="tt-card-label">FACTORY</div>
+        <div class="tt-card-title">buildTool 工厂</div>
+        <div class="tt-card-desc">提供 fail-closed 安全默认值,强制并发与只读保守假设</div>
+        <div class="tt-card-path">TOOL_DEFAULTS</div>
+      </div>
+      <div class="tt-card ph-purple">
+        <div class="tt-card-label">CONTEXT</div>
+        <div class="tt-card-title">ToolUseContext</div>
+        <div class="tt-card-desc">五十余字段承载执行环境、消息、状态回调与 agent 追踪信息</div>
+        <div class="tt-card-path">ToolUseContext</div>
+      </div>
+    </div>
+    <div class="tt-col">
+      <div class="tt-col-head ph-blue">02 · 注册准入</div>
+      <div class="tt-card ph-blue">
+        <div class="tt-card-label">REGISTRY</div>
+        <div class="tt-card-title">全部基础工具</div>
+        <div class="tt-card-desc">返回当前环境约四十余种可能工具,条件加载与 Statsig 同步</div>
+        <div class="tt-card-path">getAllBaseTools()</div>
+      </div>
+      <div class="tt-card ph-blue">
+        <div class="tt-card-label">FILTER</div>
+        <div class="tt-card-title">环境化筛选</div>
+        <div class="tt-card-desc">按 SIMPLE 模式、deny 规则、REPL 白名单与 isEnabled 过滤</div>
+        <div class="tt-card-path">getTools()</div>
+      </div>
+      <div class="tt-card ph-blue">
+        <div class="tt-card-label">ASSEMBLE</div>
+        <div class="tt-card-title">工具池装配</div>
+        <div class="tt-card-desc">合并内置与 MCP 工具、排序去重以保证 prompt cache 命中稳定</div>
+        <div class="tt-card-path">assembleToolPool()</div>
+      </div>
+      <div class="tt-card ph-blue">
+        <div class="tt-card-label">ACL</div>
+        <div class="tt-card-title">访问控制清单</div>
+        <div class="tt-card-desc">定义主 agent、异步 agent、协调器与进程内队友的白名单差异</div>
+        <div class="tt-card-path">constants/tools.ts</div>
+      </div>
+    </div>
+    <div class="tt-col">
+      <div class="tt-col-head ph-amber">03 · 编排执行核心</div>
+      <div class="tt-card ph-amber">
+        <div class="tt-card-label">CORE · 01</div>
+        <div class="tt-card-title">分区编排</div>
+        <div class="tt-card-desc">partitionToolCalls 把连续只读工具合并并行,写入工具强制串行</div>
+        <div class="tt-card-path">toolOrchestration.ts</div>
+      </div>
+      <div class="tt-card ph-amber">
+        <div class="tt-card-label">CORE · 02</div>
+        <div class="tt-card-title">单次调用入口</div>
+        <div class="tt-card-desc">runToolUse 负责工具查找、别名降级、中止检查并进入主管线</div>
+        <div class="tt-card-path">runToolUse()</div>
+      </div>
+      <div class="tt-card ph-amber">
+        <div class="tt-card-label">CORE · 03</div>
+        <div class="tt-card-title">十步执行管线</div>
+        <div class="tt-card-desc">Zod 校验、特定验证、分类器、净化、pre/post hooks、权限、执行、错误</div>
+        <div class="tt-card-path">toolExecution.ts · 1745</div>
+      </div>
+    </div>
+    <div class="tt-col">
+      <div class="tt-col-head ph-teal">04 · 流式加速</div>
+      <div class="tt-card ph-teal">
+        <div class="tt-card-label">STREAMING</div>
+        <div class="tt-card-title">边流边执行</div>
+        <div class="tt-card-desc">模型流出 tool_use 即 addTool,减少阻塞等待与端到端时延</div>
+        <div class="tt-card-path">StreamingToolExecutor.ts</div>
+      </div>
+      <div class="tt-card ph-teal">
+        <div class="tt-card-label">STATE</div>
+        <div class="tt-card-title">并发状态机</div>
+        <div class="tt-card-desc">queued → executing → completed → yielded,结果按接收顺序保序</div>
+        <div class="tt-card-path">TrackedTool</div>
+      </div>
+      <div class="tt-card ph-teal">
+        <div class="tt-card-label">SAFETY</div>
+        <div class="tt-card-title">兄弟中止与丢弃</div>
+        <div class="tt-card-desc">Bash 出错联动取消兄弟,模型 fallback 时整体 discard 无副作用</div>
+        <div class="tt-card-path">siblingAbortController</div>
+      </div>
+    </div>
+    <div class="tt-col">
+      <div class="tt-col-head ph-coral">05 · 重型实现</div>
+      <div class="tt-card ph-coral">
+        <div class="tt-card-label">SHELL</div>
+        <div class="tt-card-title">Shell 执行族</div>
+        <div class="tt-card-desc">Bash 与 PowerShell,内含安全分析、权限规则、沙箱与只读校验</div>
+        <div class="tt-card-path">BashTool · 12411 lines</div>
+      </div>
+      <div class="tt-card ph-coral">
+        <div class="tt-card-label">FILE</div>
+        <div class="tt-card-title">文件操作族</div>
+        <div class="tt-card-desc">Read、Edit、Write、NotebookEdit 四件套覆盖读改写与单元格编辑</div>
+        <div class="tt-card-path">FileRead/Edit/Write</div>
+      </div>
+      <div class="tt-card ph-coral">
+        <div class="tt-card-label">SEARCH</div>
+        <div class="tt-card-title">代码搜索族</div>
+        <div class="tt-card-desc">Glob 做文件名匹配,Grep 底层调用 ripgrep 做内容正则搜索</div>
+        <div class="tt-card-path">Glob · Grep</div>
+      </div>
+      <div class="tt-card ph-coral">
+        <div class="tt-card-label">AGENT</div>
+        <div class="tt-card-title">多代理编排族</div>
+        <div class="tt-card-desc">AgentTool 嵌套 query 调用,含六类内置代理与 worktree 隔离</div>
+        <div class="tt-card-path">AgentTool · 6782 lines</div>
+      </div>
+    </div>
+    <div class="tt-col">
+      <div class="tt-col-head ph-green">06 · 协同辅助</div>
+      <div class="tt-card ph-green">
+        <div class="tt-card-label">BRIDGE</div>
+        <div class="tt-card-title">MCP 与 LSP 桥接</div>
+        <div class="tt-card-desc">调用外部 MCP 服务器与 Language Server,含资源列表与 OAuth 认证</div>
+        <div class="tt-card-path">MCPTool · LSPTool</div>
+      </div>
+      <div class="tt-card ph-green">
+        <div class="tt-card-label">EXTERNAL</div>
+        <div class="tt-card-title">外部网络工具</div>
+        <div class="tt-card-desc">WebSearch 做搜索,WebFetch 抓取并做 HTML 到文本转换</div>
+        <div class="tt-card-path">WebSearch · WebFetch</div>
+      </div>
+      <div class="tt-card ph-green">
+        <div class="tt-card-label">FLOW</div>
+        <div class="tt-card-title">流程与模式控制</div>
+        <div class="tt-card-desc">计划模式、Worktree 进出、ToolSearch 延迟加载、Skill 技能调用</div>
+        <div class="tt-card-path">PlanMode · ToolSearch</div>
+      </div>
+      <div class="tt-card ph-green">
+        <div class="tt-card-label">INTERACT</div>
+        <div class="tt-card-title">交互任务调度</div>
+        <div class="tt-card-desc">向用户提问、Todo、后台任务输出控制与 cron 调度、远程触发</div>
+        <div class="tt-card-path">AskUser · Todo · Cron</div>
+      </div>
+    </div>
+  </div>
+  <div class="tt-strip">
+    <div class="tt-strip-item"><span class="tt-strip-dot dot-purple"></span>类型契约</div>
+    <span class="tt-strip-arrow">→</span>
+    <div class="tt-strip-item"><span class="tt-strip-dot dot-blue"></span>注册准入</div>
+    <span class="tt-strip-arrow">→</span>
+    <div class="tt-strip-item"><span class="tt-strip-dot dot-amber"></span>编排执行核心</div>
+    <span class="tt-strip-arrow">→</span>
+    <div class="tt-strip-item"><span class="tt-strip-dot dot-teal"></span>流式加速</div>
+    <span class="tt-strip-arrow">↘</span>
+    <div class="tt-strip-item"><span class="tt-strip-dot dot-coral"></span>重型实现</div>
+    <span class="tt-strip-arrow">·</span>
+    <div class="tt-strip-item"><span class="tt-strip-dot dot-green"></span>协同辅助</div>
+  </div>
+</div>

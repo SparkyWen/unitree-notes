@@ -1,0 +1,156 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">工具权限决策五层防御</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">每次 tool_use 前的五相管线：从规则查表到用户交互，任一层 deny 即中止</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+
+<!-- 列 1 · 规则层 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Phase 01 · A</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">规则来源优先级</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">从用户设置、项目设置、本地覆盖、企业策略到会话临时规则共八路来源按顺序叠加</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">PERMISSION_RULE_SOURCES</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Phase 01 · B</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">三态规则查表</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">alwaysDeny 最强立即返回，alwaysAllow 次之，alwaysAsk 进入后续层做交互决策</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">hasPermissionsToUseToolInner</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Phase 01 · C</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">规则匹配粒度</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">从工具级、前缀、通配符到精确命令再到 MCP 服务器级与 Agent 类型六种匹配方式</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">shellRuleMatching.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 工具特定层 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Phase 02 · A</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">Bash 十层栈</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">命令拆分、只读白名单、25+ 安全验证器、路径检查、规则匹配、分类器共十层依次过滤</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">bashPermissions.ts · 2621 行</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Phase 02 · B</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">文件读写守护</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">DANGEROUS_FILES 黑名单加 CWD 判定加规则匹配，写入严格于读取，设置文件单独验证</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">filesystem.ts · 1777 行</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Phase 02 · C</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具自检接口</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">WebFetch 按域名、AgentTool 按子类型、MCP 按服务器级，各工具实现各自的 checkPermissions</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">tool.checkPermissions</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 模式裁决 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Phase 03 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">六种权限模式</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">bypass > auto > acceptEdits > default > plan，模式决定 ask 结果去分类器还是去用户</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">PermissionMode</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Phase 03 · B</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">沙箱覆盖路径</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">启用沙箱时 Bash 可自动放行，隔离承担安全责任；dangerouslyDisableSandbox 反向需确认</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">shouldUseSandbox</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">失败关闭原则</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">任一层 deny 立即返回，任一层抛错默认 deny，分类器超时也 deny，永不侥幸放行</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">fail-closed</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · AI 分类器路径 蓝 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Phase 04 · A</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">classifyYoloAction</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">独立 sideQuery 调用 Claude 判断动作安全性，返回 allow、deny 或 ask_user 三态</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">yoloClassifier.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Phase 04 · B</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">白名单快速路径</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">FileRead、Grep、Glob、TodoWrite 等明显安全的工具直接放行，省去一次分类器调用的 token 开销</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">isAutoModeAllowlistedTool</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Phase 04 · C</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">拒绝追踪降级</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">连续 3 次或累计 20 次拒绝视为分类器不可靠，强制降级为人工交互，分类器失效的安全阀</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">denialTracking.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 用户交互层 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Phase 05 · A</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">PermissionRequest 组件</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">渲染命令详情与 Allow、Always、Deny、Abort 四按钮，可同时展示推测性分类器给出的建议</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">interactiveHandler.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Phase 05 · B</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">无头 agent 降级</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">非交互环境没有 UI，交给 hook 最后裁决；hook 不给出决定则 auto deny，杜绝静默越权</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">runPermissionRequestHooks</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Phase 05 · C</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">持久化规则建议</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">用户选 Always allow 时从命令前缀自动生成规则写入 session 或 projectSettings，下次免打扰</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">createRuleSuggestion</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>规则查表</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>工具自检</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>模式裁决</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>AI 分类器</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>用户交互</div>
+</div>
+
+</div>

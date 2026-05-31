@@ -1,0 +1,171 @@
+<style>
+.cc-wrap{padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)}
+.cc-head{margin:0 0 4px;font-size:22px;font-weight:500;letter-spacing:-.01em}
+.cc-sub{margin:0 0 14px;font-size:12px;color:var(--color-text-secondary);font-weight:400}
+.cc-rule{border:0;border-top:.5px solid var(--color-border-tertiary);margin:0 0 20px}
+.cc-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
+.cc-col{display:flex;flex-direction:column;gap:10px}
+.cc-colhead{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-tertiary);font-weight:500;padding:0 2px 2px}
+.cc-card{border-radius:8px;border:.5px solid;padding:10px 11px 11px;display:flex;flex-direction:column;gap:5px}
+.cc-layer{font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;opacity:.75}
+.cc-title{font-size:12px;font-weight:500;line-height:1.3}
+.cc-desc{font-size:10px;line-height:1.5;opacity:.85;font-weight:400}
+.cc-paths{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.cc-pill{font-family:var(--font-mono);font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(0,0,0,.06);white-space:nowrap}
+.cc-flow{display:flex;align-items:center;gap:6px;margin:22px 0 4px;padding:10px 4px 2px;border-top:.5px solid var(--color-border-tertiary);flex-wrap:wrap}
+.cc-flow-item{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--color-text-secondary)}
+.cc-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cc-arrow{font-size:10px;color:var(--color-text-tertiary);margin:0 2px}
+.c-purple-card{background:#EEEDFE;border-color:#AFA9EC;color:#26215C}
+.c-purple-card .cc-layer,.c-purple-card .cc-desc{color:#3C3489}
+.c-purple-card .cc-pill{background:rgba(62,52,137,.1);color:#26215C}
+.c-blue-card{background:#E6F1FB;border-color:#85B7EB;color:#042C53}
+.c-blue-card .cc-layer,.c-blue-card .cc-desc{color:#0C447C}
+.c-blue-card .cc-pill{background:rgba(12,68,124,.1);color:#042C53}
+.c-amber-card{background:#FAEEDA;border-color:#EF9F27;color:#412402}
+.c-amber-card .cc-layer,.c-amber-card .cc-desc{color:#633806}
+.c-amber-card .cc-pill{background:rgba(99,56,6,.12);color:#412402}
+.c-teal-card{background:#E1F5EE;border-color:#5DCAA5;color:#04342C}
+.c-teal-card .cc-layer,.c-teal-card .cc-desc{color:#085041}
+.c-teal-card .cc-pill{background:rgba(8,80,65,.1);color:#04342C}
+.c-coral-card{background:#FAECE7;border-color:#F0997B;color:#4A1B0C}
+.c-coral-card .cc-layer,.c-coral-card .cc-desc{color:#712B13}
+.c-coral-card .cc-pill{background:rgba(113,43,19,.1);color:#4A1B0C}
+.d-purple{background:#7F77DD}.d-blue{background:#378ADD}.d-amber{background:#EF9F27}.d-teal{background:#1D9E75}.d-coral{background:#D85A30}
+@media (prefers-color-scheme: dark){
+ .c-purple-card{background:#3C3489;border-color:#AFA9EC;color:#CECBF6}
+ .c-purple-card .cc-layer,.c-purple-card .cc-desc{color:#AFA9EC}
+ .c-purple-card .cc-pill{background:rgba(206,203,246,.12);color:#CECBF6}
+ .c-blue-card{background:#0C447C;border-color:#85B7EB;color:#B5D4F4}
+ .c-blue-card .cc-layer,.c-blue-card .cc-desc{color:#85B7EB}
+ .c-blue-card .cc-pill{background:rgba(181,212,244,.12);color:#B5D4F4}
+ .c-amber-card{background:#633806;border-color:#EF9F27;color:#FAC775}
+ .c-amber-card .cc-layer,.c-amber-card .cc-desc{color:#EF9F27}
+ .c-amber-card .cc-pill{background:rgba(250,199,117,.14);color:#FAC775}
+ .c-teal-card{background:#085041;border-color:#5DCAA5;color:#9FE1CB}
+ .c-teal-card .cc-layer,.c-teal-card .cc-desc{color:#5DCAA5}
+ .c-teal-card .cc-pill{background:rgba(159,225,203,.12);color:#9FE1CB}
+ .c-coral-card{background:#712B13;border-color:#F0997B;color:#F5C4B3}
+ .c-coral-card .cc-layer,.c-coral-card .cc-desc{color:#F0997B}
+ .c-coral-card .cc-pill{background:rgba(245,196,179,.12);color:#F5C4B3}
+}
+@media (max-width:720px){.cc-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+<div class="cc-wrap">
+<h1 class="cc-head">Claude Remote Control 桥接时序</h1>
+<p class="cc-sub">从 claude rc 到会话子进程：轮询主循环驱动的远程控制桥接架构</p>
+<hr class="cc-rule"/>
+<div class="cc-grid">
+
+<div class="cc-col">
+<div class="cc-colhead">相位 1 · 入口分发</div>
+<div class="cc-card c-purple-card">
+<div class="cc-layer">Layer 00 · 启动入口</div>
+<div class="cc-title">CLI Bridge 快速路径</div>
+<div class="cc-desc">命中 remote-control / rc 子命令，绕开常规主流程直接进入 bridge 分支。</div>
+<div class="cc-paths"><span class="cc-pill">entrypoints/cli.tsx</span></div>
+</div>
+<div class="cc-card c-purple-card">
+<div class="cc-layer">Layer 01 · 桥接主函数</div>
+<div class="cc-title">bridgeMain 调度器</div>
+<div class="cc-desc">桥接模式的顶层函数，顺序驱动认证、设备注册、轮询循环与清理四个阶段。</div>
+<div class="cc-paths"><span class="cc-pill">bridge/bridgeMain.ts</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 2 · 连接建立</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 02 · 阶段 1a</div>
+<div class="cc-title">OAuth 认证</div>
+<div class="cc-desc">读取 Claude.ai OAuth Token，构造带凭据的 Bridge API 客户端实例。</div>
+<div class="cc-paths"><span class="cc-pill">getClaudeAIOAuthTokens</span><span class="cc-pill">getBridgeApiClient</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 03 · 阶段 1b</div>
+<div class="cc-title">Token 刷新调度</div>
+<div class="cc-desc">根据 JWT 过期时间预排定时刷新任务，确保长连接期间凭据始终有效。</div>
+<div class="cc-paths"><span class="cc-pill">jwtUtils.ts</span><span class="cc-pill">scheduleTokenRefresh</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 04 · 阶段 2</div>
+<div class="cc-title">可信设备注册</div>
+<div class="cc-desc">把当前设备指纹上报到 codeSessionApi，获取设备标识作为后续会话归属凭证。</div>
+<div class="cc-paths"><span class="cc-pill">trustedDevice.ts</span><span class="cc-pill">registerDevice</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 3 · 主循环核心</div>
+<div class="cc-card c-amber-card">
+<div class="cc-layer">Layer 05 · 阶段 3 · 核心</div>
+<div class="cc-title">pollAndSpawn 主循环</div>
+<div class="cc-desc">无限循环拉取 /sessions 新会话，对每个新会话触发 SessionRunner 生成子进程。</div>
+<div class="cc-paths"><span class="cc-pill">pollAndSpawn()</span><span class="cc-pill">GET /sessions</span></div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-layer">Layer 06 · 自适应节流</div>
+<div class="cc-title">轮询间隔控制</div>
+<div class="cc-desc">根据会话活跃度动态调节轮询频率，空闲期拉长间隔以降低服务端与带宽压力。</div>
+<div class="cc-paths"><span class="cc-pill">pollConfig.ts</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 4 · 会话生成</div>
+<div class="cc-card c-teal-card">
+<div class="cc-layer">Layer 07 · 会话工厂</div>
+<div class="cc-title">SessionRunner 创建</div>
+<div class="cc-desc">为每个新会话构造独立 Runner 实例，负责子进程生命周期与取消信号监听。</div>
+<div class="cc-paths"><span class="cc-pill">sessionRunner.ts</span><span class="cc-pill">createSessionRunner</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-layer">Layer 08 · Worker 子进程</div>
+<div class="cc-title">bridge-worker 进程入口</div>
+<div class="cc-desc">spawn 新的 claude --bridge-worker 子进程，隔离每个会话的内存与执行上下文。</div>
+<div class="cc-paths"><span class="cc-pill">initReplBridge.ts</span><span class="cc-pill">--bridge-worker</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-layer">Layer 09 · 隧道与权限</div>
+<div class="cc-title">stdio 管道与工具调用</div>
+<div class="cc-desc">把 stdin/stdout 隧道到 Bridge API，解析入站消息并交由权限回调决定工具放行。</div>
+<div class="cc-paths"><span class="cc-pill">replBridge.ts</span><span class="cc-pill">inboundMessages.ts</span><span class="cc-pill">bridgePermissionCallbacks.ts</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 5 · 生命周期</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">Layer 10 · 心跳上报</div>
+<div class="cc-title">Heartbeat 与状态</div>
+<div class="cc-desc">循环末尾向服务端上报活跃会话状态与健康心跳，维持远程侧的在线感知。</div>
+<div class="cc-paths"><span class="cc-pill">heartbeat</span><span class="cc-pill">status</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">Layer 11 · 阶段 4</div>
+<div class="cc-title">优雅清理</div>
+<div class="cc-desc">收到终止信号后停止轮询、关闭所有活跃会话子进程，刷新状态后退出主循环。</div>
+<div class="cc-paths"><span class="cc-pill">cleanup</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">设计要点</div>
+<div class="cc-title">进程级会话隔离</div>
+<div class="cc-desc">每个远程会话独占一个子进程，单会话崩溃不会污染 bridge 主控，天然实现故障域切分。</div>
+<div class="cc-paths"><span class="cc-pill">process isolation</span></div>
+</div>
+</div>
+
+</div>
+
+<div class="cc-flow">
+<div class="cc-flow-item"><span class="cc-dot d-purple"></span>入口分发</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-blue"></span>连接建立</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-amber"></span>主循环核心</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-teal"></span>会话生成</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-coral"></span>生命周期</div>
+</div>
+</div>

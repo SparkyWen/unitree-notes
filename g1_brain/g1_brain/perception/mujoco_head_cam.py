@@ -75,12 +75,17 @@ class MuJoCoHeadCamera:
             attach_fovy=attach_fovy,
         )
         self._data = mujoco.MjData(self._model)
-        # Renderers are NOT built here. EGL/GLFW GL contexts are owned by the
+        # Renderer is NOT built here. EGL/GLFW GL contexts are owned by the
         # thread that creates them — making them current from another thread
         # errors with EGL_BAD_ACCESS / GLX BadAccess. We lazy-build inside the
         # render thread instead.
+        #
+        # Single renderer with depth toggle (was two before): each call to
+        # update_scene+render on llvmpipe costs ~134 ms at 640x480 on this
+        # box. Two renderers meant ~268 ms/cycle and saturated a CPU core;
+        # toggling the depth flag on one renderer reuses the same scene
+        # buffer, so depth costs only ~27 ms after the RGB pass.
         self._renderer: Optional["mujoco.Renderer"] = None
-        self._depth_renderer: Optional["mujoco.Renderer"] = None
         self._width = width
         self._height = height
         self._jpeg_quality = jpeg_quality
@@ -278,14 +283,17 @@ class MuJoCoHeadCamera:
             return
         try:
             cam_arg = self._cam_id if self._cam_id >= 0 else None
+            # One scene update covers both passes. enable/disable just swaps
+            # which shader runs on render() — the scene buffer is reused.
+            self._renderer.disable_depth_rendering()
             if cam_arg is None:
                 self._renderer.update_scene(self._data)
-                self._depth_renderer.update_scene(self._data)
             else:
                 self._renderer.update_scene(self._data, camera=cam_arg)
-                self._depth_renderer.update_scene(self._data, camera=cam_arg)
             rgb = self._renderer.render()       # (H, W, 3) uint8
-            depth = self._depth_renderer.render()  # (H, W) float32, meters
+            self._renderer.enable_depth_rendering()
+            depth = self._renderer.render()     # (H, W) float32, meters
+            self._renderer.disable_depth_rendering()
             bgr = rgb[..., ::-1].copy()
             now = time.monotonic()
             with self._lock:
@@ -296,32 +304,35 @@ class MuJoCoHeadCamera:
             log.debug("render error: %s", e)
 
     def _render_loop(self) -> None:
-        # Build the GL-backed renderers here so their EGL/GLFW contexts are
+        # Build the GL-backed renderer here so its EGL/GLFW context is
         # owned by this thread (see __init__).
         try:
             self._renderer = self._mujoco.Renderer(
                 self._model, height=self._height, width=self._width
             )
-            self._depth_renderer = self._mujoco.Renderer(
-                self._model, height=self._height, width=self._width
-            )
-            self._depth_renderer.enable_depth_rendering()
         except Exception as e:  # noqa: BLE001
             log.error("head cam renderer init failed: %s", e)
             return
+        # Render-thread niceness: llvmpipe is a CPU hog and this thread runs
+        # at ~10 Hz with ~130 ms bursts. Lowering its OS priority keeps the
+        # asyncio loop / audio callback / DDS subscribers responsive when
+        # the box is otherwise saturated. Best-effort — silently skip on
+        # platforms that reject the nice() (root-only on some kernels).
+        try:
+            os.nice(10)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             while not self._stop.is_set():
                 self._render_once()
                 self._stop.wait(self._poll_interval_s)
         finally:
-            for r in (self._renderer, self._depth_renderer):
-                try:
-                    if r is not None:
-                        r.close()
-                except Exception:  # noqa: BLE001
-                    pass
+            try:
+                if self._renderer is not None:
+                    self._renderer.close()
+            except Exception:  # noqa: BLE001
+                pass
             self._renderer = None
-            self._depth_renderer = None
 
     # ---------------- public API ----------------
 

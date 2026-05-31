@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code 架构全景笔记</title>
+<style>
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
+  --color-bg: #FAFAF7;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #6B6B6B;
+  --color-text-tertiary: #9B9B9B;
+  --color-border-tertiary: #E5E5E2;
+  --color-border-secondary: #D4D4D0;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1A1A1A;
+    --color-surface: #242424;
+    --color-text-primary: #F0F0EC;
+    --color-text-secondary: #A8A8A4;
+    --color-text-tertiary: #767672;
+    --color-border-tertiary: #333331;
+    --color-border-secondary: #404040;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  line-height: 1.6;
+  font-size: 14px;
+}
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+.doc-header {
+  margin-bottom: 36px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-border-tertiary);
+}
+.doc-title {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin: 0 0 8px;
+}
+.doc-subtitle {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+.section {
+  margin-top: 56px;
+}
+.section-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.section-title {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin: 0 0 6px;
+}
+.section-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0 0 18px;
+}
+.section-rule {
+  height: 0.5px;
+  background: var(--color-border-tertiary);
+  margin-bottom: 22px;
+}
+
+/* ===== 十二功能域网格 ===== */
+.domain-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+.domain-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.domain-card {
+  border-radius: 8px;
+  padding: 11px;
+  border: 0.5px solid;
+}
+.dc-label {
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+.dc-title {
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.dc-desc {
+  font-size: 10px;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+.dc-meta {
+  font-size: 9px;
+  margin-top: 6px;
+}
+.dc-pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-top: 6px;
+}
+
+/* 颜色 - 紫 */
+.c-purple { background: #EEEDFE; border-color: #7F77DD; }
+.c-purple .dc-label, .c-purple .dc-meta { color: #534AB7; }
+.c-purple .dc-title { color: #26215C; }
+.c-purple .dc-desc { color: #3C3489; }
+.c-purple .dc-pill { background: #CECBF6; color: #26215C; }
+/* 青绿 */
+.c-teal { background: #E1F5EE; border-color: #1D9E75; }
+.c-teal .dc-label, .c-teal .dc-meta { color: #0F6E56; }
+.c-teal .dc-title { color: #04342C; }
+.c-teal .dc-desc { color: #085041; }
+.c-teal .dc-pill { background: #9FE1CB; color: #04342C; }
+/* 琥珀 */
+.c-amber { background: #FAEEDA; border-color: #BA7517; }
+.c-amber .dc-label, .c-amber .dc-meta { color: #854F0B; }
+.c-amber .dc-title { color: #412402; }
+.c-amber .dc-desc { color: #633806; }
+.c-amber .dc-pill { background: #FAC775; color: #412402; }
+/* 蓝 */
+.c-blue { background: #E6F1FB; border-color: #378ADD; }
+.c-blue .dc-label, .c-blue .dc-meta { color: #185FA5; }
+.c-blue .dc-title { color: #042C53; }
+.c-blue .dc-desc { color: #0C447C; }
+.c-blue .dc-pill { background: #B5D4F4; color: #042C53; }
+/* 珊瑚 */
+.c-coral { background: #FAECE7; border-color: #D85A30; }
+.c-coral .dc-label, .c-coral .dc-meta { color: #993C1D; }
+.c-coral .dc-title { color: #4A1B0C; }
+.c-coral .dc-desc { color: #712B13; }
+.c-coral .dc-pill { background: #F5C4B3; color: #4A1B0C; }
+/* 粉 */
+.c-pink { background: #FBEAF0; border-color: #D4537E; }
+.c-pink .dc-label, .c-pink .dc-meta { color: #993556; }
+.c-pink .dc-title { color: #4B1528; }
+.c-pink .dc-desc { color: #72243E; }
+.c-pink .dc-pill { background: #F4C0D1; color: #4B1528; }
+/* 绿 */
+.c-green { background: #EAF3DE; border-color: #639922; }
+.c-green .dc-label, .c-green .dc-meta { color: #3B6D11; }
+.c-green .dc-title { color: #173404; }
+.c-green .dc-desc { color: #27500A; }
+.c-green .dc-pill { background: #C0DD97; color: #173404; }
+
+/* 相位指示条 */
+.phase-strip {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--color-border-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.phase-item { display: flex; align-items: center; gap: 6px; }
+.phase-dot { width: 8px; height: 8px; border-radius: 50%; }
+.phase-arrow { color: var(--color-text-tertiary); }
+
+/* ===== 表格 ===== */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.data-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  background: var(--color-bg);
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+.data-table td {
+  padding: 9px 12px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+  vertical-align: top;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--color-bg); }
+.data-table .num { color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; width: 40px; }
+.data-table .path { font-family: var(--font-mono); font-size: 11px; color: #378ADD; }
+.data-table .lines { font-variant-numeric: tabular-nums; color: var(--color-text-secondary); text-align: right; }
+.data-table .files { font-variant-numeric: tabular-nums; color: var(--color-text-tertiary); text-align: right; }
+
+/* ===== 调用链树 ===== */
+.call-tree {
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border-tertiary);
+  border-radius: 8px;
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.75;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--color-text-primary);
+}
+.call-tree .hl-entry { color: #7F77DD; font-weight: 600; }
+.call-tree .hl-core { color: #BA7517; font-weight: 600; }
+.call-tree .hl-tool { color: #D85A30; }
+.call-tree .hl-api { color: #378ADD; }
+.call-tree .hl-bridge { color: #1D9E75; }
+.call-tree .comment { color: var(--color-text-tertiary); }
+
+@media (max-width: 1024px) {
+  .domain-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 640px) {
+  .domain-grid { grid-template-columns: repeat(2, 1fr); }
+  .container { padding: 24px 16px 60px; }
+  .doc-title { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="doc-header">
+  <h1 class="doc-title">Claude Code 架构全景笔记</h1>
+  <p class="doc-subtitle">十二功能域 · 请求生命周期 · 目录盘点 · 复杂度热点 · 调用链拓扑</p>
+</header>
+
+<!-- ============ 第 1 部分：十二功能域 ============ -->
+<section class="section">
+  <div id="part01" class="section-label">Part 01</div>
+  <h2 class="section-title">Claude Code 十二功能域全景</h2>
+  <p class="section-desc">按语义横切的功能地图：每个卡片标注文件数与行数,体积差异即重要性信号</p>
+  <div class="section-rule"></div>
+
+  <div class="domain-grid">
+    <!-- 列 1 · 入口与界面 -->
+    <div class="domain-col">
+      <div class="domain-card c-purple">
+        <div class="dc-label">Domain 01</div>
+        <div class="dc-title">启动与初始化</div>
+        <div class="dc-desc">CLI 快速路径分发、main.tsx 完整启动、11 个版本迁移与全局状态单例装配</div>
+        <div class="dc-meta">22 文件 · 8.5K 行</div>
+        <span class="dc-pill">entrypoints · bootstrap · migrations</span>
+      </div>
+      <div class="domain-card c-purple">
+        <div class="dc-label">Domain 06</div>
+        <div class="dc-title">终端 UI 渲染</div>
+        <div class="dc-desc">REPL 主屏幕加自研 Ink reconciler,把 React 组件树打成 ANSI 终端输出</div>
+        <div class="dc-meta">488 文件 · 35K 行</div>
+        <span class="dc-pill">screens · ink · components</span>
+      </div>
+    </div>
+
+    <!-- 列 2 · 能力注册 -->
+    <div class="domain-col">
+      <div class="domain-card c-teal">
+        <div class="dc-label">Domain 04</div>
+        <div class="dc-title">命令与技能</div>
+        <div class="dc-desc">斜杠命令、会话管理命令与 17 个捆绑技能的加载路由,支持插件命令动态注入</div>
+        <div class="dc-meta">227 文件 · 30.5K 行</div>
+        <span class="dc-pill">commands · skills</span>
+      </div>
+      <div class="domain-card c-teal">
+        <div class="dc-label">Domain 03</div>
+        <div class="dc-title">工具系统</div>
+        <div class="dc-desc">Bash、File、Web、MCP、Skill 等 190+ 文件工具生态,附带编排与流式执行器</div>
+        <div class="dc-meta">190+ 文件 · 53K 行</div>
+        <span class="dc-pill">tools · services/tools</span>
+      </div>
+    </div>
+
+    <!-- 列 3 · 核心引擎 -->
+    <div class="domain-col">
+      <div class="domain-card c-amber">
+        <div class="dc-label">Domain 02 · Core</div>
+        <div class="dc-title">核心对话引擎</div>
+        <div class="dc-desc">query.ts 主循环与 QueryEngine 封装,配合 tokenBudget、停机 hooks 与状态转换</div>
+        <div class="dc-meta">6 文件 · 3.7K 行</div>
+        <span class="dc-pill">query.ts · QueryEngine.ts · query/</span>
+      </div>
+      <div class="domain-card c-amber">
+        <div class="dc-label">Design Note</div>
+        <div class="dc-title">体积与地位反比</div>
+        <div class="dc-desc">十二个功能域中体量最小的一个,却是所有数据流与控制流的唯一交汇点</div>
+        <div class="dc-meta">占总行数 &lt; 2%</div>
+        <span class="dc-pill">query.ts</span>
+      </div>
+    </div>
+
+    <!-- 列 4 · 外部通信 -->
+    <div class="domain-col">
+      <div class="domain-card c-blue">
+        <div class="dc-label">Domain 05</div>
+        <div class="dc-title">API 与模型交互</div>
+        <div class="dc-desc">Claude 流式 API、错误分类重试与 auto/reactive 两路消息压缩应对上下文窗口</div>
+        <div class="dc-meta">~40 文件 · 15K 行</div>
+        <span class="dc-pill">services/api · services/compact</span>
+      </div>
+      <div class="domain-card c-blue">
+        <div class="dc-label">Domain 09</div>
+        <div class="dc-title">MCP 协议集成</div>
+        <div class="dc-desc">3.3K 行客户端 + 2.5K 行 OAuth,接入官方注册表与任意外部 MCP 服务</div>
+        <div class="dc-meta">~30 文件 · 10K 行</div>
+        <span class="dc-pill">services/mcp · MCPTool</span>
+      </div>
+      <div class="domain-card c-blue">
+        <div class="dc-label">Domain 08</div>
+        <div class="dc-title">远程桥接通信</div>
+        <div class="dc-desc">Bridge 入口、REPL 桥接、JWT 刷新与 SSE/WebSocket 传输把本地引擎暴露给远端</div>
+        <div class="dc-meta">~42 文件 · 14K 行</div>
+        <span class="dc-pill">bridge · remote · cli/transports</span>
+      </div>
+    </div>
+
+    <!-- 列 5 · 扩展与代理 -->
+    <div class="domain-col">
+      <div class="domain-card c-coral">
+        <div class="dc-label">Domain 11</div>
+        <div class="dc-title">后台任务与多代理</div>
+        <div class="dc-desc">本地、远程、进程内与 git worktree fork 四种子 agent 模式,加 13 文件 swarm 群组</div>
+        <div class="dc-meta">~30 文件 · 8K 行</div>
+        <span class="dc-pill">tasks · coordinator · utils/swarm</span>
+      </div>
+      <div class="domain-card c-coral">
+        <div class="dc-label">Domain 12</div>
+        <div class="dc-title">插件与扩展</div>
+        <div class="dc-desc">3.3K 行插件加载器 + 2.6K 行市场管理,让用户注入命令、工具与 MCP 服务</div>
+        <div class="dc-meta">~50 文件 · 10K 行</div>
+        <span class="dc-pill">plugins · utils/plugins</span>
+      </div>
+    </div>
+
+    <!-- 列 6 · 基础支撑 -->
+    <div class="domain-col">
+      <div class="domain-card c-pink">
+        <div class="dc-label">Domain 07</div>
+        <div class="dc-title">权限与安全</div>
+        <div class="dc-desc">文件系统权限、4.4K 行 Bash 解析器与 2.7K 行 AST 安全检查,三重挡危险命令</div>
+        <div class="dc-meta">~55 文件 · 22K 行</div>
+        <span class="dc-pill">utils/permissions · utils/bash</span>
+      </div>
+      <div class="domain-card c-pink">
+        <div class="dc-label">Domain 10</div>
+        <div class="dc-title">状态与持久化</div>
+        <div class="dc-desc">240+ 字段 AppState、5K 行会话存档与 1.8K 行配置管理,所有模块的数据交换点</div>
+        <div class="dc-meta">~15 文件 · 10K 行</div>
+        <span class="dc-pill">state · sessionStorage · config</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-strip">
+    <div class="phase-item"><span class="phase-dot" style="background:#7F77DD"></span>入口与界面</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#1D9E75"></span>能力注册</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#BA7517"></span>核心引擎</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#378ADD"></span>外部通信</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#D85A30"></span>扩展与代理</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#D4537E"></span>基础支撑</div>
+  </div>
+</section>
+
+<!-- ============ 第 2 部分：REPL 请求生命周期 ============ -->
+<section id="part02" class="section">
+  <div class="section-label">Part 02</div>
+  <h2 class="section-title">Claude Code REPL 请求生命周期</h2>
+  <p class="section-desc">从用户输入、上下文组装、查询主循环、工具执行到结果回注的完整数据流编排</p>
+  <div class="section-rule"></div>
+
+  <div class="domain-grid">
+    <!-- 01 · 入口 -->
+    <div class="domain-col">
+      <div style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#534AB7;padding:0 2px 2px">01 · 入口</div>
+      <div class="domain-card c-purple">
+        <div class="dc-label">Layer 01</div>
+        <div class="dc-title">REPL 提交入口</div>
+        <div class="dc-desc">用户在交互终端输入消息后由 onSubmit 捕获并启动整条请求</div>
+        <span class="dc-pill">screens/REPL.tsx</span>
+      </div>
+      <div class="domain-card c-purple">
+        <div class="dc-label">Layer 02</div>
+        <div class="dc-title">用户输入处理</div>
+        <div class="dc-desc">识别斜杠命令、解析图片附件、封装成标准 UserMessage</div>
+        <span class="dc-pill">processUserInput.ts</span>
+      </div>
+    </div>
+
+    <!-- 02 · 上下文组装 -->
+    <div class="domain-col">
+      <div style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#185FA5;padding:0 2px 2px">02 · 上下文组装</div>
+      <div class="domain-card c-blue">
+        <div class="dc-label">Prompt · 01</div>
+        <div class="dc-title">系统提示词核心</div>
+        <div class="dc-desc">拼装身份指令、环境信息、工具规则与 MCP 工具说明段</div>
+        <span class="dc-pill">constants/prompts.ts</span>
+      </div>
+      <div class="domain-card c-blue">
+        <div class="dc-label">Prompt · 02</div>
+        <div class="dc-title">有效提示词构建</div>
+        <div class="dc-desc">在核心 prompt 基础上叠加自定义与追加段形成最终指令</div>
+        <span class="dc-pill">utils/systemPrompt.ts</span>
+      </div>
+      <div class="domain-card c-blue">
+        <div class="dc-label">Context · 01</div>
+        <div class="dc-title">系统上下文注入</div>
+        <div class="dc-desc">收集 Git 分支、状态、提交历史与用户身份作为环境信号</div>
+        <span class="dc-pill">context.ts</span>
+      </div>
+      <div class="domain-card c-blue">
+        <div class="dc-label">Context · 02</div>
+        <div class="dc-title">用户上下文注入</div>
+        <div class="dc-desc">读取 CLAUDE.md 指令文件与记忆文件并并入请求正文</div>
+        <span class="dc-pill">context.ts</span>
+      </div>
+    </div>
+
+    <!-- 03 · 核心循环 -->
+    <div class="domain-col">
+      <div style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#854F0B;padding:0 2px 2px">03 · 核心循环</div>
+      <div class="domain-card c-amber">
+        <div class="dc-label">Core · Entry</div>
+        <div class="dc-title">查询异步生成器</div>
+        <div class="dc-desc">query 入口返回 AsyncGenerator 并驱动整个请求生命周期</div>
+        <span class="dc-pill">query.ts</span>
+      </div>
+      <div class="domain-card c-amber">
+        <div class="dc-label">Core · Loop</div>
+        <div class="dc-title">查询主循环调度</div>
+        <div class="dc-desc">queryLoop 不断编排预处理、模型调用与工具回注直至完成</div>
+        <span class="dc-pill">query.ts · while(true)</span>
+      </div>
+      <div class="domain-card c-amber">
+        <div class="dc-label">Design</div>
+        <div class="dc-title">中枢设计特征</div>
+        <div class="dc-desc">生成器流式产出、子阶段可重入、错误可恢复的调度心脏</div>
+        <span class="dc-pill">AsyncGenerator</span>
+      </div>
+    </div>
+
+    <!-- 04 · 循环内部 -->
+    <div class="domain-col">
+      <div style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#0F6E56;padding:0 2px 2px">04 · 循环内部</div>
+      <div class="domain-card c-teal">
+        <div class="dc-label">Step 3A</div>
+        <div class="dc-title">消息预处理</div>
+        <div class="dc-desc">依次执行预算限制、历史裁剪、微压缩与自动压缩策略</div>
+        <span class="dc-pill">snipCompact · autocompact</span>
+      </div>
+      <div class="domain-card c-teal">
+        <div class="dc-label">Step 3B</div>
+        <div class="dc-title">模型流式调用</div>
+        <div class="dc-desc">经 beta messages stream 逐事件累积文本、思考与工具请求</div>
+        <span class="dc-pill">services/api/claude.ts</span>
+      </div>
+      <div class="domain-card c-teal">
+        <div class="dc-label">Step 3E</div>
+        <div class="dc-title">退出与恢复判断</div>
+        <div class="dc-desc">处理 413 过长、输出上限重试、stop hooks 与正常收尾</div>
+        <span class="dc-pill">queryLoop exit</span>
+      </div>
+    </div>
+
+    <!-- 05 · 工具执行 -->
+    <div class="domain-col">
+      <div style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#993C1D;padding:0 2px 2px">05 · 工具执行</div>
+      <div class="domain-card c-coral">
+        <div class="dc-label">Step 3C · 1</div>
+        <div class="dc-title">工具分流编排</div>
+        <div class="dc-desc">只读工具批量并行执行,写入工具严格串行以避免状态冲突</div>
+        <span class="dc-pill">toolOrchestration.ts</span>
+      </div>
+      <div class="domain-card c-coral">
+        <div class="dc-label">Step 3C · 2</div>
+        <div class="dc-title">单次工具调用</div>
+        <div class="dc-desc">查找工具定义、Zod 校验参数后进入权限与执行流水线</div>
+        <span class="dc-pill">toolExecution.ts</span>
+      </div>
+      <div class="domain-card c-coral">
+        <div class="dc-label">Permission</div>
+        <div class="dc-title">权限判定</div>
+        <div class="dc-desc">按 allow 与 deny 规则、pre hooks、分类器、用户交互逐层决策</div>
+        <span class="dc-pill">canUseTool</span>
+      </div>
+      <div class="domain-card c-coral">
+        <div class="dc-label">Execute</div>
+        <div class="dc-title">工具具体执行</div>
+        <div class="dc-desc">调用 tool.execute 产出 ToolResultBlockParam 并跑 post hooks</div>
+        <span class="dc-pill">tool.execute()</span>
+      </div>
+    </div>
+
+    <!-- 06 · 输出持久化 -->
+    <div class="domain-col">
+      <div style="font-size:9px;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#3B6D11;padding:0 2px 2px">06 · 输出持久化</div>
+      <div class="domain-card c-green">
+        <div class="dc-label">Step 3D</div>
+        <div class="dc-title">结果回注下一轮</div>
+        <div class="dc-desc">工具结果追加到 messages,needsFollowUp 为真则回到预处理</div>
+        <span class="dc-pill">needsFollowUp</span>
+      </div>
+      <div class="domain-card c-green">
+        <div class="dc-label">Consume</div>
+        <div class="dc-title">REPL 消费渲染</div>
+        <div class="dc-desc">for await 消费生成器事件,更新消息列表、Spinner 与应用状态</div>
+        <span class="dc-pill">screens/REPL.tsx</span>
+      </div>
+      <div class="domain-card c-green">
+        <div class="dc-label">Persist</div>
+        <div class="dc-title">会话持久化</div>
+        <div class="dc-desc">写入 transcript 至本地 sessions 目录并追加命令历史记录</div>
+        <span class="dc-pill">sessionStorage.ts</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="phase-strip">
+    <div class="phase-item"><span class="phase-dot" style="background:#7F77DD"></span>入口</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#378ADD"></span>上下文组装</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#EF9F27"></span>核心循环</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#1D9E75"></span>循环内部</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#D85A30"></span>工具执行</div>
+    <span class="phase-arrow">→</span>
+    <div class="phase-item"><span class="phase-dot" style="background:#639922"></span>输出持久化</div>
+  </div>
+</section>
+
+<!-- ============ 第 3 部分：目录全量盘点 ============ -->
+<section class="section">
+  <div class="section-label">Part 03</div>
+  <h2 class="section-title">source/src/ 一级目录全量盘点</h2>
+  <p class="section-desc">按代码规模排序(行数从大到小)</p>
+  <div class="section-rule"></div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th class="num">#</th><th>目录</th><th class="files">文件数</th><th class="lines">代码行数</th><th>核心职责</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="path">services/</td><td class="files">130</td><td class="lines">53,680</td><td><b>后端服务层</b>:API 调用、MCP 协议、compact 压缩、OAuth、插件、分析、策略限制等</td></tr>
+      <tr><td class="num">2</td><td class="path">tools/</td><td class="files">184</td><td class="lines">50,828</td><td><b>工具实现层</b>:40+ 工具(Bash、文件操作、Agent、搜索、Web 等)</td></tr>
+      <tr><td class="num">3</td><td class="path">utils/</td><td class="files">564</td><td class="lines">33,567</td><td><b>工具函数库</b>:权限、bash 解析、git、模型选择、设置、shell、消息处理等</td></tr>
+      <tr><td class="num">4</td><td class="path">commands/</td><td class="files">207</td><td class="lines">26,449</td><td><b>斜杠命令</b>:50+ 个用户可调用命令(/commit, /help, /config 等)</td></tr>
+      <tr><td class="num">5</td><td class="path">ink/</td><td class="files">96</td><td class="lines">19,842</td><td><b>终端渲染引擎</b>:自定义 Ink 分支,DOM 仿真、布局、焦点管理</td></tr>
+      <tr><td class="num">6</td><td class="path">hooks/</td><td class="files">104</td><td class="lines">19,204</td><td><b>React Hooks</b>:权限处理、工具建议、通知、输入处理等</td></tr>
+      <tr><td class="num">7</td><td class="path">bridge/</td><td class="files">31</td><td class="lines">12,613</td><td><b>远程控制桥接</b>:让本地机器成为云端 Claude 的执行环境</td></tr>
+      <tr><td class="num">8</td><td class="path">cli/</td><td class="files">19</td><td class="lines">12,353</td><td><b>CLI 传输层</b>:print 输出、结构化 IO、SSE/WebSocket 传输、更新检查</td></tr>
+      <tr><td class="num">9</td><td class="path">components/</td><td class="files">389</td><td class="lines">9,438</td><td><b>UI 组件库</b>:React/Ink 组件(消息渲染、权限对话框、设置等)</td></tr>
+      <tr><td class="num">10</td><td class="path">screens/</td><td class="files">3</td><td class="lines">5,977</td><td><b>屏幕</b>:REPL 主交互界面(5,005 行的核心文件)</td></tr>
+      <tr><td class="num">11</td><td class="path">entrypoints/</td><td class="files">8</td><td class="lines">4,051</td><td><b>入口点</b>:CLI 启动、MCP server 模式、SDK 类型</td></tr>
+      <tr><td class="num">12</td><td class="path">native-ts/</td><td class="files">4</td><td class="lines">4,081</td><td><b>原生 TS 实现</b>:color-diff、file-index、yoga-layout</td></tr>
+      <tr><td class="num">13</td><td class="path">skills/</td><td class="files">20</td><td class="lines">4,066</td><td><b>技能系统</b>:动态/内置技能(batch, loop, simplify 等)</td></tr>
+      <tr><td class="num">14</td><td class="path">types/</td><td class="files">11</td><td class="lines">3,446</td><td><b>类型定义</b>:消息、权限、命令、Hook、ID 等</td></tr>
+      <tr><td class="num">15</td><td class="path">tasks/</td><td class="files">12</td><td class="lines">3,286</td><td><b>后台任务</b>:LocalAgent、RemoteAgent、LocalShell、InProcessTeammate</td></tr>
+      <tr><td class="num">16</td><td class="path">keybindings/</td><td class="files">14</td><td class="lines">3,159</td><td><b>快捷键系统</b>:解析、匹配、注册、默认绑定</td></tr>
+      <tr><td class="num">17</td><td class="path">constants/</td><td class="files">21</td><td class="lines">2,648</td><td><b>常量</b>:系统提示词、API 限制、工具名称、XML 标签等</td></tr>
+      <tr><td class="num">18</td><td class="path">bootstrap/</td><td class="files">1</td><td class="lines">1,758</td><td><b>全局状态</b>:session 级别的全局可变状态(1,758 行的大文件)</td></tr>
+      <tr><td class="num">19</td><td class="path">memdir/</td><td class="files">8</td><td class="lines">1,736</td><td><b>记忆文件管理</b>:CLAUDE.md 加载、路径解析、记忆注入</td></tr>
+      <tr><td class="num">20</td><td class="path">vim/</td><td class="files">5</td><td class="lines">1,513</td><td><b>Vim 模式</b>:终端内 vim 键绑定</td></tr>
+      <tr><td class="num">21</td><td class="path">buddy/</td><td class="files">6</td><td class="lines">1,298</td><td><b>伙伴系统</b>:精灵动画、通知提示</td></tr>
+      <tr><td class="num">22</td><td class="path">state/</td><td class="files">6</td><td class="lines">1,190</td><td><b>应用状态管理</b>:AppState store 和选择器</td></tr>
+      <tr><td class="num">23</td><td class="path">remote/</td><td class="files">4</td><td class="lines">1,127</td><td><b>远程会话管理</b>:WebSocket 通信、权限桥接</td></tr>
+      <tr><td class="num">24</td><td class="path">context/</td><td class="files">9</td><td class="lines">1,004</td><td><b>React Context</b>:通知、模态框、邮箱、语音等</td></tr>
+      <tr><td class="num">25</td><td class="path">upstreamproxy/</td><td class="files">2</td><td class="lines">740</td><td><b>上游代理</b>:HTTP 代理支持</td></tr>
+      <tr><td class="num">26</td><td class="path">query/</td><td class="files">4</td><td class="lines">652</td><td><b>查询辅助</b>:stop hooks、config、deps、transitions</td></tr>
+      <tr><td class="num">27</td><td class="path">migrations/</td><td class="files">11</td><td class="lines">603</td><td><b>迁移脚本</b>:设置/模型/权限的版本迁移</td></tr>
+      <tr><td class="num">28</td><td class="path">coordinator/</td><td class="files">1</td><td class="lines">369</td><td><b>协调器模式</b>:多 worker 并发编排</td></tr>
+      <tr><td class="num">29</td><td class="path">server/</td><td class="files">3</td><td class="lines">358</td><td><b>服务器</b>:本地 HTTP server</td></tr>
+      <tr><td class="num">30</td><td class="path">schemas/</td><td class="files">1</td><td class="lines">222</td><td><b>Schema 验证</b>:Zod schema</td></tr>
+      <tr><td class="num">31</td><td class="path">plugins/</td><td class="files">2</td><td class="lines">182</td><td><b>插件基础设施</b>:内置插件注册</td></tr>
+      <tr><td class="num">32</td><td class="path">outputStyles/</td><td class="files">1</td><td class="lines">98</td><td><b>输出样式</b>:响应格式控制</td></tr>
+      <tr><td class="num">33</td><td class="path">assistant/</td><td class="files">1</td><td class="lines">87</td><td><b>助手模式</b>:KAIROS 主动式代理</td></tr>
+      <tr><td class="num">34</td><td class="path">voice/</td><td class="files">1</td><td class="lines">54</td><td><b>语音模式</b>:语音输入</td></tr>
+      <tr><td class="num">35</td><td class="path">moreright/</td><td class="files">1</td><td class="lines">25</td><td><b>辅助工具</b>:小型辅助模块</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 第 4 部分：根目录核心文件 ============ -->
+<section class="section">
+  <div class="section-label">Part 04</div>
+  <h2 class="section-title">根目录核心文件 (source/src/*.ts)</h2>
+  <p class="section-desc">这 18 个文件是整个系统的<b>中枢骨架</b>,理解它们等于理解了 Claude Code 的核心架构</p>
+  <div class="section-rule"></div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th>文件</th><th class="lines">行数</th><th>角色</th><th>关键说明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="path">main.tsx</td><td class="lines">4,683</td><td><b>主入口/启动器</b></td><td>认证、配置、GrowthBook 特性门控、参数解析、AppState 创建、启动 REPL</td></tr>
+      <tr><td class="path">query.ts</td><td class="lines">1,729</td><td><b>核心对话循环</b></td><td>query() 异步生成器:组装工具池 → 构建 system prompt → 规范化消息 → 调用 API → 分发工具调用 → 收集结果 → 循环</td></tr>
+      <tr><td class="path">QueryEngine.ts</td><td class="lines">1,295</td><td><b>SDK/远程查询引擎</b></td><td>供 SDK 和 print 模式使用,包装 query() 并处理输入/输出</td></tr>
+      <tr><td class="path">Tool.ts</td><td class="lines">792</td><td><b>工具类型与分发</b></td><td>ToolUseContext、Tool 类型、findToolByName()、buildTool() 工厂</td></tr>
+      <tr><td class="path">commands.ts</td><td class="lines">754</td><td><b>命令注册表</b></td><td>合并内置/技能/插件命令,提供 getCommands()</td></tr>
+      <tr><td class="path">tools.ts</td><td class="lines">389</td><td><b>工具注册表</b></td><td>getTools() / assembleToolPool() — 收集所有工具实例,条件加载</td></tr>
+      <tr><td class="path">context.ts</td><td class="lines">189</td><td><b>上下文构建</b></td><td>getSystemContext() / getUserContext() — git 状态、CLAUDE.md 注入</td></tr>
+      <tr><td class="path">bootstrap/state.ts</td><td class="lines">1,758</td><td><b>全局会话状态</b></td><td>可变单例:成本、模型用量、session ID、hook 注册、遥测计数器等</td></tr>
+      <tr><td class="path">cost-tracker.ts</td><td class="lines">—</td><td><b>费用追踪</b></td><td>API 调用成本累计</td></tr>
+      <tr><td class="path">costHook.ts</td><td class="lines">—</td><td><b>费用 Hook</b></td><td>费用阈值警告</td></tr>
+      <tr><td class="path">history.ts</td><td class="lines">—</td><td><b>历史管理</b></td><td>命令历史记录</td></tr>
+      <tr><td class="path">tasks.ts</td><td class="lines">—</td><td><b>任务管理</b></td><td>任务 v2 系统入口</td></tr>
+      <tr><td class="path">setup.ts</td><td class="lines">—</td><td><b>初始化设置</b></td><td>项目设置流程</td></tr>
+      <tr><td class="path">dialogLaunchers.tsx</td><td class="lines">—</td><td><b>对话框启动器</b></td><td>各种 UI 对话框的懒加载启动</td></tr>
+      <tr><td class="path">interactiveHelpers.tsx</td><td class="lines">—</td><td><b>交互辅助</b></td><td>渲染上下文、错误退出、设置屏幕</td></tr>
+      <tr><td class="path">replLauncher.tsx</td><td class="lines">22</td><td><b>REPL 启动器</b></td><td>懒加载 App + REPL 组件</td></tr>
+      <tr><td class="path">ink.ts</td><td class="lines">—</td><td><b>Ink 导出</b></td><td>Ink 终端渲染库的统一导出</td></tr>
+      <tr><td class="path">projectOnboardingState.ts</td><td class="lines">—</td><td><b>项目引导状态</b></td><td>新项目引导流程</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 第 5 部分：最大文件 TOP 30 ============ -->
+<section class="section">
+  <div class="section-label">Part 05</div>
+  <h2 class="section-title">最大文件 TOP 30 (复杂度热点)</h2>
+  <p class="section-desc">这些是系统中最复杂的文件,也是理解架构的关键</p>
+  <div class="section-rule"></div>
+
+  <table class="data-table">
+    <thead>
+      <tr><th class="num">#</th><th>文件</th><th class="lines">行数</th><th>角色</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="path">cli/print.ts</td><td class="lines">5,594</td><td>非交互模式输出(-p 模式的完整实现)</td></tr>
+      <tr><td class="num">2</td><td class="path">utils/messages.ts</td><td class="lines">5,512</td><td>消息创建、规范化、过滤的核心库</td></tr>
+      <tr><td class="num">3</td><td class="path">utils/sessionStorage.ts</td><td class="lines">5,105</td><td>会话持久化到磁盘</td></tr>
+      <tr><td class="num">4</td><td class="path">utils/hooks.ts</td><td class="lines">5,022</td><td>Hook 系统(pre/post tool、compact、session 等)</td></tr>
+      <tr><td class="num">5</td><td class="path">screens/REPL.tsx</td><td class="lines">5,005</td><td><b>REPL 主屏幕</b> — 交互式会话的 UI 主体</td></tr>
+      <tr><td class="num">6</td><td class="path">main.tsx</td><td class="lines">4,683</td><td>主入口</td></tr>
+      <tr><td class="num">7</td><td class="path">utils/bash/bashParser.ts</td><td class="lines">4,436</td><td>Bash 命令解析器(安全分析用)</td></tr>
+      <tr><td class="num">8</td><td class="path">utils/attachments.ts</td><td class="lines">3,997</td><td>附件处理(CLAUDE.md、记忆文件注入)</td></tr>
+      <tr><td class="num">9</td><td class="path">services/api/claude.ts</td><td class="lines">3,419</td><td><b>Claude API 调用核心</b>:流式请求、重试、usage 追踪</td></tr>
+      <tr><td class="num">10</td><td class="path">services/mcp/client.ts</td><td class="lines">3,348</td><td>MCP 客户端:服务器连接、工具/资源获取</td></tr>
+      <tr><td class="num">11</td><td class="path">utils/plugins/pluginLoader.ts</td><td class="lines">3,302</td><td>插件加载器:发现、验证、生命周期</td></tr>
+      <tr><td class="num">12</td><td class="path">commands/insights.ts</td><td class="lines">3,200</td><td>洞察命令(Ant 内部)</td></tr>
+      <tr><td class="num">13</td><td class="path">bridge/bridgeMain.ts</td><td class="lines">2,999</td><td>Bridge 模式主入口</td></tr>
+      <tr><td class="num">14</td><td class="path">utils/bash/ast.ts</td><td class="lines">2,679</td><td>Bash AST 解析(安全检查)</td></tr>
+      <tr><td class="num">15</td><td class="path">utils/plugins/marketplaceManager.ts</td><td class="lines">2,643</td><td>插件市场管理</td></tr>
+      <tr><td class="num">16</td><td class="path">tools/BashTool/bashPermissions.ts</td><td class="lines">2,621</td><td>Bash 工具权限系统</td></tr>
+      <tr><td class="num">17</td><td class="path">tools/BashTool/bashSecurity.ts</td><td class="lines">2,592</td><td>Bash 安全检查</td></tr>
+      <tr><td class="num">18</td><td class="path">native-ts/yoga-layout/index.ts</td><td class="lines">2,578</td><td>Yoga 布局引擎 TS 实现</td></tr>
+      <tr><td class="num">19</td><td class="path">services/mcp/auth.ts</td><td class="lines">2,465</td><td>MCP OAuth 认证</td></tr>
+      <tr><td class="num">20</td><td class="path">bridge/replBridge.ts</td><td class="lines">2,406</td><td>REPL 桥接核心</td></tr>
+      <tr><td class="num">21</td><td class="path">components/PromptInput/PromptInput.tsx</td><td class="lines">2,338</td><td>提示输入框组件</td></tr>
+      <tr><td class="num">22</td><td class="path">commands/plugin/ManagePlugins.tsx</td><td class="lines">2,214</td><td>插件管理 UI</td></tr>
+      <tr><td class="num">23</td><td class="path">tools/PowerShellTool/pathValidation.ts</td><td class="lines">2,049</td><td>PowerShell 路径验证</td></tr>
+      <tr><td class="num">24</td><td class="path">utils/auth.ts</td><td class="lines">2,002</td><td>认证工具库</td></tr>
+      <tr><td class="num">25</td><td class="path">tools/BashTool/readOnlyValidation.ts</td><td class="lines">1,990</td><td>Bash 只读验证</td></tr>
+      <tr><td class="num">26</td><td class="path">utils/shell/readOnlyCommandValidation.ts</td><td class="lines">1,893</td><td>Shell 只读命令验证</td></tr>
+      <tr><td class="num">27</td><td class="path">entrypoints/sdk/coreSchemas.ts</td><td class="lines">1,889</td><td>SDK 核心 Zod schema</td></tr>
+      <tr><td class="num">28</td><td class="path">tools/PowerShellTool/readOnlyValidation.ts</td><td class="lines">1,823</td><td>PowerShell 只读验证</td></tr>
+      <tr><td class="num">29</td><td class="path">utils/config.ts</td><td class="lines">1,817</td><td>配置管理</td></tr>
+      <tr><td class="num">30</td><td class="path">services/tools/toolExecution.ts</td><td class="lines">1,745</td><td><b>工具执行引擎</b>:权限检查 → hook → 执行 → 结果</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ 第 6 部分：调用链拓扑 ============ -->
+<section class="section">
+  <div class="section-label">Part 06</div>
+  <h2 class="section-title">完整调用链拓扑</h2>
+  <p class="section-desc">从 CLI 入口到 query 主循环、工具执行与 bridge 分支的完整依赖树</p>
+  <div class="section-rule"></div>
+
+<div class="call-tree"><span class="hl-entry">entrypoints/cli.tsx</span>
+    ↓ <span class="comment">动态导入</span>
+<span class="hl-entry">main.tsx</span>
+    ├── init() ← entrypoints/init.ts
+    ├── GrowthBook ← services/analytics/growthbook.ts
+    ├── getTools() ← tools.ts ← tools/*
+    ├── getCommands() ← commands.ts ← commands/*
+    ├── launchRepl() ← replLauncher.tsx
+    │       ↓
+    │   App → REPL (screens/REPL.tsx)
+    │       ↓
+    │   <span class="hl-core">query() (query.ts)</span>
+    │       ├── normalizeMessagesForAPI() ← utils/messages.ts
+    │       ├── getSystemPrompt() ← constants/prompts.ts
+    │       ├── <span class="hl-api">createAPIRequest() ← services/api/claude.ts</span>
+    │       ├── <span class="hl-tool">runTools() ← services/tools/toolOrchestration.ts</span>
+    │       │       ↓
+    │       │   toolExecution.ts → tool.execute()
+    │       │       ├── canUseTool() ← hooks/useCanUseTool.tsx
+    │       │       ├── hooks ← utils/hooks.ts
+    │       │       └── 具体工具 ← tools/*
+    │       ├── autoCompact ← services/compact/
+    │       └── attachments ← utils/attachments.ts ← memdir/
+    │
+    └── <span class="hl-bridge">bridge 模式 ← bridge/bridgeMain.ts</span>
+            ├── sessionRunner ← bridge/sessionRunner.ts
+            ├── replBridge ← bridge/replBridge.ts
+            └── codeSessionApi ← bridge/codeSessionApi.ts</div>
+</section>
+
+</div>
+</body>
+</html>

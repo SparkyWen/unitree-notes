@@ -1,0 +1,189 @@
+<style>
+.cc-wrap{padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)}
+.cc-head{margin:0 0 4px;font-size:22px;font-weight:500;letter-spacing:-.01em}
+.cc-sub{margin:0 0 14px;font-size:12px;color:var(--color-text-secondary);font-weight:400}
+.cc-rule{border:0;border-top:.5px solid var(--color-border-tertiary);margin:0 0 20px}
+.cc-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
+.cc-col{display:flex;flex-direction:column;gap:10px}
+.cc-colhead{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-tertiary);font-weight:500;padding:0 2px 2px}
+.cc-card{border-radius:8px;border:.5px solid;padding:10px 11px 11px;display:flex;flex-direction:column;gap:5px}
+.cc-layer{font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;opacity:.75}
+.cc-title{font-size:12px;font-weight:500;line-height:1.3}
+.cc-desc{font-size:10px;line-height:1.5;opacity:.85;font-weight:400}
+.cc-paths{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.cc-pill{font-family:var(--font-mono);font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(0,0,0,.06);white-space:nowrap}
+.cc-flow{display:flex;align-items:center;gap:6px;margin:22px 0 4px;padding:10px 4px 2px;border-top:.5px solid var(--color-border-tertiary);flex-wrap:wrap}
+.cc-flow-item{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--color-text-secondary)}
+.cc-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cc-arrow{font-size:10px;color:var(--color-text-tertiary);margin:0 2px}
+.c-purple-card{background:#EEEDFE;border-color:#AFA9EC;color:#26215C}
+.c-purple-card .cc-layer,.c-purple-card .cc-desc{color:#3C3489}
+.c-purple-card .cc-pill{background:rgba(62,52,137,.1);color:#26215C}
+.c-blue-card{background:#E6F1FB;border-color:#85B7EB;color:#042C53}
+.c-blue-card .cc-layer,.c-blue-card .cc-desc{color:#0C447C}
+.c-blue-card .cc-pill{background:rgba(12,68,124,.1);color:#042C53}
+.c-amber-card{background:#FAEEDA;border-color:#EF9F27;color:#412402}
+.c-amber-card .cc-layer,.c-amber-card .cc-desc{color:#633806}
+.c-amber-card .cc-pill{background:rgba(99,56,6,.12);color:#412402}
+.c-teal-card{background:#E1F5EE;border-color:#5DCAA5;color:#04342C}
+.c-teal-card .cc-layer,.c-teal-card .cc-desc{color:#085041}
+.c-teal-card .cc-pill{background:rgba(8,80,65,.1);color:#04342C}
+.c-coral-card{background:#FAECE7;border-color:#F0997B;color:#4A1B0C}
+.c-coral-card .cc-layer,.c-coral-card .cc-desc{color:#712B13}
+.c-coral-card .cc-pill{background:rgba(113,43,19,.1);color:#4A1B0C}
+.d-purple{background:#7F77DD}.d-blue{background:#378ADD}.d-amber{background:#EF9F27}.d-teal{background:#1D9E75}.d-coral{background:#D85A30}
+@media (prefers-color-scheme: dark){
+ .c-purple-card{background:#3C3489;border-color:#AFA9EC;color:#CECBF6}
+ .c-purple-card .cc-layer,.c-purple-card .cc-desc{color:#AFA9EC}
+ .c-purple-card .cc-pill{background:rgba(206,203,246,.12);color:#CECBF6}
+ .c-blue-card{background:#0C447C;border-color:#85B7EB;color:#B5D4F4}
+ .c-blue-card .cc-layer,.c-blue-card .cc-desc{color:#85B7EB}
+ .c-blue-card .cc-pill{background:rgba(181,212,244,.12);color:#B5D4F4}
+ .c-amber-card{background:#633806;border-color:#EF9F27;color:#FAC775}
+ .c-amber-card .cc-layer,.c-amber-card .cc-desc{color:#EF9F27}
+ .c-amber-card .cc-pill{background:rgba(250,199,117,.14);color:#FAC775}
+ .c-teal-card{background:#085041;border-color:#5DCAA5;color:#9FE1CB}
+ .c-teal-card .cc-layer,.c-teal-card .cc-desc{color:#5DCAA5}
+ .c-teal-card .cc-pill{background:rgba(159,225,203,.12);color:#9FE1CB}
+ .c-coral-card{background:#712B13;border-color:#F0997B;color:#F5C4B3}
+ .c-coral-card .cc-layer,.c-coral-card .cc-desc{color:#F0997B}
+ .c-coral-card .cc-pill{background:rgba(245,196,179,.12);color:#F5C4B3}
+}
+@media (max-width:720px){.cc-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+<div class="cc-wrap">
+<h1 class="cc-head">Claude API 核心架构</h1>
+<p class="cc-sub">从系统提示词到流式响应：claude.ts 为中心的请求生命周期与缓存优化</p>
+<hr class="cc-rule"/>
+<div class="cc-grid">
+
+<div class="cc-col">
+<div class="cc-colhead">相位 1 · 提示词与上下文</div>
+<div class="cc-card c-purple-card">
+<div class="cc-layer">Layer 00 · 静态区</div>
+<div class="cc-title">静态系统提示词</div>
+<div class="cc-desc">身份、输出规则、工具说明、语气等七段构成跨用户可缓存的全局区，命中 global cache。</div>
+<div class="cc-paths"><span class="cc-pill">prompts.ts</span><span class="cc-pill">getSystemPrompt</span></div>
+</div>
+<div class="cc-card c-purple-card">
+<div class="cc-layer">Layer 01 · 动态区</div>
+<div class="cc-title">动态系统提示词</div>
+<div class="cc-desc">会话指导、CLAUDE.md、环境信息、MCP 指令等十一段构成单用户缓存区，TTL 5 分钟或 1 小时。</div>
+<div class="cc-paths"><span class="cc-pill">DYNAMIC_BOUNDARY</span><span class="cc-pill">session_guidance</span></div>
+</div>
+<div class="cc-card c-purple-card">
+<div class="cc-layer">Layer 02 · 上下文构建</div>
+<div class="cc-title">userContext + systemContext</div>
+<div class="cc-desc">memoized 拉取 git 状态、CLAUDE.md 链、记忆文件，注入变更时清除缓存保证最新。</div>
+<div class="cc-paths"><span class="cc-pill">context.ts</span><span class="cc-pill">getClaudeMds</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 2 · 请求准备</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 03 · 2b 阶段</div>
+<div class="cc-title">Beta Headers 装配</div>
+<div class="cc-desc">按特性开关拼装 advisor、tool_search、effort、1M context、cache_editing 等 beta 头字段。</div>
+<div class="cc-paths"><span class="cc-pill">getMergedBetas</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 04 · 2d–2e 阶段</div>
+<div class="cc-title">工具 Schema 与延迟加载</div>
+<div class="cc-desc">ToolSearch 根据已发现工具过滤集合，按名排序避免 cache key 抖动，延迟工具只发名称。</div>
+<div class="cc-paths"><span class="cc-pill">toolToAPISchema</span><span class="cc-pill">deferLoading</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 05 · 2f 阶段</div>
+<div class="cc-title">消息规范化</div>
+<div class="cc-desc">修复 tool_use 与 tool_result 配对，剥离过期 advisor 块，限制媒体项不超过上限防止超参。</div>
+<div class="cc-paths"><span class="cc-pill">normalizeMessagesForAPI</span><span class="cc-pill">stripExcessMediaItems</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-layer">Layer 06 · 2h 阶段</div>
+<div class="cc-title">Cache Header 锁存</div>
+<div class="cc-desc">auto / fast / cache_editing / thinking 四类 header 一旦激活永久发送，防止 toggle 击穿缓存。</div>
+<div class="cc-paths"><span class="cc-pill">afkModeHeaderLatched</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 3 · API 流式核心</div>
+<div class="cc-card c-amber-card">
+<div class="cc-layer">Layer 07 · 核心 · 调用入口</div>
+<div class="cc-title">queryModel 流式请求</div>
+<div class="cc-desc">paramsFromContext 闭包生成最终参数，SDK beta.messages.stream 发起调用并捕获 requestId。</div>
+<div class="cc-paths"><span class="cc-pill">claude.ts</span><span class="cc-pill">queryModelWithStreaming</span></div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-layer">Layer 08 · 核心 · 事件解析</div>
+<div class="cc-title">流式事件状态机</div>
+<div class="cc-desc">message_start 计 TTFT，content_block 逐步累积 text / thinking / tool_use，message_stop 结算费用与 usage。</div>
+<div class="cc-paths"><span class="cc-pill">content_block_delta</span><span class="cc-pill">message_stop</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 4 · 客户端与重试</div>
+<div class="cc-card c-teal-card">
+<div class="cc-layer">Layer 09 · SDK 工厂</div>
+<div class="cc-title">多云客户端构造</div>
+<div class="cc-desc">根据 provider 切换 1P、Bedrock、Vertex、Foundry 四种认证与基址，maxRetries 归零交给上层管理。</div>
+<div class="cc-paths"><span class="cc-pill">client.ts</span><span class="cc-pill">getAnthropicClient</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-layer">Layer 10 · 重试编排</div>
+<div class="cc-title">withRetry 分类退避</div>
+<div class="cc-desc">按 429 / 529 / 401 / 413 / 连接错误分别退避或刷新凭证，耗尽则抛出 FallbackTriggeredError 切模型。</div>
+<div class="cc-paths"><span class="cc-pill">withRetry.ts</span><span class="cc-pill">BASE_DELAY_MS</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-layer">Layer 11 · 错误分类</div>
+<div class="cc-title">errors + 限流提取</div>
+<div class="cc-desc">把 SDK 原始错误翻译成用户友好消息，从响应头抽取 rate-limit 配额发给 UI 显示。</div>
+<div class="cc-paths"><span class="cc-pill">errors.ts</span><span class="cc-pill">extractQuotaStatusFromHeaders</span></div>
+</div>
+</div>
+
+<div class="cc-col">
+<div class="cc-colhead">相位 5 · 压缩与缓存</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">Layer 12 · 五级压缩</div>
+<div class="cc-title">压缩体系总览</div>
+<div class="cc-desc">toolResultBudget、snip、micro、auto、reactive 五级由轻到重，仅 auto 与 reactive 会真正调用 Claude。</div>
+<div class="cc-paths"><span class="cc-pill">services/compact/*</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">Layer 13 · 压缩执行</div>
+<div class="cc-title">compactConversation</div>
+<div class="cc-desc">剥图、生成摘要、注入最近 5 个文件与计划附件，并运行 pre / post compact hooks 保持状态一致。</div>
+<div class="cc-paths"><span class="cc-pill">compact.ts</span><span class="cc-pill">compact_boundary</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">Layer 14 · 三级缓存</div>
+<div class="cc-title">Prompt Cache 分区</div>
+<div class="cc-desc">静态区走 global cache 跨用户共享，动态区用 ephemeral TTL，消息区完全不缓存，三层分明。</div>
+<div class="cc-paths"><span class="cc-pill">scope: global</span><span class="cc-pill">scope: ephemeral</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-layer">Layer 15 · 缓存监控</div>
+<div class="cc-title">Cache Break 检测</div>
+<div class="cc-desc">每次调用记录 prompt hash 与 cache_read_input_tokens，骤降时发遥测便于回溯 cache 失效根因。</div>
+<div class="cc-paths"><span class="cc-pill">promptCacheBreakDetection</span><span class="cc-pill">tengu_cache_break</span></div>
+</div>
+</div>
+
+</div>
+
+<div class="cc-flow">
+<div class="cc-flow-item"><span class="cc-dot d-purple"></span>提示词与上下文</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-blue"></span>请求准备</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-amber"></span>API 流式核心</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-teal"></span>客户端与重试</div>
+<span class="cc-arrow">→</span>
+<div class="cc-flow-item"><span class="cc-dot d-coral"></span>压缩与缓存</div>
+</div>
+</div>

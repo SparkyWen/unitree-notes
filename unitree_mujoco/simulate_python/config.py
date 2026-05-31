@@ -39,7 +39,26 @@ ENABLE_ELASTIC_BAND = True # Virtual spring band, used for lifting h1
 ELASTIC_BAND_INIT_LENGTH = 0.0
 
 SIMULATE_DT = 0.005  # Need to be larger than the runtime of viewer.sync()
-VIEWER_DT = 0.02  # 50 fps for viewer
+# Cadence at which the Python side calls `viewer.sync()` to copy MjData into
+# the rendered scene. This only paces how often the *robot animation* updates
+# in the viewer -- it does NOT control window redraw or mouse-rotation
+# responsiveness, both of which live entirely in MuJoCo's C++ render_loop
+# thread (paced by display vsync). 0.02 = 50 Hz scene-data update, which
+# matches the original native-Linux behaviour. An earlier round briefly set
+# this to 0.033 hoping it would smooth viewer-window stutter; it doesn't,
+# because the stutter root cause is per-frame render cost in the C++ loop
+# (shadows + reflections + MSAA on a heavy scene), not sync cadence.
+VIEWER_DT = 0.02
+
+# Viewer-window visual quality. WSL2's Mesa->D3D12 translation layer charges
+# a per-call overhead, so multi-pass effects (shadow map, reflection probe,
+# MSAA) blow per-frame cost past the 16.6 ms vsync budget and trigger 60->30
+# frame drops that read as "laggy when rotating with the mouse". With these
+# defaults the viewer renders at a steady 60 fps even on scene_29dof_terrain.
+# Set False if you want full visual fidelity (e.g. for screenshots) and can
+# tolerate the stutter -- shadows and reflections are also toggleable live
+# from the viewer's "Rendering" panel (or keys S / R if rebound).
+LOW_QUALITY_VIEWER = True
 
 # ---------------------------------------------------------------------------
 # Default-pose holding PD (G1 only).

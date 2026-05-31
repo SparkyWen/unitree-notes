@@ -1,0 +1,20 @@
+{
+  "name": "fixture-1-missing-dose",
+  "language": "zh",
+  "turns": [
+    {
+      "item_id": "itm-1",
+      "previous_item_id": null,
+      "speaker_label": "doctor",
+      "transcript": "这个药每天饭后吃一次，连续吃三天。"
+    }
+  ],
+  "expected": {
+    "must_have_drafts": ["medication_reminder_pending"],
+    "must_have_safety_flags": ["missing_dose"],
+    "force_invariants": [
+      "every_draft_requires_confirmation",
+      "every_fact_has_source_turn_ids"
+    ]
+  }
+}

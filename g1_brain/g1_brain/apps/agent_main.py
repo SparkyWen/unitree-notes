@@ -17,6 +17,19 @@ Bypass flags (mostly for debugging individual subsystems):
 """
 from __future__ import annotations
 
+# CPU budget for ML/render threads. Must be set BEFORE numpy / mujoco / yolo
+# import or their thread pools latch the system core count. On a WSL2 box
+# with NVIDIA the head-cam renders on Mesa llvmpipe (CPU/SIMD — WSL2 has no
+# libGL_nvidia.so, only D3D12 translation which is ~2x slower for MuJoCo's
+# draw pattern). Letting llvmpipe spawn one thread per core stalls audio /
+# asyncio / DDS. 3 threads keeps render fast without monopolizing the box.
+# OMP_NUM_THREADS caps numpy/scipy/torch's intra-op OpenMP pool similarly.
+import os as _os
+_os.environ.setdefault("LP_NUM_THREADS", "3")
+_os.environ.setdefault("OMP_NUM_THREADS", "3")
+_os.environ.setdefault("MKL_NUM_THREADS", "3")
+_os.environ.setdefault("PYTHONUNBUFFERED", "1")
+
 import argparse
 import asyncio
 import errno
@@ -260,6 +273,23 @@ class _RobotStateProducer:
             gz = self._gravity_proj_z_from_quat(quat)
         except Exception:  # noqa: BLE001
             gz = -1.0
+            quat = None
+        # Diagnostic for the recurring boot-time pose EMERGENCY_STOP
+        # (gravity_z ≈ 0). When gz reads "not upright" (> -0.85, the watchdog's
+        # default gravity_z_min), log the RAW IMU quaternion — throttled to once
+        # per 2s — so we can tell a genuinely tilted/settling robot apart from a
+        # bad read (wrong field/order, or all-zeros). This only logs; it does
+        # NOT change any safety threshold.
+        if quat is not None and gz > -0.85:
+            _now = time.monotonic()
+            if _now - getattr(self, "_last_pose_diag_t", 0.0) > 2.0:
+                self._last_pose_diag_t = _now
+                log.warning(
+                    "pose diag: gravity_z=%.3f raw imu quaternion(wxyz)="
+                    "(%.4f, %.4f, %.4f, %.4f) lowstate_age=%.2fs — reads not-upright",
+                    gz, quat[0], quat[1], quat[2], quat[3],
+                    max(0.0, _now - last_t),
+                )
         try:
             ang_vel = (
                 float(s.imu_state.gyroscope[0]),
@@ -335,14 +365,16 @@ def _try_import_camera_hub():
         return None
 
 
-def _try_build_perception_runner(cfg, scene_bus, robot_bus):
+def _try_build_perception_runner(cfg, scene_bus, robot_bus, camera_hub=None):
     try:
         from ..perception.runner import PerceptionRunner
     except Exception as e:  # noqa: BLE001
         log.warning("PerceptionRunner import failed (mediapipe/ultralytics?): %s", e)
         return None
     try:
-        return PerceptionRunner(cfg, scene_bus, robot_bus)
+        # Share agent_main's CameraHub so perception doesn't spin up a SECOND
+        # head-cam render thread for the same camera (doubled llvmpipe CPU).
+        return PerceptionRunner(cfg, scene_bus, robot_bus, camera_hub=camera_hub)
     except Exception as e:  # noqa: BLE001
         log.warning("PerceptionRunner construction failed: %s", e)
         return None
@@ -350,7 +382,7 @@ def _try_build_perception_runner(cfg, scene_bus, robot_bus):
 
 def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
                             scene_bus, fsm, sim: bool = True,
-                            conversation_logger=None):
+                            conversation_logger=None, memory=None):
     try:
         from ..skills.skill_server import SkillServer
     except Exception as e:  # noqa: BLE001
@@ -366,6 +398,7 @@ def _try_build_skill_server(*, combo_ctl, safety, tts, vision, camera_hub,
         fsm=fsm,
         sim=sim,
         conversation_logger=conversation_logger,
+        memory=memory,
     )
 
 
@@ -504,9 +537,161 @@ async def _shutdown_step(name: str, fn, timeout: float = 3.0) -> None:
         log.exception("%s failed", name)
 
 
+async def _event_loop_lag_monitor(
+    interval_s: float = 1.0, warn_ms: float = 500.0
+) -> None:
+    """Log when the asyncio event loop is starved of CPU.
+
+    On this WSL2 box the head-cam render (Mesa llvmpipe), YOLO, and DDS
+    callbacks all contend for the GIL with the event loop. When a C
+    extension holds the GIL for a long stretch, the loop cannot run its
+    coroutines — mic chunks queue up, ``print``/log lines from loop-thread
+    code stall, and the terminal appears to "freeze" until the stall ends.
+
+    This heartbeat sleeps a fixed interval and measures how much longer the
+    wakeup actually took; the excess is loop lag. We only emit a WARNING
+    above ``warn_ms`` so a healthy run stays quiet. This is the evidence
+    that distinguishes a genuine GIL stall (lag spikes here) from a purely
+    cosmetic terminal pause such as Windows-Terminal QuickEdit/Mark mode
+    (no lag here — the bytes were already flushed, the terminal just held
+    them). Cheap: one sleep + one subtraction per interval.
+    """
+    loop = asyncio.get_running_loop()
+    while True:
+        t0 = loop.time()
+        try:
+            await asyncio.sleep(interval_s)
+        except asyncio.CancelledError:
+            return
+        lag_ms = (loop.time() - t0 - interval_s) * 1000.0
+        if lag_ms >= warn_ms:
+            log.warning(
+                "event-loop lag %.0f ms (a %.1fs sleep took %.2fs) — GIL "
+                "contention is delaying audio/VAD/log handling this tick",
+                lag_ms, interval_s, lag_ms / 1000.0 + interval_s,
+            )
+
+
 # ---------------------------------------------------------------------------
 # Main async run
 # ---------------------------------------------------------------------------
+
+
+async def _announce_ready_when_warm(
+    session_ready_evt: asyncio.Event,
+    wake,
+    *,
+    max_wait_s: float = 90.0,
+    poll_s: float = 0.5,
+) -> None:
+    """Print the "say Hi Sparky" banner only once the system can actually hear.
+
+    Two gates must both pass: (1) the Realtime session is up (session.created),
+    and (2) the wake-word worker thread is cycling at ~its configured rate —
+    i.e. it is no longer starved of the GIL by the boot-time perception + codex
+    load. Firing the banner on (1) alone (the old behaviour) printed "Sparky is
+    READY" ~30 s before the detector could run, so the operator's wake word was
+    dropped and the app looked frozen ("无论我怎么 hi sparky 都没有用").
+
+    A ``max_wait_s`` cap guarantees the banner always eventually prints (with a
+    caveat) so behaviour is never worse than the old unconditional banner.
+    """
+    banner = (
+        "\n"
+        "============================================================\n"
+        "  ✅ Sparky is READY — say \"Hi Sparky\" to start talking\n"
+        "============================================================\n"
+    )
+    try:
+        await session_ready_evt.wait()
+    except asyncio.CancelledError:
+        return
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max_wait_s
+    warming_announced = False
+    capped = False
+    while True:
+        try:
+            healthy = wake.worker_healthy()
+        except Exception:  # noqa: BLE001 — never let a probe bug suppress READY
+            healthy = True
+        if healthy:
+            break
+        if loop.time() >= deadline:
+            capped = True
+            break
+        if not warming_announced:
+            print(
+                "\n[g1_brain] session connected — warming up "
+                "(perception + memory still settling); "
+                "\"Hi Sparky\" will start working in a few seconds …",
+                flush=True,
+            )
+            warming_announced = True
+        try:
+            await asyncio.sleep(poll_s)
+        except asyncio.CancelledError:
+            return
+    if capped:
+        banner += "  (note: still under heavy boot load — the first wake may lag)\n"
+    print(banner, flush=True)
+
+
+async def _start_perception_bg(perception) -> None:
+    """Run ``PerceptionRunner.start()`` OFF the event-loop thread.
+
+    ``start()`` loads YOLO→CUDA, MediaPipe pose, and clones a head-cam MjModel —
+    tens of seconds of GIL-heavy work. Done synchronously on the event loop (the
+    old behaviour) it froze audio/VAD/log handling for the entire load: the
+    heartbeat measured a single 1 s sleep taking ~49 s, the wake-word worker
+    could not run, and "Hi Sparky" was silently dropped — the reported "卡住,
+    多次唤醒没用". Run in a worker thread the event loop keeps servicing audio
+    while perception warms up in the background, so the wake-word path comes up
+    in seconds. Movement stays gated by the safety watchdogs (head_frame /
+    ground constraint) until perception produces fresh frames, so starting it
+    in the background is safe.
+    """
+    import time
+
+    t0 = time.monotonic()
+    try:
+        await asyncio.to_thread(perception.start)
+    except asyncio.CancelledError:
+        return
+    except Exception:  # noqa: BLE001
+        log.exception("perception background start failed (continuing degraded)")
+        return
+    log.info(
+        "perception: background start complete in %.1fs "
+        "(event loop stayed responsive during model load)",
+        time.monotonic() - t0,
+    )
+
+
+def _prewarm_torch() -> None:
+    """Fully import ``torch`` on the calling (event-loop) thread.
+
+    Backgrounding perception moved its ``import torch`` (via ultralytics) onto a
+    worker thread. If the main thread then imports scipy (phone bridge →
+    audio_codec → ``scipy.signal``/``scipy.stats``), scipy's import-time
+    array-API probe does an UNGUARDED ``getattr(torch, "Tensor")`` and crashes
+    on the half-initialised torch module ("partially initialized module 'torch'
+    … most likely due to a circular import"). torch gets imported either way;
+    completing it here first makes every later ``import torch`` a cache hit and
+    every ``getattr(torch, …)`` see a fully-built module, so the race is gone.
+    One-time cost (~1.5 s); a no-op/fast path if torch is already imported.
+    """
+    import time
+
+    t0 = time.monotonic()
+    try:
+        import torch  # noqa: F401
+    except Exception:  # noqa: BLE001 — perception will surface its own error
+        return
+    log.info(
+        "perception: pre-imported torch in %.1fs (serializes the bg import race)",
+        time.monotonic() - t0,
+    )
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -538,6 +723,20 @@ async def _run(args: argparse.Namespace) -> int:
     if args.vision_only and not args.no_skills:
         log.info("--vision-only implies --no-skills; skipping DDS / RL init")
         args.no_skills = True
+
+    # Event-loop lag heartbeat (diagnostic). Surfaces GIL stalls that delay
+    # audio/VAD/log handling, and — by staying quiet on a healthy loop —
+    # tells us when a terminal "freeze" is NOT us (e.g. QuickEdit mode).
+    diag_cfg = (cfg.get("diagnostics", {}) or {})
+    lag_monitor_task: Optional[asyncio.Task] = None
+    if diag_cfg.get("event_loop_lag_monitor", True):
+        lag_monitor_task = asyncio.create_task(
+            _event_loop_lag_monitor(
+                interval_s=float(diag_cfg.get("lag_interval_s", 1.0)),
+                warn_ms=float(diag_cfg.get("lag_warn_ms", 500.0)),
+            ),
+            name="event-loop-lag-monitor",
+        )
 
     # ---- audio ----
     # Pass the running loop explicitly so MicStream.start() can be safely
@@ -913,15 +1112,28 @@ async def _run(args: argparse.Namespace) -> int:
             watchdogs = None
 
     # ---- perception ----
+    # PerceptionRunner.start() is launched in the BACKGROUND (a worker thread)
+    # rather than synchronously here: its model load (YOLO→CUDA, MediaPipe,
+    # head-cam MjModel) used to block the event loop for ~49 s at boot, starving
+    # the wake-word path so "Hi Sparky" did nothing until it finished. Nothing
+    # built after this point needs perception to have *finished* — downstream
+    # consumers (skill_server, brain, vision) read ``scene_bus`` + the separate
+    # ``camera_hub`` (built at line ~752), and movement is gated by the safety
+    # watchdogs until perception publishes fresh frames. See _start_perception_bg.
     perception = None
+    perception_start_task = None
     if not args.no_perception:
-        perception = _try_build_perception_runner(cfg, scene_bus, robot_bus)
+        perception = _try_build_perception_runner(
+            cfg, scene_bus, robot_bus, camera_hub=camera_hub,
+        )
         if perception is not None:
-            try:
-                perception.start()
-            except Exception as e:  # noqa: BLE001
-                log.warning("PerceptionRunner.start failed: %s", e)
-                perception = None
+            # MUST complete torch's import on this thread BEFORE the background
+            # loader starts importing it, or scipy's import-time torch probe
+            # (phone bridge, below) races the half-built module and crashes.
+            _prewarm_torch()
+            perception_start_task = asyncio.create_task(
+                _start_perception_bg(perception), name="perception-start",
+            )
 
     # ---- TTS + vision ----
     from openai import OpenAI
@@ -992,6 +1204,44 @@ async def _run(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001
             log.exception("conversation logger session_start failed")
 
+    # ---- safety_event: subscribe ConversationLogger to FSM transitions ----
+    # One-line wiring: every legal state change becomes a safety_event meta
+    # record so memory pipeline can extract safety lessons across sessions.
+    if conv_logger is not None and fsm is not None:
+        try:
+            fsm.subscribe(lambda old, new, reason: conv_logger.log_safety_event(
+                kind="fsm_transition",
+                from_state=old.value if hasattr(old, "value") else str(old),
+                to_state=new.value if hasattr(new, "value") else str(new),
+                details=reason or "",
+            ))
+        except Exception:  # noqa: BLE001
+            log.exception("fsm subscribe → log_safety_event failed")
+
+    # ---- memory subsystem (Codex-style long-term recall + ask_slow_brain) ----
+    memory_subsystem = None
+    memory_cfg = cfg.get("memory", {}) or {}
+    if memory_cfg.get("enabled", True) and conv_logger is not None and conv_logger.path is not None:
+        try:
+            from ..memory import MemorySubsystem  # noqa: WPS433
+            memory_subsystem = MemorySubsystem(
+                robot_root=Path(memory_cfg.get(
+                    "root_dir", "~/.unitree/g1_brain",
+                )).expanduser(),
+                rollout_path=conv_logger.path,
+                session_id=conv_logger.session_id,
+                cfg=memory_cfg,
+                conversations_dir=conv_logger.path.parent,
+                config_hash_input={k: v for k, v in cfg.items()
+                                    if k in ("mode", "robot", "memory")},
+            )
+            await memory_subsystem.start()
+            log.info("memory subsystem started; root=%s",
+                     memory_subsystem.robot_root)
+        except Exception as e:  # noqa: BLE001
+            log.exception("memory subsystem start failed: %s", e)
+            memory_subsystem = None
+
     # ---- skill server ----
     skill_server = None
     if not args.vision_only:
@@ -1005,7 +1255,48 @@ async def _run(args: argparse.Namespace) -> int:
             fsm=fsm,
             sim=(cfg.get("mode", "sim") == "sim"),
             conversation_logger=conv_logger,
+            memory=memory_subsystem,
         )
+
+    # ---- phone bridge (optional) ----
+    bridge_runner = None
+    if args.enable_phone or cfg.get("phone", {}).get("enabled", False):
+        from g1_brain.phone.config import load_from_env as _load_phone_env
+        from g1_brain.phone.bridge_server import build_app as _build_bridge_app
+        from g1_brain.phone.voice_lease import VoiceLeaseManager
+        from g1_brain.phone.twilio_dialer import TwilioDialer
+        from aiohttp import web as _web
+
+        twilio_cfg, phone_cfg = _load_phone_env()
+        # vision_gate must be enabled — fail-closed
+        if not cfg.get("safety", {}).get("vision_gate", {}).get("enabled", False):
+            raise RuntimeError(
+                "phone bridge requires safety.vision_gate.enabled=true (fail-closed)"
+            )
+        dialer = TwilioDialer(twilio_cfg, str(phone_cfg.public_bridge_url))
+        # late-wire dialer into the existing skill_server so start_phone_call works
+        if skill_server is not None:
+            skill_server._dialer = dialer
+            skill_server._default_phone_to = (
+                phone_cfg.allowed_callers[0] if phone_cfg.allowed_callers else None
+            )
+            # Whitelist for start_phone_call dest validation. Prevents
+            # wake-word ASR misheard digits from dialing strangers.
+            skill_server._allowed_phone_callers = list(phone_cfg.allowed_callers)
+        lease = VoiceLeaseManager()
+        app = _build_bridge_app(
+            twilio_cfg=twilio_cfg, phone_cfg=phone_cfg,
+            skill_server=skill_server,
+            scene_bus=scene_bus,
+            dialer=dialer, voice_lease=lease,
+            version="0.1.0",
+        )
+        bridge_runner = _web.AppRunner(app)
+        await bridge_runner.setup()
+        site = _web.TCPSite(bridge_runner, phone_cfg.bind_host, phone_cfg.bind_port)
+        await site.start()
+        log.info("phone bridge listening on %s:%d",
+                 phone_cfg.bind_host, phone_cfg.bind_port)
 
     # ---- brain realtime agent ----
     # OPENAI_API_KEY presence already validated at the top of _run.
@@ -1027,6 +1318,7 @@ async def _run(args: argparse.Namespace) -> int:
                 scene_bus=scene_bus,
                 mock_imitate_trigger=None,
                 mock_imitate_enabled=mock_imitation_enabled,
+                phone_enabled=args.enable_phone or cfg.get("phone", {}).get("enabled", False),
                 api_key=api_key,
                 model=os.environ.get(
                     "OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]
@@ -1046,6 +1338,43 @@ async def _run(args: argparse.Namespace) -> int:
             log.exception("BrainRealtimeAgent build failed: %s", e)
             brain_agent = None
 
+    # ---- memory: inject passive context into brain agent (one-shot) ----
+    if memory_subsystem is not None and brain_agent is not None:
+        try:
+            ctx_addendum = memory_subsystem.build_passive_context()
+        except Exception:  # noqa: BLE001
+            log.exception("memory.build_passive_context failed; skipping")
+            ctx_addendum = ""
+        if ctx_addendum:
+            try:
+                # BrainRealtimeAgent.append_developer_instructions appends to
+                # the agent's instructions before the Realtime session opens.
+                brain_agent.append_developer_instructions(ctx_addendum)
+                log.info("memory: injected %d chars of passive context",
+                         len(ctx_addendum))
+            except Exception:  # noqa: BLE001
+                log.exception("brain_agent.append_developer_instructions failed")
+        # Wire on_response_canceled to SkillServer so barge-in propagates
+        # cancel events to in-flight ask_slow_brain calls.
+        if skill_server is not None and hasattr(skill_server, "on_response_canceled"):
+            try:
+                prev = getattr(brain_agent, "on_response_canceled", None)
+
+                def _on_resp_cancel(response_id, _ss=skill_server, _prev=prev):
+                    try:
+                        _ss.on_response_canceled(response_id)
+                    except Exception:  # noqa: BLE001
+                        log.exception("skill_server.on_response_canceled failed")
+                    if callable(_prev):
+                        try:
+                            _prev(response_id)
+                        except Exception:  # noqa: BLE001
+                            log.exception("prev on_response_canceled raised")
+
+                brain_agent.on_response_canceled = _on_resp_cancel
+            except Exception:  # noqa: BLE001
+                log.exception("wiring on_response_canceled to skill_server failed")
+
     # ---- wake-word + utterance + conversation state machine ----
     sm = None
     if (
@@ -1059,6 +1388,38 @@ async def _run(args: argparse.Namespace) -> int:
         )
     elif brain_agent is not None:
         log.info("wake-word DISABLED; Realtime uplink runs continuously")
+
+    # ---- memory: pause Phase1/Phase2 codex work while a turn is in progress.
+    # The state machine exists now, so wire a busy-gate: memory won't start new
+    # extraction/consolidation while state != IDLE, so codex stops stealing the
+    # GIL/CPU from audio/VAD/wake mid-conversation.
+    if memory_subsystem is not None and sm is not None:
+        try:
+            memory_subsystem.set_busy_gate(lambda _sm=sm: _sm.state.value != "IDLE")
+            log.info("memory: busy-gate wired (pause codex while conversation active)")
+        except Exception:  # noqa: BLE001
+            log.exception("wiring memory busy-gate failed")
+
+    # ---- memory: chain on_plan_done AFTER state-machine init so we don't
+    # clobber the state machine's own handler (which set itself just above).
+    if memory_subsystem is not None and brain_agent is not None:
+        try:
+            _prev_plan_done = getattr(brain_agent, "on_plan_done", None)
+
+            def _on_plan_done_chained(_mem=memory_subsystem, _prev=_prev_plan_done):
+                if callable(_prev):
+                    try:
+                        _prev()
+                    except Exception:  # noqa: BLE001
+                        log.exception("prev on_plan_done raised")
+                try:
+                    asyncio.create_task(_mem.on_plan_done())
+                except Exception:  # noqa: BLE001
+                    log.exception("memory.on_plan_done scheduling failed")
+
+            brain_agent.on_plan_done = _on_plan_done_chained
+        except Exception:  # noqa: BLE001
+            log.exception("wiring on_plan_done to memory failed")
 
     # ---- mock-imitation auto-trigger ----
     auto_trigger = None
@@ -1078,6 +1439,7 @@ async def _run(args: argparse.Namespace) -> int:
                 auto_trigger = None
 
     # ---- main loop ----
+    ready_banner_task = None
     try:
         if brain_agent is None:
             log.info("realtime disabled; idling. Ctrl-C to exit.")
@@ -1085,16 +1447,43 @@ async def _run(args: argparse.Namespace) -> int:
                 await asyncio.sleep(1.0)
         else:
             if sm is not None:
+                # Loud, unmissable "now listening" banner — but ONLY once the
+                # wake-word worker can actually run. Startup takes ~60-70 s
+                # (perception models, DDS, memory) and for ~30 s AFTER the
+                # Realtime session connects the perception inference burst +
+                # codex backfill keep the wake-word worker thread starved of the
+                # GIL. Firing the banner on session.created alone told operators
+                # to talk into a detector that physically couldn't run yet — the
+                # reported "stuck at READY, Hi Sparky does nothing". So we gate
+                # the banner on session-up AND worker liveness. See
+                # _announce_ready_when_warm.
+                session_ready_evt = asyncio.Event()
+                brain_agent.on_session_ready = session_ready_evt.set
+                # If the Realtime WS drops and reconnects (see
+                # BrainRealtimeAgent.run), the old turn's state died with the
+                # socket — reset the SM to a clean wake-ready IDLE so the next
+                # "Hi Sparky" works on the fresh session.
+                brain_agent.on_reconnect = sm.force_idle
                 await sm.start()
+                ready_banner_task = asyncio.create_task(
+                    _announce_ready_when_warm(session_ready_evt, sm.wake_word),
+                    name="ready-banner",
+                )
             else:
                 brain_agent.set_uplink_enabled(True)
             await brain_agent.run()
     finally:
         log.info("shutting down ...")
+        if ready_banner_task is not None:
+            ready_banner_task.cancel()
+        if lag_monitor_task is not None:
+            lag_monitor_task.cancel()
         # sm.stop() is a coroutine; the rest are sync. Each step is bounded
         # by a finite timeout so a single hung subsystem (e.g. DDS that
         # never returns) can't trap the user into SIGKILL territory — which
         # is what leaks the PulseAudio handle for the next launch.
+        if bridge_runner is not None:
+            await bridge_runner.cleanup()
         if sm is not None:
             try:
                 await asyncio.wait_for(sm.stop(), timeout=3.0)
@@ -1104,6 +1493,11 @@ async def _run(args: argparse.Namespace) -> int:
                 log.exception("conversation sm.stop failed")
         if auto_trigger is not None:
             await _shutdown_step("auto_trigger.stop", auto_trigger.stop)
+        if perception_start_task is not None:
+            # If perception is still loading in its worker thread, abandon the
+            # await (the thread can't be force-killed, but the process is going
+            # away). perception.stop() below is defensive against partial init.
+            perception_start_task.cancel()
         if perception is not None:
             await _shutdown_step("perception.stop", perception.stop)
         if watchdogs is not None:
@@ -1117,6 +1511,17 @@ async def _run(args: argparse.Namespace) -> int:
             await _shutdown_step("camera_hub.close", camera_hub.close)
         await _shutdown_step("mic.close", mic.close, timeout=2.0)
         await _shutdown_step("speaker.close", speaker.close, timeout=2.0)
+        # Memory subsystem must stop BEFORE conv_logger.close so the final
+        # Phase1 pass can read the complete JSONL.
+        if memory_subsystem is not None:
+            # 10 s was below the floor of the work that runs in stop():
+            # mark_session_ended + force a Phase1 codex call on the current
+            # session + Phase2 + daemon teardown. The codex MCP server alone
+            # can take 5–15 s to answer Phase1 for a normal turn, so the
+            # 10 s budget was guaranteed to warn at almost every shutdown.
+            # 30 s covers a typical Phase1 run with margin; if it really
+            # blocks beyond that the backfill on next launch will catch up.
+            await _shutdown_step("memory.stop", memory_subsystem.stop, timeout=30.0)
         if conv_logger is not None:
             await _shutdown_step("conv_logger.close", conv_logger.close, timeout=1.0)
         _release_instance_lock(instance_fd, lock_path)
@@ -1148,7 +1553,9 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
     conv_cfg = cfg.get("conversation", {}) or {}
     audio_ctl = cfg.get("audio_control", {}) or {}
     barge_in_cfg = audio_ctl.get("barge_in", {}) or {}
+    voice_bi_cfg = audio_ctl.get("voice_barge_in", {}) or {}
     idle_cfg = audio_ctl.get("idle_after_plan", {}) or {}
+    manual_commit_cfg = audio_ctl.get("manual_commit", {}) or {}
 
     backend_name = (wakeword_cfg.get("backend") or "openai").lower()
     if backend_name == "openai":
@@ -1156,6 +1563,10 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             model=wakeword_cfg.get("openai_model", "gpt-4o-transcribe"),
             prompt=wakeword_cfg.get("openai_prompt", "Sparky"),
             language=wakeword_cfg.get("language") or None,
+            # Bound the per-call HTTP timeout: the wake loop is single-threaded,
+            # so a hung transcribe at the SDK default (read=600 s) freezes wake
+            # for ~10 min. See va_demo.wake_word.OpenAITranscribeBackend.
+            timeout_s=float(wakeword_cfg.get("openai_timeout_s", 8.0)),
         )
     elif backend_name == "local":
         backend = FasterWhisperBackend(
@@ -1181,6 +1592,30 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         if sm is not None:
             sm.handle_wake(evt)
 
+    # AEC: subtract recently-played speaker bytes from the mic snapshot
+    # before transcribing. Without this, a long bot reply masks the
+    # user's "Hi Sparky" in the transcribe window and barge-in fails for
+    # the full duration of the reply. Defaults to gain 0.6, delay 0.2 s —
+    # tuned for the laptop mic/speaker pairing on WSL2; operators can
+    # override via wakeword.aec.* in yaml. gain=0 disables.
+    #
+    # cleaned_rms_threshold is the post-AEC gate that fixes
+    # operator-reported "first Hi-Sparky misses, second hits during TTS":
+    # during SPEAKING the raw mic is always loud (bot's echo) so the raw
+    # gate is permanently open and every iteration runs a synchronous
+    # transcribe — by the time the user actually speaks, the loop is
+    # mid-call on a bot-only snapshot and the user's voice ends up in the
+    # NEXT iteration's window. Gating on the cleaned RMS skips the
+    # silent-user transcribes so the worker thread stays responsive and
+    # each network call lands on a snapshot that actually contains user
+    # voice. See va_demo.wake_word for the full rationale.
+    aec_cfg = (wakeword_cfg.get("aec") or {})
+    aec_gain = float(aec_cfg.get("gain", 0.6))
+    aec_delay_s = float(aec_cfg.get("delay_s", 0.2))
+    cleaned_rms_threshold = float(
+        wakeword_cfg.get("cleaned_rms_threshold", 0.0),
+    )
+
     wake = WakeWordDetector(
         backend=backend,
         spoken_cache=spoken_cache,
@@ -1192,6 +1627,10 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
         cooldown_s=float(wakeword_cfg.get("cooldown_s", 2.0)),
         phrases=wakeword_cfg.get("phrases") or ["hi sparky"],
         selfecho_window_s=float(conv_cfg.get("selfecho_dedup_window_s", 6.0)),
+        speaker_ref=speaker,
+        aec_gain=aec_gain,
+        aec_delay_s=aec_delay_s,
+        cleaned_rms_threshold=cleaned_rms_threshold,
     )
 
     # Bind the stop skill so the state machine can hard-interrupt motion on
@@ -1220,6 +1659,15 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
             drain_threshold_bytes=int(idle_cfg.get("drain_threshold_bytes", 2400)),
             drain_max_wait_s=float(idle_cfg.get("drain_max_wait_s", 6.0)),
             plan_watchdog_s=float(audio_ctl.get("plan_watchdog_s", 30.0)),
+            manual_commit_enabled=bool(manual_commit_cfg.get("enabled", True)),
+            voice_barge_in_enabled=bool(voice_bi_cfg.get("enabled", False)),
+            voice_barge_in_echo_gain=float(voice_bi_cfg.get("echo_gain", 1.0)),
+            voice_barge_in_margin_rms=float(voice_bi_cfg.get("margin_rms", 350.0)),
+            voice_barge_in_min_rms=float(voice_bi_cfg.get("min_rms", 500.0)),
+            voice_barge_in_streak_chunks=int(voice_bi_cfg.get("streak_chunks", 4)),
+            voice_barge_in_speaker_window_s=float(
+                voice_bi_cfg.get("speaker_window_s", 0.2),
+            ),
         ),
         wake_word=wake,
         utterance_vad=utt_vad,
@@ -1233,10 +1681,11 @@ def _build_state_machine(cfg, sr, mic, speaker, brain_agent, spoken_cache,
 
     log.info(
         "wake-word enabled: phrases=%s; barge_in=%s also_stop_skills=%s "
-        "idle_after_plan=%s",
+        "voice_barge_in=%s idle_after_plan=%s",
         wakeword_cfg.get("phrases"),
         barge_in_cfg.get("enabled", True),
         barge_in_cfg.get("also_stop_skills", True),
+        voice_bi_cfg.get("enabled", False),
         idle_cfg.get("enabled", True),
     )
     return sm
@@ -1267,9 +1716,38 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--vision-only", action="store_true",
                    help="vision-only test mode: drop motion tools, skip DDS init "
                         "(implies --no-skills)")
+    p.add_argument("--enable-phone", action="store_true",
+                   help="Mount Twilio bridge on phone.bind_port (requires TWILIO_* env vars)")
     p.add_argument("-v", "--verbose", action="store_true",
                    help="DEBUG-level logging")
     return p.parse_args(argv)
+
+
+def _drain_pending_tasks(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) -> None:
+    """Cancel and await every task still pending before the loop closes.
+
+    main() drives the loop manually (not ``asyncio.run``), so it otherwise
+    skips the cancel-all-tasks step ``asyncio.run`` performs internally — and
+    any straggler (a subsystem whose ``stop()`` timed out, the daemon/phase1
+    background loops, a subprocess transport's ``_connect_pipes``) gets GC'd
+    while pending, emitting "Task was destroyed but it is pending!". This
+    mirrors ``asyncio.runners._cancel_all_tasks`` with a bounded wait so a task
+    that ignores cancellation can't hang shutdown.
+    """
+    to_cancel = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    if not to_cancel:
+        return
+    for task in to_cancel:
+        task.cancel()
+    try:
+        loop.run_until_complete(
+            asyncio.wait_for(
+                asyncio.gather(*to_cancel, return_exceptions=True),
+                timeout=timeout,
+            )
+        )
+    except Exception:  # noqa: BLE001 — timeout or task error; proceed to close
+        pass
 
 
 def main() -> int:
@@ -1322,8 +1800,12 @@ def main() -> int:
         pass
     finally:
         sup_task.cancel()
+        # Drain stragglers so the loop doesn't GC them with "Task was destroyed
+        # but it is pending!" (subsystem stop()s that timed out, daemon/phase1
+        # loops, subprocess transports). Replaces the old single sleep(0).
+        _drain_pending_tasks(loop)
         try:
-            loop.run_until_complete(asyncio.sleep(0))
+            loop.run_until_complete(loop.shutdown_asyncgens())
         except Exception:  # noqa: BLE001
             pass
         loop.close()

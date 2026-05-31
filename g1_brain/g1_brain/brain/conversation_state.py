@@ -27,11 +27,26 @@ from __future__ import annotations
 import asyncio
 import enum
 import logging
+import os
+import select
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
+import numpy as np
+
 log = logging.getLogger(__name__)
+
+
+def _chunk_rms_int16(chunk: bytes) -> float:
+    if not chunk:
+        return 0.0
+    arr = np.frombuffer(chunk, dtype=np.int16)
+    if not arr.size:
+        return 0.0
+    arrf = arr.astype(np.float32, copy=False)
+    return float(np.sqrt(float(np.mean(arrf * arrf))))
 
 
 class State(enum.Enum):
@@ -59,6 +74,36 @@ class BrainConversationConfig:
     drain_max_wait_s: float = 6.0
     # Force plan_done if a tool call never resolves.
     plan_watchdog_s: float = 30.0
+    # Manual end-of-utterance: while CAPTURING, a line on stdin (the operator
+    # pressing Enter in the terminal) commits the utterance immediately
+    # instead of waiting for the webrtcvad silence/max-duration heuristic.
+    # webrtcvad regularly mis-classifies steady room noise as speech, so the
+    # silence counter never reaches the threshold and capture runs to the
+    # 30 s max — the operator-reported "I finished talking but it waits the
+    # full 30 s". Enter is a deterministic override; the VAD stays as the
+    # automatic fallback. Only armed while CAPTURING so it never steals the
+    # keystroke meant for the confirm-mode y/N prompt (which runs in THINKING).
+    manual_commit_enabled: bool = True
+    # ---- echo-aware voice-onset barge-in (SPEAKING-only) -------------------
+    # The wake-word ASR window during SPEAKING is dominated by the bot's own
+    # TTS leaking into the mic; "Hi Sparky" rarely survives that. This second
+    # barge-in path watches mic RMS, subtracts a prediction of the speaker
+    # echo (from SpeakerStream.recent_played_rms), and fires the standard
+    # barge-in when user voice clearly rides above the echo for a short
+    # streak. Active only in SPEAKING; THINKING/CAPTURING/IDLE still use the
+    # regular wake-word path.
+    # Off by default: operator wants "Hi Sparky" to be the sole interrupt
+    # trigger. An envelope-only path fires on any sustained mic loudness
+    # (cough, desk thump, ambient speech), which is exactly the
+    # over-sensitive behaviour we are trying to remove. See the
+    # `audio_control.voice_barge_in` block in g1_brain.yaml for full
+    # rationale and the conditions under which re-enabling makes sense.
+    voice_barge_in_enabled: bool = False
+    voice_barge_in_echo_gain: float = 1.0          # echo_rms ≈ speaker_rms × this
+    voice_barge_in_margin_rms: float = 350.0       # user must exceed echo + margin
+    voice_barge_in_min_rms: float = 500.0          # absolute mic floor (silence guard)
+    voice_barge_in_streak_chunks: int = 4          # consecutive chunks needed (~200 ms at 50 ms blocks)
+    voice_barge_in_speaker_window_s: float = 0.2   # window used to estimate speaker RMS
 
 
 # Type aliases for clarity.
@@ -109,6 +154,20 @@ class BrainConversationStateMachine:
         self._barge_in_lock = asyncio.Lock()
         self._stopped = False
 
+        # Echo-aware voice-onset barge-in streak counter. Counted in mic
+        # chunks; reset to 0 on any state transition out of SPEAKING (so a
+        # half-finished streak from the previous turn can't fire mid-IDLE).
+        self._voice_bi_streak: int = 0
+        self._voice_bi_pending: bool = False
+
+        # Manual-commit (Enter-to-commit) stdin watcher. `_stdin_fd` is the
+        # terminal fd we watch with loop.add_reader; None when stdin is not a
+        # TTY (piped / CI / tests) so the feature silently no-ops there.
+        # `_manual_commit_armed` tracks whether the reader is currently
+        # registered so arm/disarm stay idempotent across transitions.
+        self._stdin_fd: Optional[int] = None
+        self._manual_commit_armed: bool = False
+
     # ---- public lifecycle ---------------------------------------------------
 
     async def start(self) -> None:
@@ -126,9 +185,40 @@ class BrainConversationStateMachine:
             self.agent.on_assistant_transcript_done = self.logger.log_assistant_transcript
             self.agent.on_tool_use = self.logger.log_tool_use
             self.agent.on_tool_result = self.logger.log_tool_result
-            self.agent.on_response_canceled = (
-                lambda reason: self.logger.log_response_canceled(reason=reason)
-            )
+            # CHAIN, don't clobber: agent_main may already have wired
+            # on_response_canceled to SkillServer.on_response_canceled so a
+            # barge-in cancels in-flight ask_slow_brain (long planning). A plain
+            # assignment here used to overwrite that, which is why pressing
+            # "Hi Sparky" during a long plan couldn't actually stop it.
+            _prev_cancel = self.agent.on_response_canceled
+
+            def _on_response_canceled(reason, _prev=_prev_cancel):
+                if callable(_prev):
+                    try:
+                        _prev(reason)
+                    except Exception:
+                        log.exception("prev on_response_canceled raised")
+                try:
+                    self.logger.log_response_canceled(reason=reason)
+                except Exception:
+                    log.exception("logger.log_response_canceled raised")
+
+            self.agent.on_response_canceled = _on_response_canceled
+
+        # Manual Enter-to-commit: resolve the terminal fd once. We only watch
+        # it when CAPTURING (see _arm/_disarm_manual_commit). Skip silently
+        # when stdin is not a real TTY (piped, CI, tests) — there is no Enter
+        # key to read there.
+        if self.cfg.manual_commit_enabled:
+            try:
+                if sys.stdin is not None and sys.stdin.isatty():
+                    self._stdin_fd = sys.stdin.fileno()
+                    log.info(
+                        "manual commit enabled: press Enter while listening "
+                        "to send your message immediately"
+                    )
+            except (ValueError, OSError):
+                self._stdin_fd = None
 
         if self.mic is not None:
             self._mic_queue = self.mic.subscribe()
@@ -141,6 +231,7 @@ class BrainConversationStateMachine:
 
     async def stop(self) -> None:
         self._stopped = True
+        self._disarm_manual_commit()
         for t in (self._no_speech_timer, self._drain_task, self._plan_watchdog_task):
             if t is not None:
                 t.cancel()
@@ -159,6 +250,32 @@ class BrainConversationStateMachine:
     def state(self) -> State:
         return self._state
 
+    def force_idle(self, *, reason: str = "reconnect") -> None:
+        """Force the machine back to a clean wake-ready IDLE state.
+
+        Called when the Realtime session reconnects under us (see
+        BrainRealtimeAgent.on_reconnect): the previous turn's server-side
+        state died with the old socket, so any CAPTURING/THINKING/SPEAKING
+        progress is moot. Cancel the in-flight drain + plan watchdog, mute the
+        uplink (so stale mic audio buffered for the dead session isn't fed into
+        the fresh one), reset the agent's plan tracker, and land in IDLE so the
+        next "Hi Sparky" starts a clean turn. Must run on the loop thread (the
+        reconnect callback already does).
+        """
+        if self._stopped:
+            return
+        self._cancel_drain()
+        self._cancel_plan_watchdog()
+        try:
+            self.agent.set_uplink_enabled(False)
+        except Exception:  # noqa: BLE001
+            log.exception("force_idle: set_uplink_enabled failed")
+        try:
+            self.agent.reset_plan_tracker()
+        except AttributeError:
+            pass
+        self._set_state(State.IDLE, reason=reason)
+
     # ---- callbacks (thread-safe entrypoints) --------------------------------
 
     def handle_wake(self, evt) -> None:
@@ -166,6 +283,116 @@ class BrainConversationStateMachine:
         if self._loop is None or self._stopped:
             return
         self._loop.call_soon_threadsafe(self._on_wake_in_loop, evt)
+
+    def request_manual_commit(self) -> None:
+        """End the current utterance now (operator pressed Enter).
+
+        Thread-safe entrypoint mirroring :meth:`handle_wake`: the stdin
+        reader callback already runs on the loop thread, but routing through
+        ``call_soon_threadsafe`` keeps this safe to call from anywhere and
+        consistent with the rest of the public surface.
+        """
+        if self._loop is None or self._stopped:
+            return
+        self._loop.call_soon_threadsafe(self._on_manual_commit_in_loop)
+
+    def _on_manual_commit_in_loop(self) -> None:
+        if self._stopped:
+            return
+        if self._state != State.CAPTURING:
+            # Enter outside CAPTURING is a no-op: nothing is being captured,
+            # and the reader is only armed in CAPTURING anyway. Guard defends
+            # against a queued call racing a transition.
+            log.debug("[manual_commit] ignored (state=%s)", self._state.value)
+            return
+        log.info(
+            "[utterance] manual_commit after %.2fs",
+            time.monotonic() - self._capture_started_at,
+        )
+        print("[g1_brain] got it — sending now", flush=True)
+        self._enter_thinking()
+
+    # ---- manual-commit stdin watcher ----------------------------------------
+
+    def _drain_stdin(self) -> None:
+        """Discard input already buffered on stdin (non-blocking).
+
+        Uses a zero-timeout select so we only consume what is *currently*
+        ready: on a canonical-mode TTY that is exactly the completed lines
+        the operator entered earlier (a half-typed line with no Enter is not
+        yet readable and is correctly left alone). Best-effort — any fd that
+        cannot be polled or read simply leaves the buffer as-is.
+        """
+        if self._stdin_fd is None:
+            return
+        try:
+            while True:
+                r, _, _ = select.select([self._stdin_fd], [], [], 0)
+                if not r:
+                    return
+                data = os.read(self._stdin_fd, 4096)
+                if not data:  # EOF — nothing more to drain
+                    return
+        except (OSError, ValueError, BlockingIOError):
+            return
+
+    def _arm_manual_commit(self) -> None:
+        """Watch stdin for a line (Enter) while CAPTURING.
+
+        Registered only in CAPTURING so it never consumes the keystroke the
+        confirm-mode y/N prompt reads during THINKING. The TTY stays in its
+        default canonical mode, so the fd becomes readable once a full line
+        is available — i.e. exactly when the operator hits Enter.
+        """
+        if self._stdin_fd is None or self._manual_commit_armed:
+            return
+        if self._loop is None:
+            return
+        # Discard anything already buffered on stdin BEFORE we start watching.
+        # A line the operator typed while we were not capturing (a stray Enter
+        # pressed in the terminal while IDLE, or QuickEdit/paste noise on
+        # Windows Terminal) otherwise becomes immediately readable the instant
+        # add_reader registers, firing a "commit now" at 0.00s — committing an
+        # empty audio buffer before the operator can speak. Only Enter pressed
+        # AFTER capture begins should count as an end-of-utterance signal.
+        self._drain_stdin()
+        try:
+            self._loop.add_reader(self._stdin_fd, self._on_stdin_readable)
+            self._manual_commit_armed = True
+        except (OSError, ValueError, NotImplementedError):
+            # add_reader can fail on exotic fds / platforms; degrade to
+            # VAD-only commit rather than crash the turn.
+            log.debug("manual commit: add_reader failed", exc_info=True)
+
+    def _disarm_manual_commit(self) -> None:
+        if self._stdin_fd is None or not self._manual_commit_armed:
+            return
+        self._manual_commit_armed = False
+        if self._loop is None:
+            return
+        try:
+            self._loop.remove_reader(self._stdin_fd)
+        except (OSError, ValueError, NotImplementedError):
+            log.debug("manual commit: remove_reader failed", exc_info=True)
+
+    def _on_stdin_readable(self) -> None:
+        """loop.add_reader callback: a line is ready on the terminal."""
+        if self._stdin_fd is None:
+            return
+        try:
+            data = os.read(self._stdin_fd, 4096)
+        except (OSError, BlockingIOError):
+            return
+        if not data:
+            # EOF on stdin (e.g. terminal detached). Stop watching so the
+            # reader doesn't busy-spin firing on a permanently-ready fd.
+            self._disarm_manual_commit()
+            return
+        # Any line — empty (bare Enter) or with text — is the operator's
+        # signal to end the utterance. We only act in CAPTURING; the reader
+        # should only be armed there, but re-check defensively.
+        if self._state == State.CAPTURING:
+            self._on_manual_commit_in_loop()
 
     def _handle_response_audio_delta(self) -> None:
         """Called by BrainRealtimeAgent from the asyncio loop thread."""
@@ -198,15 +425,21 @@ class BrainConversationStateMachine:
                 self.logger.log_plan_done()
             except Exception:
                 log.exception("logger.log_plan_done raised")
-        self._cancel_plan_watchdog()
         if not self.cfg.idle_after_plan_enabled:
             # Operator opted out: stay in SPEAKING; equivalent to old behaviour.
+            self._cancel_plan_watchdog()
             return
         if self._drain_task is not None:
             self._drain_task.cancel()
         self._drain_task = asyncio.create_task(
             self._drain_to_idle(), name="bcsm-drain",
         )
+        # The plan has SIGNALLED done, so the long "plan never finished" window
+        # no longer applies — but the drain still has to land us in IDLE. Re-arm
+        # the watchdog to a short drain deadline so that if the drain task dies
+        # for ANY reason (exception, lost cancel, phone-call teardown race) we
+        # still force IDLE and wake keeps working. Reaching IDLE cancels it.
+        self._reset_plan_watchdog(self.cfg.drain_max_wait_s + 2.0)
 
     # ---- audio path ---------------------------------------------------------
 
@@ -235,11 +468,25 @@ class BrainConversationStateMachine:
                     status, time.monotonic() - self._capture_started_at,
                 )
                 self._enter_thinking()
+        elif self._state == State.SPEAKING:
+            # Echo-aware barge-in. Cheap (one np.frombuffer + one sqrt per
+            # ~50 ms mic chunk). See BrainConversationConfig for tunables.
+            self._maybe_voice_barge_in(chunk)
 
     # ---- in-loop wake handler -----------------------------------------------
 
     def _on_wake_in_loop(self, evt) -> None:
         log.info("[wake] %r (state=%s)", evt.text, self._state.value)
+        # Operator-facing print on stdout (the log line above goes to stderr
+        # via the StreamHandler and gets buried under DDS / perception /
+        # OpenAI INFO noise — operators were reporting the terminal felt
+        # "stuck" because there was no clear ack that wake fired). flush=True
+        # so the line lands the moment wake is detected, not when the next
+        # stdio buffer flush happens.
+        print(
+            f"\n[g1_brain] wake heard: {evt.text!r} — listening, speak now",
+            flush=True,
+        )
         if self.logger is not None:
             try:
                 self.logger.log_wake_event(evt.text)
@@ -290,6 +537,22 @@ class BrainConversationStateMachine:
             except Exception:
                 log.exception("logger.log_state_transition raised")
         self._state = new
+        # Leaving the active region (THINKING/SPEAKING) for IDLE/CAPTURING means
+        # any plan/drain recovery watchdog has done its job — disarm it here so
+        # exactly one place owns "we're no longer mid-turn". Prevents a stale
+        # watchdog from firing a spurious recovery after we've already moved on.
+        if new in (State.IDLE, State.CAPTURING):
+            self._cancel_plan_watchdog()
+        # Voice-onset barge-in streak only makes sense while SPEAKING. Any
+        # transition (into SPEAKING from THINKING, or out of SPEAKING) resets
+        # it so a leftover partial streak can't fire across boundaries.
+        if new != State.SPEAKING:
+            self._voice_bi_streak = 0
+            self._voice_bi_pending = False
+        else:
+            # Fresh SPEAKING window — start clean.
+            self._voice_bi_streak = 0
+            self._voice_bi_pending = False
 
     def _enter_capturing(self, *, reason: str) -> None:
         # Cancel any pending drain task — wake takes priority.
@@ -308,13 +571,33 @@ class BrainConversationStateMachine:
                 self.logger.begin_turn()
             except Exception:
                 log.exception("logger.begin_turn raised")
+            # Memory: capture a turn_start scene snapshot as a keyframe for
+            # the memory pipeline. Best-effort; never raise.
+            scene_bus = getattr(self.agent, "scene_bus", None)
+            if scene_bus is not None and hasattr(self.logger, "log_scene_snapshot"):
+                try:
+                    self.logger.log_scene_snapshot(
+                        trigger="turn_start",
+                        scene_state=scene_bus.snapshot(),
+                    )
+                except Exception:
+                    log.exception("logger.log_scene_snapshot raised")
         self._set_state(State.CAPTURING, reason=reason)
         self._reset_no_speech_timer()
+        # Now listening: let the operator press Enter to commit immediately.
+        self._arm_manual_commit()
 
     def _enter_thinking(self) -> None:
         self._cancel_no_speech_timer()
+        # Stop watching stdin so the confirm-mode y/N prompt (which reads the
+        # terminal during tool dispatch) gets the keystroke, not us.
+        self._disarm_manual_commit()
         self.agent.set_uplink_enabled(False)
         self._set_state(State.THINKING, reason="vad_commit")
+        # Stdout ack so the operator sees the system *did* hear them and is
+        # working on a response — without this the terminal sits silent for
+        # the full LLM + vision-gate latency window (often >5 s).
+        print("[g1_brain] thinking…", flush=True)
         # Arm the plan watchdog so a stuck tool call doesn't trap us in
         # SPEAKING forever.
         self._reset_plan_watchdog()
@@ -386,14 +669,109 @@ class BrainConversationStateMachine:
             # 5. transition into CAPTURING for the new turn.
             self._enter_capturing(reason="barge_in")
 
+    def _maybe_voice_barge_in(self, chunk: bytes) -> None:
+        """Echo-aware barge-in trigger that runs only in SPEAKING.
+
+        Why this exists: the wake-word's 1.5 s ASR window is fed every mic
+        chunk in all states, but during SPEAKING it is dominated by the
+        bot's own TTS leaking back through the mic. The OpenAI transcribe
+        call almost always returns the bot's narration text and "hi sparky"
+        never appears, so the regular wake path silently fails — exactly
+        the user-reported "can't interrupt the robot mid-speech" bug.
+
+        Instead of relying on ASR through the echo, watch the mic RMS
+        envelope and subtract a prediction of the speaker echo derived
+        from ``SpeakerStream.recent_played_rms`` (RMS of bytes the device
+        callback just consumed — that's the audio currently coming out,
+        modulo PortAudio's small output latency). If the user's voice is
+        clearly louder than the predicted echo for a short streak, fire
+        the same barge-in path the wake-word would have taken.
+
+        Safety:
+          * Active ONLY in SPEAKING — never CAPTURING / THINKING / IDLE.
+          * ``barge_in_enabled`` config still gates this.
+          * Requires a sustained streak (default ~200 ms) so single coughs
+            and one-block transients don't trigger barge-in.
+          * Once fired, ``_voice_bi_pending`` blocks re-fire until the
+            state machine transitions out of SPEAKING.
+        """
+        if not self.cfg.voice_barge_in_enabled:
+            return
+        if not self.cfg.barge_in_enabled:
+            return
+        if self._voice_bi_pending:
+            return
+        try:
+            mic_rms = _chunk_rms_int16(chunk)
+        except Exception:
+            log.exception("voice_barge_in: mic RMS failed")
+            return
+        # Speaker echo prediction. If no speaker is wired (e.g. tests), the
+        # predicted echo is 0 — the threshold then collapses to min_rms.
+        speaker_rms = 0.0
+        if self.speaker is not None:
+            try:
+                speaker_rms = self.speaker.recent_played_rms(
+                    self.cfg.voice_barge_in_speaker_window_s,
+                )
+            except Exception:
+                speaker_rms = 0.0
+        echo_predicted = speaker_rms * self.cfg.voice_barge_in_echo_gain
+        threshold = max(
+            echo_predicted + self.cfg.voice_barge_in_margin_rms,
+            self.cfg.voice_barge_in_min_rms,
+        )
+        if mic_rms > threshold:
+            self._voice_bi_streak += 1
+        else:
+            self._voice_bi_streak = 0
+            return
+        if self._voice_bi_streak < self.cfg.voice_barge_in_streak_chunks:
+            return
+        # Fire. Build a synthetic WakeEvent so the logger / barge-in path
+        # see a uniform shape regardless of trigger source.
+        log.info(
+            "[voice_barge_in] mic_rms=%.0f speaker_rms=%.0f "
+            "echo_pred=%.0f thr=%.0f streak=%d — firing barge-in",
+            mic_rms, speaker_rms, echo_predicted, threshold,
+            self._voice_bi_streak,
+        )
+        print(
+            "\n[g1_brain] heard you speaking — interrupting reply",
+            flush=True,
+        )
+        self._voice_bi_pending = True
+        self._voice_bi_streak = 0
+        try:
+            from va_demo.wake_word import WakeEvent  # local import; sibling pkg
+            evt = WakeEvent(text="<voice-barge-in>", t=time.monotonic())
+        except Exception:
+            # Fallback minimal shape: anything with .text and .t is enough
+            # for the barge-in path (only logging uses these fields).
+            class _FallbackEvt:  # noqa: D401
+                text = "<voice-barge-in>"
+                t = time.monotonic()
+            evt = _FallbackEvt()
+        asyncio.create_task(
+            self._handle_barge_in(evt, was_state=State.SPEAKING),
+            name="bcsm-voice-barge-in",
+        )
+
     def _no_speech_timeout_cb(self) -> None:
         if self._state != State.CAPTURING:
             return
         if self.vad.had_any_voice():
             return  # voice was heard; the silence-commit path will handle it
+        # Going back to IDLE — stop watching stdin until the next wake.
+        self._disarm_manual_commit()
         log.info(
             "[capture] no speech for %.1fs after wake; aborting",
             self.cfg.no_speech_timeout_s,
+        )
+        print(
+            f"[g1_brain] heard no speech in {self.cfg.no_speech_timeout_s:.0f}s "
+            "— back to idle (say 'Hi Sparky' to try again)",
+            flush=True,
         )
         self.agent.set_uplink_enabled(False)
         # Best-effort drop of any partial server-side audio.
@@ -410,26 +788,52 @@ class BrainConversationStateMachine:
         self._set_state(State.IDLE, reason="no_speech_timeout")
 
     async def _drain_to_idle(self) -> None:
-        """Wait for speaker to drain, then transition to IDLE."""
-        deadline = time.monotonic() + self.cfg.drain_max_wait_s
-        if self.speaker is not None:
-            while time.monotonic() < deadline:
-                if self._stopped or self._state not in (State.THINKING, State.SPEAKING):
-                    return
-                try:
-                    pending = self.speaker.pending_bytes()
-                except Exception:
-                    pending = 0
-                if pending <= self.cfg.drain_threshold_bytes:
-                    break
-                try:
+        """Wait for speaker to drain, then transition to IDLE.
+
+        Robust by construction: whatever happens in the body (drain completes,
+        the max-wait deadline hits, or an unexpected exception is raised), as
+        long as this is still the live drain and no newer turn / shutdown has
+        superseded us, the ``finally`` lands us in IDLE. A drain that died here
+        without reaching IDLE was a way to get trapped in SPEAKING — and wake is
+        only honoured from IDLE, so "Hi Sparky" would silently stop working.
+        """
+        superseded = False
+        try:
+            deadline = time.monotonic() + self.cfg.drain_max_wait_s
+            if self.speaker is not None:
+                while time.monotonic() < deadline:
+                    if self._stopped or self._state not in (State.THINKING, State.SPEAKING):
+                        superseded = True
+                        return
+                    try:
+                        pending = self.speaker.pending_bytes()
+                    except Exception:
+                        pending = 0
+                    if pending <= self.cfg.drain_threshold_bytes:
+                        break
                     await asyncio.sleep(0.05)
-                except asyncio.CancelledError:
-                    return
-        if self._stopped or self._state not in (State.THINKING, State.SPEAKING):
-            return
-        self.agent.set_uplink_enabled(False)
-        self._set_state(State.IDLE, reason="plan_done_drained")
+        except asyncio.CancelledError:
+            # Cancelled because a newer turn (wake/barge-in) or shutdown took
+            # over; those paths set their own state. Don't fight them.
+            superseded = True
+            raise
+        finally:
+            if (
+                not superseded
+                and not self._stopped
+                and self._state in (State.THINKING, State.SPEAKING)
+                and asyncio.current_task() is self._drain_task
+            ):
+                self.agent.set_uplink_enabled(False)
+                self._set_state(State.IDLE, reason="plan_done_drained")
+                # Stdout ack so the operator knows the agent is back to
+                # listening for the next wake — without this the prompt looks
+                # "stuck" because the spoken reply ended but nothing said the
+                # turn is over.
+                print(
+                    "[g1_brain] idle — say 'Hi Sparky' to start the next turn",
+                    flush=True,
+                )
 
     def _cancel_drain(self) -> None:
         if self._drain_task is not None:
@@ -455,12 +859,13 @@ class BrainConversationStateMachine:
             self._no_speech_timer.cancel()
             self._no_speech_timer = None
 
-    def _reset_plan_watchdog(self) -> None:
+    def _reset_plan_watchdog(self, timeout_s: Optional[float] = None) -> None:
         self._cancel_plan_watchdog()
+        delay = self.cfg.plan_watchdog_s if timeout_s is None else timeout_s
 
         async def _runner():
             try:
-                await asyncio.sleep(self.cfg.plan_watchdog_s)
+                await asyncio.sleep(delay)
                 self._plan_watchdog_fire()
             except asyncio.CancelledError:
                 pass
@@ -479,13 +884,33 @@ class BrainConversationStateMachine:
             return
         if self._state not in (State.THINKING, State.SPEAKING):
             return
+        # Decisive hard recovery: force IDLE directly rather than re-routing
+        # through _handle_plan_done → drain (the drain is the most likely thing
+        # to have wedged, and a phone hangup / dead plan can leave us trapped in
+        # SPEAKING/THINKING forever — wake is only honoured from IDLE, so the
+        # operator's "Hi Sparky" silently does nothing until we get back here).
         log.warning(
-            "[plan_watchdog] forcing plan_done after %.1fs (state=%s)",
-            self.cfg.plan_watchdog_s, self._state.value,
+            "[plan_watchdog] state stuck in %s; forcing IDLE so wake works again",
+            self._state.value,
         )
         if self.logger is not None:
             try:
                 self.logger.log_plan_watchdog_timeout(pending=[])
             except Exception:
                 log.exception("logger.log_plan_watchdog_timeout raised")
-        self._handle_plan_done()
+        self._cancel_drain()
+        try:
+            if self.speaker is not None:
+                self.speaker.clear()
+        except Exception:
+            log.debug("speaker.clear raised during plan_watchdog recovery",
+                      exc_info=True)
+        try:
+            self.agent.set_uplink_enabled(False)
+        except Exception:
+            log.exception("set_uplink_enabled raised during plan_watchdog recovery")
+        self._set_state(State.IDLE, reason="plan_watchdog_recovery")
+        print(
+            "[g1_brain] idle — say 'Hi Sparky' to start the next turn",
+            flush=True,
+        )

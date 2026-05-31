@@ -1,0 +1,141 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">十二层静态架构</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">系统有哪些层、它们怎么叠在一起：文档第 3 节的完整分层视图</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+
+<!-- 列 1 · 紫 · 入口与运行态 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Layer 01</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">入口/启动/模式分流</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">fast path 分流、初始化 config/telemetry/trust/cwd/session、进入 interactive REPL 或 headless query</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints/cli.tsx · main.tsx · init.ts · setup.ts · replLauncher.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Layer 02</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">运行态状态/配置/设置/认证</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">global state、settings 多源合并、config 持久化、OAuth/API key/Bedrock/Vertex/Foundry 接入</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">bootstrap/state.ts · config.ts · settings.ts · auth.ts · api/client.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 青绿 · 命令 + 工具 + TUI -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 03</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">命令系统</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">slash commands、prompt commands、local / local-jsx 与插件命令的统一注册路径</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">commands.ts · commands/** · skills/** · plugins command path</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 04</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具系统</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">ToolDef 协议、权限/hook/exec、streaming executor、MCP tools 合并</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">tools.ts · Tool.ts · tools/** · services/tools/**</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Layer 05</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">TUI/状态界面</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">Settings、dialogs、REPL、onboarding 等所有终端渲染与 state/app store 接入</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">components/** · state/** · screens/** · ink/**</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Layer 06 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">Agent 主循环</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">组装 prompt/messages/tools/commands/context、调模型 streaming API、收 assistant/tool_use/tool_result、决定下一轮</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts · query/config.ts · query/deps.ts</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">单一控制中枢</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">所有上下游都通过 Tool 抽象接入这一个循环，保证调度、权限与继续/停机决策的集中性</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">single hub</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 蓝 · API + 上下文 + 记忆 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 07</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">模型/API/重试</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">请求构造、stream parse、fallback 与 retry 策略，错误分类与日志</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/api/claude.ts · withRetry.ts · errors.ts · logging.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 08</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">上下文治理</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">auto/reactive compact、history snip、continuation budget、停机钩子</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">compact/** · tokenBudget.ts · stopHooks.ts · microCompact.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Layer 09</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">记忆/附件/恢复</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">transcript/resume、memory prefetch、attachment injection</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">attachments.ts · sessionStorage.ts · SessionMemory/** · memdir/paths.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 珊瑚 · 扩展 + 协作 + 基础 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 10</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">扩展平台</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">MCP servers/prompts/resources/skills、plugins、bundled/project/dynamic skills、workflows</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">services/mcp/** · plugins/** · skills/** · workflows/**</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 11</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">多 Agent/Task/Remote 协作</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">subagent/teammate/coordinator、background task、messaging、remote session、bridge/ssh/direct-connect/cowork</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">AgentTool/** · tasks/** · assistant/** · bridge/** · remote/** · server/**</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Layer 12</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">基础设施与共用工具</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">path/fs/git/messages/token/schema/env 供所有上层复用</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">utils/** · constants/** · types/** · schemas/** · native-ts/**</span></div>
+</div>
+
+</div>
+
+</div>
+
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:6px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>入口与运行态</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>命令/工具/TUI</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>Agent 主循环</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>API/上下文/记忆</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>扩展/协作/基础</div>
+</div>
+
+</div>

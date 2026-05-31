@@ -1,0 +1,121 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">AgentTool 递归执行流程</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">从 tool_use 分派到嵌套 query 循环：agent 是如何调 agent 的</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+
+<!-- 列 1 · 步骤 1 解析 agent 定义 · 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 01 · A</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">内置 agent 库</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">general-purpose、plan、explore、code-guide 等预置 agent 从源码目录直接读取</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">AgentTool/built-in/*.ts</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 01 · B</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">自定义 agent</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">从项目目录下的 .claude/agents.json 读取用户或团队定义的专用 agent</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">loadAgentsDir.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 步骤 2+3 准备执行 · 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 02</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具池过滤</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">按 ALL_AGENT_DISALLOWED_TOOLS 黑名单加 agent 自身配置裁出子 agent 可见的工具集</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">assembleToolPool · constants/tools.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 03</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">执行模式路由</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">在本地任务、远程任务与 git worktree fork 三种模式间挑一条，决定子 agent 跑在哪</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">LocalAgentTask · RemoteAgentTask · forkSubagent.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 步骤 4 递归执行 agent · 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 04 · A</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">装配系统提示</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">getPrompt 拼装内置模板、agent 定义中的 systemPrompt 与当前环境详情</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">runAgent.ts · prompt.ts</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 04 · B</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">创建 subagent 上下文</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">打包过滤后的工具集、独立 AbortController 与新 agentId，保证子 agent 状态隔离</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">ToolUseContext</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 04 · C · Recursion</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">递归 query 循环</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">以 subagentParams 重新进入 query()，子 agent 可再次调用 AgentTool 形成多层嵌套</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query(subagentParams)</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">递归为何安全</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">每层独立的 agentId、AbortController 与工具池，让取消与权限决策天然按层隔离</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">runAgent.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 步骤 5 返回结果 · 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Step 05 · A</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">收集输出消息</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">把嵌套循环产生的 assistant 消息汇总，打包成父循环能消费的 ToolResultBlockParam</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">AgentTool.execute()</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Step 05 · B</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">后台摘要</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">若 agent 跑在后台，startAgentSummarization 异步压缩出结构化摘要供父 agent 引用</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">startAgentSummarization</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Return</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">回到父 query 循环</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">返回值进入父循环的 tool_results 数组，父 agent 据此决定下一轮对话</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">ToolResultBlockParam</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>解析 agent 定义</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>准备执行环境</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>递归执行 agent</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>返回父循环</div>
+</div>
+
+</div>

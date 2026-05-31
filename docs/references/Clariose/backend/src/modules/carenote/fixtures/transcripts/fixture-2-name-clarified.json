@@ -1,0 +1,21 @@
+{
+  "name": "fixture-2-name-clarified",
+  "language": "zh",
+  "turns": [
+    {
+      "item_id": "itm-1",
+      "previous_item_id": null,
+      "speaker_label": "doctor",
+      "transcript": "这个药每天饭后吃一次，连续吃三天。"
+    },
+    {
+      "item_id": "itm-2",
+      "previous_item_id": "itm-1",
+      "speaker_label": "doctor",
+      "transcript": "这个药叫阿莫西林，具体剂量看药盒标签。"
+    }
+  ],
+  "expected": {
+    "force_invariants": ["every_draft_requires_confirmation"]
+  }
+}

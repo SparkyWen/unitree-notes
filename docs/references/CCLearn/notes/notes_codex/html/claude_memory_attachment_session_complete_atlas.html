@@ -1,0 +1,355 @@
+<style>
+.cc-wrap{padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)}
+.cc-head{margin:0 0 4px;font-size:22px;font-weight:500;letter-spacing:-.01em}
+.cc-sub{margin:0 0 14px;font-size:12px;color:var(--color-text-secondary);font-weight:400}
+.cc-rule{border:0;border-top:.5px solid var(--color-border-tertiary);margin:0 0 18px}
+.cc-section{margin:26px 0 0}
+.cc-section-head{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-text-tertiary);font-weight:500;padding:0 0 4px;border-bottom:.5px solid var(--color-border-tertiary);margin:0 0 14px}
+.cc-section-title{font-size:14px;font-weight:500;color:var(--color-text-primary);margin:0 0 2px}
+.cc-section-desc{font-size:11px;color:var(--color-text-secondary);margin:0 0 12px;font-weight:400}
+.cc-grid-6{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:start}
+.cc-grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;align-items:start}
+.cc-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:start}
+.cc-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:start}
+.cc-col{display:flex;flex-direction:column;gap:10px}
+.cc-card{border-radius:8px;border:.5px solid;padding:10px 11px 11px;display:flex;flex-direction:column;gap:5px}
+.cc-tag{font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;opacity:.75}
+.cc-title{font-size:12px;font-weight:500;line-height:1.3}
+.cc-desc{font-size:10px;line-height:1.55;opacity:.85;font-weight:400}
+.cc-quote{font-size:10px;line-height:1.5;font-style:italic;opacity:.75;padding-top:4px;border-top:.5px dashed currentColor;margin-top:2px}
+.cc-paths{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.cc-pill{font-family:var(--font-mono);font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(0,0,0,.06);white-space:nowrap}
+.cc-num{display:inline-block;min-width:18px;font-family:var(--font-mono);font-size:9px;opacity:.6}
+.c-purple-card{background:#EEEDFE;border-color:#AFA9EC;color:#26215C}
+.c-purple-card .cc-tag,.c-purple-card .cc-desc,.c-purple-card .cc-quote{color:#3C3489}
+.c-purple-card .cc-pill{background:rgba(62,52,137,.1);color:#26215C}
+.c-blue-card{background:#E6F1FB;border-color:#85B7EB;color:#042C53}
+.c-blue-card .cc-tag,.c-blue-card .cc-desc,.c-blue-card .cc-quote{color:#0C447C}
+.c-blue-card .cc-pill{background:rgba(12,68,124,.1);color:#042C53}
+.c-amber-card{background:#FAEEDA;border-color:#EF9F27;color:#412402}
+.c-amber-card .cc-tag,.c-amber-card .cc-desc,.c-amber-card .cc-quote{color:#633806}
+.c-amber-card .cc-pill{background:rgba(99,56,6,.12);color:#412402}
+.c-teal-card{background:#E1F5EE;border-color:#5DCAA5;color:#04342C}
+.c-teal-card .cc-tag,.c-teal-card .cc-desc,.c-teal-card .cc-quote{color:#085041}
+.c-teal-card .cc-pill{background:rgba(8,80,65,.1);color:#04342C}
+.c-coral-card{background:#FAECE7;border-color:#F0997B;color:#4A1B0C}
+.c-coral-card .cc-tag,.c-coral-card .cc-desc,.c-coral-card .cc-quote{color:#712B13}
+.c-coral-card .cc-pill{background:rgba(113,43,19,.1);color:#4A1B0C}
+.c-gray-card{background:#F1EFE8;border-color:#888780;color:#2C2C2A}
+.c-gray-card .cc-tag,.c-gray-card .cc-desc,.c-gray-card .cc-quote{color:#444441}
+.c-gray-card .cc-pill{background:rgba(68,68,65,.1);color:#2C2C2A}
+.c-pink-card{background:#FBEAF0;border-color:#ED93B1;color:#4B1528}
+.c-pink-card .cc-tag,.c-pink-card .cc-desc,.c-pink-card .cc-quote{color:#72243E}
+.c-pink-card .cc-pill{background:rgba(114,36,62,.1);color:#4B1528}
+@media (prefers-color-scheme: dark){
+ .c-purple-card{background:#3C3489;border-color:#AFA9EC;color:#CECBF6}
+ .c-purple-card .cc-tag,.c-purple-card .cc-desc,.c-purple-card .cc-quote{color:#AFA9EC}
+ .c-purple-card .cc-pill{background:rgba(206,203,246,.12);color:#CECBF6}
+ .c-blue-card{background:#0C447C;border-color:#85B7EB;color:#B5D4F4}
+ .c-blue-card .cc-tag,.c-blue-card .cc-desc,.c-blue-card .cc-quote{color:#85B7EB}
+ .c-blue-card .cc-pill{background:rgba(181,212,244,.12);color:#B5D4F4}
+ .c-amber-card{background:#633806;border-color:#EF9F27;color:#FAC775}
+ .c-amber-card .cc-tag,.c-amber-card .cc-desc,.c-amber-card .cc-quote{color:#EF9F27}
+ .c-amber-card .cc-pill{background:rgba(250,199,117,.14);color:#FAC775}
+ .c-teal-card{background:#085041;border-color:#5DCAA5;color:#9FE1CB}
+ .c-teal-card .cc-tag,.c-teal-card .cc-desc,.c-teal-card .cc-quote{color:#5DCAA5}
+ .c-teal-card .cc-pill{background:rgba(159,225,203,.12);color:#9FE1CB}
+ .c-coral-card{background:#712B13;border-color:#F0997B;color:#F5C4B3}
+ .c-coral-card .cc-tag,.c-coral-card .cc-desc,.c-coral-card .cc-quote{color:#F0997B}
+ .c-coral-card .cc-pill{background:rgba(245,196,179,.12);color:#F5C4B3}
+ .c-gray-card{background:#444441;border-color:#B4B2A9;color:#D3D1C7}
+ .c-gray-card .cc-tag,.c-gray-card .cc-desc,.c-gray-card .cc-quote{color:#B4B2A9}
+ .c-gray-card .cc-pill{background:rgba(179,178,169,.12);color:#D3D1C7}
+ .c-pink-card{background:#72243E;border-color:#ED93B1;color:#F4C0D1}
+ .c-pink-card .cc-tag,.c-pink-card .cc-desc,.c-pink-card .cc-quote{color:#ED93B1}
+ .c-pink-card .cc-pill{background:rgba(244,192,209,.12);color:#F4C0D1}
+}
+@media (max-width:900px){.cc-grid-6,.cc-grid-5,.cc-grid-4{grid-template-columns:repeat(2,1fr)}.cc-grid-3{grid-template-columns:repeat(2,1fr)}}
+</style>
+<div class="cc-wrap">
+<h1 class="cc-head">Memory / Attachment / Session 恢复层 完整图谱</h1>
+<p class="cc-sub">Claude Code 长期连续性的真正底座：六层静态架构 × 动态运行流程 × 十五个文件 × 关键关系 × 五条结论</p>
+<hr class="cc-rule"/>
+
+<div class="cc-section">
+<div class="cc-section-head">框架 I · 静态分层总架构</div>
+<div class="cc-section-title">六层职责结构（A–F）</div>
+<div class="cc-section-desc">按功能职责切出的六个横向层次，从事件持久化到运行时接入层的完整栈</div>
+<div class="cc-grid-3">
+<div class="cc-card c-purple-card">
+<div class="cc-tag">Layer A · Transcript 持久化与恢复层</div>
+<div class="cc-title">会话事件流的数据库</div>
+<div class="cc-desc">append-only transcript、session metadata、resume / continue / hydrate、subagent / sidechain transcripts。</div>
+<div class="cc-paths"><span class="cc-pill">utils/sessionStorage.ts</span><span class="cc-pill">utils/sessionStoragePortable.ts</span></div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag">Layer B · Attachment 注入层 · 核心</div>
+<div class="cc-title">隐式状态显式化</div>
+<div class="cc-desc">file / plan / memory / delta attachments，post-tool / post-compact / post-memory injection 的结构化回流。</div>
+<div class="cc-paths"><span class="cc-pill">utils/attachments.ts</span></div>
+</div>
+<div class="cc-card c-gray-card">
+<div class="cc-tag">Layer C · Message 领域基础层</div>
+<div class="cc-title">共享消息工具</div>
+<div class="cc-desc">compact boundary 判断、message classification、message helpers，被所有上层共用的领域基础设施。</div>
+<div class="cc-paths"><span class="cc-pill">utils/messages.ts</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag">Layer D · SessionMemory 服务层</div>
+<div class="cc-title">会话记忆中介</div>
+<div class="cc-desc">sessionMemory.ts、sessionMemoryUtils.ts、prompts.ts，当前 session 与 durable memory 间的桥接层。</div>
+<div class="cc-paths"><span class="cc-pill">services/SessionMemory/*</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">Layer E · Auto-memory / memdir 层</div>
+<div class="cc-title">持久记忆目录</div>
+<div class="cc-desc">paths、memdir、findRelevantMemories、memoryScan、memoryAge、memoryTypes、teamMemPaths、teamMemPrompts 八个文件。</div>
+<div class="cc-paths"><span class="cc-pill">memdir/*</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-tag">Layer F · Query / Compact / Runtime 接入层</div>
+<div class="cc-title">运行时接入点</div>
+<div class="cc-desc">query.ts 每轮注入 attachments 与 relevant memory，compact.ts 在 post-compact 恢复 files / skills / memory context，tool execution 回写 transcript。</div>
+<div class="cc-paths"><span class="cc-pill">query.ts</span><span class="cc-pill">compact.ts</span></div>
+</div>
+</div>
+</div>
+
+<div class="cc-section">
+<div class="cc-section-head">框架 II · 动态运行流程</div>
+<div class="cc-section-title">事件驱动的完整时序</div>
+<div class="cc-section-desc">从工具执行事件发生到下一轮 query 注入，再到 resume 时的链图恢复，全链路九个阶段</div>
+<div class="cc-grid-3">
+<div class="cc-card c-blue-card">
+<div class="cc-tag"><span class="cc-num">01</span> 事件触发</div>
+<div class="cc-title">工具执行 / assistant 输出 / 系统事件</div>
+<div class="cc-desc">工具执行完成、assistant 输出新消息、系统事件发生，触发 transcript 写入路径。</div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-tag"><span class="cc-num">02</span> transcript 持久化</div>
+<div class="cc-title">recordTranscript / appendEntry</div>
+<div class="cc-desc">调用 recordTranscript、appendEntry、insertMessageChain 把事件写入当前 session 的 JSONL。</div>
+<div class="cc-paths"><span class="cc-pill">sessionStorage.ts</span></div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-tag"><span class="cc-num">03</span> 多流分发</div>
+<div class="cc-title">sidechain / 元数据 / 远程</div>
+<div class="cc-desc">sidechain 与 subagent transcript 分流，metadata re-append，远程 / session ingress 持久化。</div>
+</div>
+<div class="cc-card c-blue-card">
+<div class="cc-tag"><span class="cc-num">04</span> 记忆搜索</div>
+<div class="cc-title">SessionMemory / memdir 检索</div>
+<div class="cc-desc">下一轮 query 开始前，从 SessionMemory 与 memdir 搜索 relevant memories 作为注入候选。</div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag"><span class="cc-num">05</span> · 核心 · attachment 组装</div>
+<div class="cc-title">attachments.ts 结构化</div>
+<div class="cc-desc">把 file changes、plan、memory / context deltas 组装为 attachment messages。</div>
+<div class="cc-paths"><span class="cc-pill">attachments.ts</span></div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag"><span class="cc-num">06</span> · 核心 · query 注入</div>
+<div class="cc-title">attachments + memories 进入下一轮</div>
+<div class="cc-desc">query.ts 把 attachments 与 memories 注入下一轮 messages，形成回流闭环。</div>
+<div class="cc-paths"><span class="cc-pill">query.ts</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag"><span class="cc-num">07</span> 恢复触发</div>
+<div class="cc-title">用户 / 系统 resume / continue</div>
+<div class="cc-desc">resume 或 continue 命令触发，进入 transcript 读取与状态重建路径。</div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag"><span class="cc-num">08</span> transcript 读取</div>
+<div class="cc-title">loadTranscriptFile + JSONL parse</div>
+<div class="cc-desc">读取 JSONL，修复 compact boundary / snip / preserved segment / parallel tool results，恢复 metadata 与 snapshots。</div>
+<div class="cc-paths"><span class="cc-pill">loadTranscriptFile</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag"><span class="cc-num">09</span> 状态回接</div>
+<div class="cc-title">messages / session state 回运行时</div>
+<div class="cc-desc">恢复出的 messages 与 session state 重新交回运行时，恢复断点之前的一致性。</div>
+</div>
+</div>
+</div>
+
+<div class="cc-section">
+<div class="cc-section-head">框架 III · 十五个核心文件逐一详解</div>
+<div class="cc-section-title">所有文件的完整职责与一句话总结</div>
+<div class="cc-section-desc">按 A–E 五层分组，15 个文件全部列出，每张卡片包含相对路径、职责描述与原文档的一句话总结</div>
+
+<div class="cc-grid-3" style="margin-bottom:14px">
+<div class="cc-card c-purple-card">
+<div class="cc-tag">6.1 · Layer A</div>
+<div class="cc-title">sessionStorage.ts</div>
+<div class="cc-desc">session transcript 持久化与恢复中心。append-only transcript 写入，user / assistant / tool / system entries 持久化，title / tag / mode / worktree / pr-link 等 session metadata 持久化，sidechain / subagent transcript 处理，resume / continue / loadTranscriptFile，compact boundary / preserved segment / snip / orphaned parallel tool results 修复，content replacement / file history / attribution snapshot 恢复。</div>
+<div class="cc-quote">Claude Code 的会话数据库实现。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/utils/sessionStorage.ts</span></div>
+</div>
+<div class="cc-card c-purple-card">
+<div class="cc-tag">6.2 · Layer A</div>
+<div class="cc-title">sessionStoragePortable.ts</div>
+<div class="cc-desc">便携 / 跨环境的 session storage 支撑层。为不同运行环境、导出 / 导入或 portable 使用场景提供 transcript / session storage 相关能力辅助，补充 sessionStorage.ts 的环境适配边界。</div>
+<div class="cc-quote">session 存储体系的 portable 适配层。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/utils/sessionStoragePortable.ts</span></div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag">6.3 · Layer B · 核心</div>
+<div class="cc-title">attachments.ts</div>
+<div class="cc-desc">attachment message 组装中心。收集文件变更、计划、memory、delta 信息，生成 attachment messages，让这些运行副作用以结构化方式回到下一轮 query。解决"很多重要状态不适合直接混进普通对话消息，但又必须让模型在下一轮看到"的问题。</div>
+<div class="cc-quote">运行时隐式状态显式化的注入器。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/utils/attachments.ts</span></div>
+</div>
+<div class="cc-card c-gray-card">
+<div class="cc-tag">6.4 · Layer C</div>
+<div class="cc-title">messages.ts</div>
+<div class="cc-desc">message 领域基础设施。compact boundary 判断，消息分类与提取，message 链操作基础逻辑，供 query / compact / sessionStorage / toolExecution 共用的消息 helper。</div>
+<div class="cc-quote">会话消息结构的共用工具层。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/utils/messages.ts</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag">6.5 · Layer D</div>
+<div class="cc-title">sessionMemory.ts</div>
+<div class="cc-desc">SessionMemory 主服务。当前 session 相关记忆的存取与组织，query / compact / stopHooks 与 memory 体系之间的桥接，relevant memory prefetch / restore 协同。</div>
+<div class="cc-quote">当前会话与 durable memory 之间的中介层。</div>
+<div class="cc-paths"><span class="cc-pill">services/SessionMemory/sessionMemory.ts</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag">6.6 · Layer D</div>
+<div class="cc-title">sessionMemoryUtils.ts</div>
+<div class="cc-desc">SessionMemory 辅助逻辑层。SessionMemory 的筛选、整理、转换、辅助计算，支撑 query / compact / restore 场景下的 memory 协同。</div>
+<div class="cc-quote">SessionMemory 的工具函数与策略辅助层。</div>
+<div class="cc-paths"><span class="cc-pill">services/SessionMemory/sessionMemoryUtils.ts</span></div>
+</div>
+<div class="cc-card c-teal-card">
+<div class="cc-tag">6.7 · Layer D</div>
+<div class="cc-title">SessionMemory prompts.ts</div>
+<div class="cc-desc">SessionMemory 相关 prompt 生成层。memory 提取、注入、摘要等场景使用的 prompt / 模板内容。</div>
+<div class="cc-quote">SessionMemory 与模型交互时的 prompt 模板层。</div>
+<div class="cc-paths"><span class="cc-pill">services/SessionMemory/prompts.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.8 · Layer E</div>
+<div class="cc-title">memdir/paths.ts</div>
+<div class="cc-desc">auto-memory 路径、安全边界与作用域规则中心。memory 功能是否启用、memory 路径来源解析、trusted settings only 的 path override、worktree-shared memory root、dangerous path 拒绝（root / UNC / relative / null-byte 等）。</div>
+<div class="cc-quote">auto-memory 的路径与安全守门员。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/paths.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.9 · Layer E</div>
+<div class="cc-title">findRelevantMemories.ts</div>
+<div class="cc-desc">relevant memories 检索层。根据当前任务、上下文或会话搜索最相关 memory 片段，给 query / session memory 注入阶段提供候选 memories。</div>
+<div class="cc-quote">从 memory 目录里找"当前最该带回来的记忆"。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/findRelevantMemories.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.10 · Layer E</div>
+<div class="cc-title">memdir.ts</div>
+<div class="cc-desc">memory 目录主服务层。memory 文件的读写、组织、基础访问逻辑，为 memory 扫描、查询、写入提供统一入口。</div>
+<div class="cc-quote">durable memory 目录的主服务封装层。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/memdir.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.11 · Layer E</div>
+<div class="cc-title">memoryAge.ts</div>
+<div class="cc-desc">memory 时效 / 新旧判断辅助层。判断 memory 的新鲜度、时间权重、排序辅助。</div>
+<div class="cc-quote">为 relevant memory 排序提供时间维度判断。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/memoryAge.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.12 · Layer E</div>
+<div class="cc-title">memoryScan.ts</div>
+<div class="cc-desc">memory 扫描器。扫描 memory 目录中的候选文件，为 relevant memory 检索或 memory index 构建提供输入。</div>
+<div class="cc-quote">memory 目录内容的发现与枚举器。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/memoryScan.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.13 · Layer E</div>
+<div class="cc-title">memoryTypes.ts</div>
+<div class="cc-desc">memory 类型定义层。定义 memory 记录、分类、候选项等相关类型。</div>
+<div class="cc-quote">memory 子系统的数据模型定义文件。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/memoryTypes.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.14 · Layer E</div>
+<div class="cc-title">teamMemPaths.ts</div>
+<div class="cc-desc">team memory 路径规则层。协作 / teammate 场景下的 memory 路径组织与归属规则。</div>
+<div class="cc-quote">团队 / 协作 memory 的路径规划器。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/teamMemPaths.ts</span></div>
+</div>
+<div class="cc-card c-coral-card">
+<div class="cc-tag">6.15 · Layer E</div>
+<div class="cc-title">teamMemPrompts.ts</div>
+<div class="cc-desc">team memory 相关 prompt 模板层。在 team memory 提取 / 使用时提供模型提示模板。</div>
+<div class="cc-quote">协作 memory 与模型交互时的 prompt 模板层。</div>
+<div class="cc-paths"><span class="cc-pill">source/src/memdir/teamMemPrompts.ts</span></div>
+</div>
+</div>
+</div>
+
+<div class="cc-section">
+<div class="cc-section-head">框架 IV · 内部关键关系图</div>
+<div class="cc-section-title">五条核心依赖链</div>
+<div class="cc-section-desc">原文档第 8 节：子系统内部文件之间的调用与协作关系</div>
+<div class="cc-grid-5">
+<div class="cc-card c-pink-card">
+<div class="cc-tag">关系 1</div>
+<div class="cc-title">sessionStorage 读写双向</div>
+<div class="cc-desc">写 transcript / metadata / snapshots，读 transcript 并修复 compact / snip / parallel tool 链。</div>
+</div>
+<div class="cc-card c-pink-card">
+<div class="cc-tag">关系 2</div>
+<div class="cc-title">attachments 收集回流</div>
+<div class="cc-desc">收集 runtime side effects，生成 attachment messages 给 query.ts。</div>
+</div>
+<div class="cc-card c-pink-card">
+<div class="cc-tag">关系 3</div>
+<div class="cc-title">SessionMemory 三向协同</div>
+<div class="cc-desc">调用 memdir 相关文件，同时与 query.ts、compact.ts、stopHooks.ts 协同工作。</div>
+</div>
+<div class="cc-card c-pink-card">
+<div class="cc-tag">关系 4</div>
+<div class="cc-title">memdir 检索链</div>
+<div class="cc-desc">paths.ts 决定存放位置与安全边界，findRelevantMemories.ts 从 memdir.ts / memoryScan.ts / memoryAge.ts 取候选并排序。</div>
+</div>
+<div class="cc-card c-pink-card">
+<div class="cc-tag">关系 5</div>
+<div class="cc-title">messages.ts 共享基础</div>
+<div class="cc-desc">为 sessionStorage.ts、compact.ts、query.ts 提供消息领域基础工具，是整个子系统的共享底座。</div>
+</div>
+</div>
+</div>
+
+<div class="cc-section">
+<div class="cc-section-head">框架 V · 五条设计结论</div>
+<div class="cc-section-title">最重要的架构判断</div>
+<div class="cc-section-desc">原文档第 9 节：这个子系统的五条设计结论，逐条列出不作省略</div>
+<div class="cc-grid-5">
+<div class="cc-card c-amber-card">
+<div class="cc-tag">结论 1</div>
+<div class="cc-title">resume 是恢复一个消息图</div>
+<div class="cc-desc">sessionStorage.ts 最关键的不是写文件，而是 compact boundary relink、snip removal relink、orphaned parallel tool results recovery、metadata / snapshot 恢复。transcript 已经不是简单日志，而是一个带拓扑的事件流。</div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag">结论 2</div>
+<div class="cc-title">attachments 是上下文回流机制</div>
+<div class="cc-desc">很多人容易把 attachment 当成 UI 附属物，但它是工具结果外的额外上下文补充机制，post-tool / post-compact / post-memory 的结构化回流层。attachment 是运行时的一等公民。</div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag">结论 3</div>
+<div class="cc-title">transcript 与 SessionMemory 与 memdir 不同</div>
+<div class="cc-desc">transcript 是原始事件流，SessionMemory 是当前 session 记忆协作层，memdir 是 durable memory 存储层。三者职责不同，但共同支撑长期会话能力。</div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag">结论 4</div>
+<div class="cc-title">auto-memory 路径安全是硬边界</div>
+<div class="cc-desc">memdir/paths.ts 最重要的不是路径拼接，而是哪些 source 可以设置 memory path、哪些危险路径必须拒绝、worktree 是否共享 memory root。memory 系统直接影响文件系统安全边界。</div>
+</div>
+<div class="cc-card c-amber-card">
+<div class="cc-tag">结论 5</div>
+<div class="cc-title">长期连续性的真正底座</div>
+<div class="cc-desc">没有它，就没有长期 session continuity、compact 后继续工作、resume / continue 的可靠恢复、memory 驱动的下一轮上下文增强。</div>
+</div>
+</div>
+</div>
+
+</div>

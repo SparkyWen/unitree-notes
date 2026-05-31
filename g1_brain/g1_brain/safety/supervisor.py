@@ -43,11 +43,18 @@ log = logging.getLogger(__name__)
 # Canonical tool names that brain + SkillServer + supervisor all agree on.
 ALLOWED_TOOLS_NO_MOTION: Set[str] = {
     "say",
+    "ask_human",
     "describe_scene",
     "query_scene_state",
     "recall_history",
+    "recall_grep",
+    "recall_read",
+    "recall_glob",
+    "ask_slow_brain",
     "stop",
     "release_arms",
+    "start_phone_call",
+    "end_call",
 }
 ALLOWED_MOTION_TOOLS: Set[str] = {
     "walk",
@@ -124,6 +131,13 @@ async def _confirm_in_terminal(
          then fired with the user's ``y`` still sitting unconfirmed —
          "operator declined in confirm mode" with no way to recover.
 
+    Timeout was bumped from 15 s -> 60 s after a vision_gate=RISK call
+    used up ~14 s of vision latency, leaving the operator under one
+    second to read the printed ``[RISK]`` reason and decide before the
+    prompt declined itself. The timeout must also stay below
+    ``audio_control.plan_watchdog_s`` so the conversation state machine
+    does not force plan_done while the operator is still deciding.
+
     cbreak mode delivers each keypress as soon as it arrives, so ``y``
     accepts immediately, ``n`` (and any other key) declines immediately,
     and there is no readline-versus-stale-bytes race. We still strip
@@ -186,7 +200,7 @@ async def _confirm_in_terminal(
     loop = asyncio.get_event_loop()
     try:
         raw = await asyncio.wait_for(
-            loop.run_in_executor(None, _read_one_keypress), timeout=15.0
+            loop.run_in_executor(None, _read_one_keypress), timeout=60.0
         )
     except asyncio.TimeoutError:
         print("[g1_brain confirm] timed out, declining.", file=sys.stderr)
@@ -495,6 +509,21 @@ class SafetySupervisor:
             if len(text) > max_chars:
                 text = text[:max_chars]
             return {"text": text}
+        if tool == "ask_human":
+            # ask_human shares the say tool's character budget — both end up
+            # synthesising a single short utterance through OpenAI TTS. The
+            # tool was missing from the whitelist; the brain prompt
+            # advertised it and the LLM would call it for clarifications
+            # ("how far do you want to walk?"), only for the supervisor to
+            # reject it as 'unknown tool' and the user's original intent
+            # ("walk forward") to disappear into a fallback say().
+            question = str(args.get("question", "")).strip()
+            if not question:
+                return None
+            max_chars = int(self._say_cfg.get("max_chars", 200))
+            if len(question) > max_chars:
+                question = question[:max_chars]
+            return {"question": question}
         if tool == "describe_scene":
             # OpenAI's Responses API only accepts these four values for
             # input_image.detail — passing anything else 400's the request.
@@ -522,6 +551,71 @@ class SafetySupervisor:
                 pass
             return sanitized
         if tool in {"stop", "release_arms"}:
+            return {}
+        if tool == "recall_grep":
+            pattern = str(args.get("pattern", "")).strip()
+            if not pattern:
+                return None
+            scope = args.get("scope", "registry")
+            if scope not in ("registry", "rollouts", "jsonl", "all"):
+                scope = "registry"
+            sanitized: Dict[str, Any] = {"pattern": pattern, "scope": scope}
+            sid = args.get("session_id")
+            if isinstance(sid, str) and sid:
+                sanitized["session_id"] = sid
+            try:
+                if "max_lines" in args:
+                    sanitized["max_lines"] = max(1, min(100, int(args["max_lines"])))
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "recall_read":
+            path = str(args.get("path", "")).strip()
+            if not path:
+                return None
+            sanitized = {"path": path}
+            try:
+                if "start_line" in args:
+                    sanitized["start_line"] = max(1, int(args["start_line"]))
+            except (TypeError, ValueError):
+                pass
+            try:
+                if args.get("end_line") is not None:
+                    sanitized["end_line"] = max(1, int(args["end_line"]))
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "recall_glob":
+            pattern = str(args.get("pattern", "")).strip()
+            if not pattern:
+                return None
+            sanitized = {"pattern": pattern}
+            try:
+                if "limit" in args:
+                    sanitized["limit"] = max(1, min(200, int(args["limit"])))
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "ask_slow_brain":
+            query = str(args.get("query", "")).strip()
+            if not query:
+                return None
+            sanitized = {"query": query}
+            try:
+                if "timeout_s" in args:
+                    t = float(args["timeout_s"])
+                    sanitized["timeout_s"] = _clip(t, 3.0, 90.0)
+            except (TypeError, ValueError):
+                pass
+            return sanitized
+        if tool == "start_phone_call":
+            sanitized: Dict[str, Any] = {}
+            to = args.get("to")
+            if isinstance(to, str) and to.strip():
+                sanitized["to"] = to.strip()
+            return sanitized
+        if tool == "end_call":
+            # end_call takes no parameters.
             return {}
         return None
 

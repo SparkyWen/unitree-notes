@@ -32,18 +32,61 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from va_demo.realtime_agent import RealtimeAgent  # type: ignore
+import websockets
+
+from va_demo.realtime_agent import REALTIME_URL, RealtimeAgent  # type: ignore
 
 from ..scene_state.fusion import SceneStateBus
 from .prompts import (
+    PHONE_DIAL_GUIDANCE,
     REALTIME_SYSTEM_PROMPT_BRAIN,
     REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY,
 )
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------- keepalive --
+#
+# va-demo opens the Realtime WS with the websockets-library defaults
+# (ping_interval=20s, ping_timeout=20s). That is far too tight for the brain:
+# a SINGLE tool dispatch runs *inline* in the downlink coroutine and can
+# legitimately take tens of seconds — the vision-risk gate (up to its ~30s
+# budget) + an operator y/N confirm (up to 60s) + a turn/walk (up to 14s).
+# On top of that, in-process perception (CPU MuJoCo head-cam render on Mesa
+# llvmpipe + dual YOLO + MediaPipe) periodically starves the asyncio loop
+# thread of the GIL for multiple seconds at a time (boot logs: "a 1.0s sleep
+# took 5.69s"). Either way the keepalive pong is not serviced within 20s,
+# websockets closes the socket with `1011 keepalive ping timeout`, the
+# downlink re-raises, and — because nothing above it reconnects — the whole
+# agent shut down mid-conversation (field log 2026-05-27 17:14:04).
+#
+# We keep a 20s ping_interval (cheap NAT/proxy keepalive) but widen the pong
+# budget well past the worst-case dispatch so a healthy-but-slow turn can't
+# trip it, while still keeping a finite ceiling so a genuinely dead peer is
+# eventually detected and triggers a reconnect.
+_PING_INTERVAL_S: float = 20.0
+_PING_TIMEOUT_S: float = 180.0
+
+# Reconnect policy for a genuine drop (network blip, server-side 1011, or a
+# stall beyond _PING_TIMEOUT_S). Rather than tear the whole robot session
+# down, run() re-opens the Realtime session in place — mic/speaker/perception/
+# robot all stay up. The in-session conversation history is lost (a new WS is
+# a new server-side session), but the developer instructions (incl. the
+# long-term memory addendum) are re-sent on every connect, so Sparky keeps its
+# persistent context. Exponential backoff caps the retry rate; a session that
+# stays up at least _HEALTHY_SESSION_S resets the failure budget so each
+# independent drop gets a full set of retries, while a connection that drops
+# immediately on open accumulates failures and — after _MAX_RECONNECT_ATTEMPTS
+# in a row — gives up and lets run() raise (falling through to normal shutdown).
+_RECONNECT_BACKOFF_S: float = 1.0
+_RECONNECT_BACKOFF_MAX_S: float = 15.0
+_MAX_RECONNECT_ATTEMPTS: int = 6
+_HEALTHY_SESSION_S: float = 30.0
 
 
 # Type-only; the concrete SkillServer class is built by the skills agent and
@@ -68,6 +111,10 @@ class BrainRealtimeAgent(RealtimeAgent):
     # when mock_imitation.enabled is false in the YAML config so the brain
     # cannot call mock_imitate spontaneously when it sees the user wave.
     mock_imitate_enabled: bool = True
+    # Whether to expose start_phone_call to the LLM. Set True from the apps
+    # wiring when --enable-phone is on (or cfg.phone.enabled=true) so the
+    # local Realtime model can dial out via Twilio.
+    phone_enabled: bool = False
 
     # ---- new hooks consumed by ConversationStateMachine + Logger ----
     # Each is invoked from the asyncio loop thread (we are already inside the
@@ -79,9 +126,20 @@ class BrainRealtimeAgent(RealtimeAgent):
     on_tool_result: Optional[Callable[[str, str, Dict[str, Any]], None]] = None
     on_response_canceled: Optional[Callable[[str], None]] = None
     on_plan_done: Optional[Callable[[], None]] = None
+    # Fired once, the first time the Realtime session is up (session.created).
+    # agent_main uses it to print a loud "now listening" banner so the operator
+    # knows when "Hi Sparky" will actually be heard — startup buries that
+    # moment ~60-70 s deep under DDS / perception / OpenAI log noise.
+    on_session_ready: Optional[Callable[[], None]] = None
+    # Fired after a *reconnect* (not the first connect) re-establishes the
+    # Realtime session. The previous turn's state died with the old socket, so
+    # agent_main wires this to ConversationStateMachine.force_idle() to land
+    # the SM back in a clean wake-ready IDLE state.
+    on_reconnect: Optional[Callable[[], None]] = None
 
     def __post_init__(self):
         super().__post_init__()
+        self._session_ready_fired: bool = False
         if self.skill_server is None:
             log.warning(
                 "BrainRealtimeAgent created without skill_server; tool calls "
@@ -116,14 +174,182 @@ class BrainRealtimeAgent(RealtimeAgent):
         self._cancelled_response_ids: List[str] = []
         self._cancelled_response_id_cap: int = 16
 
+        # Last connection-level error, kept so run()'s give-up path can
+        # re-raise the actual cause into the logs rather than a generic one.
+        self._last_conn_exc: Optional[BaseException] = None
+
     # ------------------------------------------------------------------ hooks
 
+    # Additional developer-instructions text appended at session open time.
+    # The memory subsystem fills this with curated long-term context
+    # (memory_summary.md + AGENTS.md) so the Realtime model starts each
+    # session knowing what was learned in prior ones.
+    _instructions_addendum: str = ""
+
+    def append_developer_instructions(self, addendum: str) -> None:
+        """Append text to the developer instructions before the session opens.
+
+        Must be called BEFORE .run(). After that, instructions are baked
+        into the Realtime session and a session.update would be required
+        to change them mid-session (we intentionally do not do that for
+        latency reasons).
+        """
+        if not addendum:
+            return
+        if self._instructions_addendum:
+            self._instructions_addendum = self._instructions_addendum + "\n\n" + addendum
+        else:
+            self._instructions_addendum = addendum
+
+    # ------------------------------------------------------------- run loop --
+
+    async def run(self):
+        """Open the Realtime session and keep it alive across transient drops.
+
+        Override of ``va_demo.RealtimeAgent.run()`` (va-demo is intentionally
+        left unmodified — see the module docstring). Two behavioural changes,
+        both motivated by the 2026-05-27 field crash:
+
+        1. **Keepalive.** Open the WS with ``ping_timeout`` widened from the
+           websockets default 20 s to ``_PING_TIMEOUT_S`` so a long-but-healthy
+           tool dispatch (vision gate + operator confirm + walk) or a GIL stall
+           from in-process perception cannot trip a spurious
+           ``1011 keepalive ping timeout``.
+        2. **Resilience.** A genuine connection drop reconnects the session in
+           place instead of propagating out of ``run()`` and tearing down the
+           whole agent (mic/speaker/robot). ``on_reconnect`` fires after each
+           successful re-open so the state machine can reset to IDLE.
+
+        The orchestration (connect → session.update → uplink/downlink tasks →
+        wait FIRST_COMPLETED) mirrors the parent; we wrap it in a reconnect
+        loop. ``CancelledError`` (shutdown) is never swallowed.
+        """
+        url = REALTIME_URL.format(model=self.model)
+        headers = [("Authorization", f"Bearer {self.api_key}")]
+        connect_kwargs = {
+            "max_size": 16 * 1024 * 1024,
+            "ping_interval": _PING_INTERVAL_S,
+            "ping_timeout": _PING_TIMEOUT_S,
+        }
+
+        connected_once = False
+        failures = 0
+        while True:
+            # Back off before a retry (never before the first attempt).
+            if failures:
+                if failures > _MAX_RECONNECT_ATTEMPTS:
+                    log.error(
+                        "Realtime session failed %d consecutive times; giving "
+                        "up (agent will shut down)", failures,
+                    )
+                    raise self._last_conn_exc or RuntimeError(
+                        "Realtime session unrecoverable"
+                    )
+                backoff = min(
+                    _RECONNECT_BACKOFF_S * (2 ** (failures - 1)),
+                    _RECONNECT_BACKOFF_MAX_S,
+                )
+                log.warning(
+                    "reconnecting Realtime session in %.1fs (failure %d/%d)",
+                    backoff, failures, _MAX_RECONNECT_ATTEMPTS,
+                )
+                await asyncio.sleep(backoff)
+
+            # ---- connect ----
+            try:
+                try:
+                    ws = await websockets.connect(
+                        url, additional_headers=headers, **connect_kwargs
+                    )
+                except TypeError:
+                    # Older websockets used extra_headers= instead.
+                    ws = await websockets.connect(
+                        url, extra_headers=headers, **connect_kwargs
+                    )
+            except (OSError, websockets.WebSocketException, asyncio.TimeoutError) as e:
+                self._last_conn_exc = e
+                failures += 1
+                log.warning("Realtime connect failed: %s", e)
+                continue
+
+            # ---- run one session ----
+            session_start = time.monotonic()
+            drop_exc: Optional[BaseException] = None
+            async with ws:
+                self._ws = ws
+                try:
+                    await self._session_update(ws)
+                    if connected_once:
+                        # This is a reconnect: the prior turn's server-side
+                        # state is gone. Let the app reset the SM to IDLE.
+                        self._emit_reconnect()
+                    connected_once = True
+                    uplink = asyncio.create_task(self._uplink(ws), name="rt-uplink")
+                    downlink = asyncio.create_task(self._downlink(ws), name="rt-downlink")
+                    try:
+                        done, pending = await asyncio.wait(
+                            {uplink, downlink}, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for t in pending:
+                            t.cancel()
+                        for t in done:
+                            exc = t.exception()
+                            if exc is not None:
+                                drop_exc = exc
+                    finally:
+                        uplink.cancel()
+                        downlink.cancel()
+                finally:
+                    self._ws = None
+
+            # ---- decide: return, reconnect, or propagate ----
+            if drop_exc is None:
+                # Both tasks ended without error (e.g. the server closed the
+                # stream cleanly). The session is genuinely over.
+                return
+            if isinstance(drop_exc, (websockets.WebSocketException, OSError, asyncio.TimeoutError)):
+                session_dur = time.monotonic() - session_start
+                self._last_conn_exc = drop_exc
+                if session_dur >= _HEALTHY_SESSION_S:
+                    # A session that stayed up a healthy while resets the budget
+                    # so this independent drop gets a fresh set of retries.
+                    failures = 1
+                else:
+                    # Dropped almost immediately — accumulate so we can't
+                    # hot-loop against a hard failure.
+                    failures += 1
+                log.warning(
+                    "Realtime session dropped after %.0fs: %s — reconnecting",
+                    session_dur, drop_exc,
+                )
+                continue
+            # Not a connection error — a real bug in event handling. Propagate
+            # so it isn't silently retried forever.
+            raise drop_exc
+
+    def _emit_reconnect(self) -> None:
+        if self.on_reconnect is None:
+            return
+        try:
+            self.on_reconnect()
+        except Exception:
+            log.exception("on_reconnect raised")
+
     def _resolve_instructions(self) -> str:
-        return (
+        base = (
             REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY
             if self.vision_only
             else REALTIME_SYSTEM_PROMPT_BRAIN
         )
+        # When this agent can actually place calls (start_phone_call is in its
+        # tool list), teach it the "omit `to` to call the operator" rule so a
+        # misheard digit can't derail "call me". The phone-side session filters
+        # start_phone_call out, so it never needs this.
+        if self.phone_enabled and not self.vision_only:
+            base = base + "\n\n" + PHONE_DIAL_GUIDANCE
+        if self._instructions_addendum:
+            return base + "\n\n" + self._instructions_addendum
+        return base
 
     def _resolve_tool_schemas(self) -> List[Dict[str, Any]]:
         # Lazy import so `g1_brain.brain` can be imported in tests that don't
@@ -134,9 +360,10 @@ class BrainRealtimeAgent(RealtimeAgent):
             sim=True,
             vision_only=self.vision_only,
             mock_imitate_enabled=self.mock_imitate_enabled,
+            phone_enabled=self.phone_enabled,
         )
 
-    async def _execute_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_tool(self, name: str, args: Dict[str, Any], *, call_id: str = "") -> Dict[str, Any]:
         """Route every tool call to the SkillServer.
 
         We intentionally do NOT pre-validate here — the SkillServer runs its
@@ -147,6 +374,11 @@ class BrainRealtimeAgent(RealtimeAgent):
         if self.skill_server is None:
             return {"ok": False, "reason": "skill_server not wired"}
         try:
+            # call_id is propagated as a keyword for action_result logging
+            # and ask_slow_brain cancel-token tracking; older skill servers
+            # without the kwarg fall back transparently.
+            return await self.skill_server.execute(name, args, call_id=call_id)
+        except TypeError:
             return await self.skill_server.execute(name, args)
         except Exception as e:  # noqa: BLE001 — we want to surface anything
             log.exception("skill_server.execute(%s) raised", name)
@@ -180,7 +412,9 @@ class BrainRealtimeAgent(RealtimeAgent):
             log.debug("dropping event %s for cancelled response %s", t, rid)
             return
 
-        if t == "response.audio.delta":
+        # GA renamed the streaming audio + transcript events (see va_demo
+        # for the migration note).
+        if t == "response.output_audio.delta":
             b64 = evt.get("delta", "")
             if b64:
                 self.speaker.write(base64.b64decode(b64))
@@ -189,15 +423,15 @@ class BrainRealtimeAgent(RealtimeAgent):
                         self.on_response_audio_delta()
                     except Exception:
                         log.exception("on_response_audio_delta raised")
-        elif t == "response.audio.done":
+        elif t == "response.output_audio.done":
             pass
-        elif t == "response.audio_transcript.delta":
+        elif t == "response.output_audio_transcript.delta":
             piece = evt.get("delta", "")
             if piece:
                 print(piece, end="", flush=True)
                 if self.spoken_cache is not None:
                     self.spoken_cache.add(piece)
-        elif t == "response.audio_transcript.done":
+        elif t == "response.output_audio_transcript.done":
             print()  # newline
             transcript = evt.get("transcript", "")
             if transcript:
@@ -236,7 +470,17 @@ class BrainRealtimeAgent(RealtimeAgent):
                    "rate_limits.updated", "response.output_item.added",
                    "response.output_item.done", "response.content_part.added",
                    "response.content_part.done", "input_audio_buffer.committed",
-                   "input_audio_buffer.speech_stopped", "conversation.item.created"):
+                   "input_audio_buffer.speech_stopped",
+                   # GA split conversation.item.created into added + done.
+                   "conversation.item.added", "conversation.item.done",
+                   "conversation.item.created"):
+            if t == "session.created" and not self._session_ready_fired:
+                self._session_ready_fired = True
+                if self.on_session_ready is not None:
+                    try:
+                        self.on_session_ready()
+                    except Exception:
+                        log.exception("on_session_ready raised")
             log.debug("rt event: %s", t)
         else:
             log.debug("rt event (unhandled): %s", t)
@@ -299,15 +543,19 @@ class BrainRealtimeAgent(RealtimeAgent):
         log.info("tool call: %s(%s)", name, args)
         self._emit_tool_use(call_id, name, args)
 
-        ok, reason, sanitized = await self.safety.validate(name, args)
-        if not ok:
-            result: Dict[str, Any] = {"ok": False, "reason": reason}
-        else:
-            try:
-                result = await self._execute_tool(name, sanitized)
-            except Exception as e:  # noqa: BLE001
-                log.exception("tool exception: %s", e)
-                result = {"ok": False, "reason": f"exception: {e!s}"}
+        # Single validation point: skill_server.execute() runs the
+        # SafetySupervisor pass (incl. the vision-risk gate AND the operator
+        # confirm prompt) internally and sanitizes the args. We must NOT
+        # pre-validate here too — doing so gated every motion call twice: two
+        # vision evaluations and, on a RISK verdict, TWO terminal y/N prompts
+        # for a single walk (field log 2026-05-26: one walk → confirm 'y' →
+        # confirm 'y' → execute). _execute_tool's own docstring already
+        # documents this contract; _dispatch_tool used to violate it.
+        try:
+            result = await self._execute_tool(name, args, call_id=call_id)
+        except Exception as e:  # noqa: BLE001
+            log.exception("tool exception: %s", e)
+            result = {"ok": False, "reason": f"exception: {e!s}"}
 
         self._emit_tool_result(call_id, name, result)
 

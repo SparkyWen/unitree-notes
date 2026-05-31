@@ -1,0 +1,16 @@
+{
+  "name": "fixture-3-followup-date",
+  "language": "zh",
+  "turns": [
+    {
+      "item_id": "itm-1",
+      "previous_item_id": null,
+      "speaker_label": "doctor",
+      "transcript": "如果三天后还发烧，周五回来复诊。"
+    }
+  ],
+  "expected": {
+    "must_have_drafts": ["follow_up"],
+    "force_invariants": ["every_draft_requires_confirmation"]
+  }
+}

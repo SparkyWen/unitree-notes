@@ -34,7 +34,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional  # noqa: F401
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +52,52 @@ def _filename_now_iso() -> str:
 
 def _short_uuid() -> str:
     return uuid.uuid4().hex[:8]
+
+
+def _safe_attr(obj: Any, name: str, default: Any = None) -> Any:
+    """getattr with isinstance fallback for dataclasses or dicts."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _safe_user_field(scene_state: Any, field: str) -> Any:
+    """Safely pluck scene_state.user.<field>."""
+    if scene_state is None:
+        return None
+    user = _safe_attr(scene_state, "user")
+    if user is None:
+        return None
+    return _safe_attr(user, field)
+
+
+def _safe_list(obj: Any, name: str) -> list:
+    val = _safe_attr(obj, name)
+    if isinstance(val, (list, tuple, set)):
+        return list(val)
+    return []
+
+
+def _summarize_detections(scene_state: Any) -> Dict[str, Dict[str, int]]:
+    """Best-effort detections summary: {camera_name: {class_name: count}}."""
+    result: Dict[str, Dict[str, int]] = {}
+    detections = _safe_attr(scene_state, "detections")
+    if detections is None:
+        return result
+    # detections may be a dict of {camera: list_of_detections}
+    if isinstance(detections, dict):
+        for cam_name, det_list in detections.items():
+            counts: Dict[str, int] = {}
+            if isinstance(det_list, (list, tuple)):
+                for d in det_list:
+                    cls = _safe_attr(d, "class_name") or _safe_attr(d, "label")
+                    if cls:
+                        counts[str(cls)] = counts.get(str(cls), 0) + 1
+            if counts:
+                result[str(cam_name)] = counts
+    return result
 
 
 def _trim_text(text: str, max_bytes: int) -> str:
@@ -281,6 +327,94 @@ class ConversationLogger:
 
     def log_error(self, *, where: str, msg: str) -> None:
         self._emit_meta("error", {"where": where, "msg": msg})
+
+    # ---- memory-subsystem event helpers ------------------------------
+
+    def log_scene_snapshot(
+        self,
+        *,
+        trigger: str,
+        scene_state: Any,
+        frame_paths: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record a keyframe of the perceived scene.
+
+        Triggered at turn_start, pre_motion, post_motion. Not for every
+        perception frame — only inflection points the memory pipeline
+        should see.
+
+        Best-effort: extracts whatever fields are available from
+        scene_state; missing fields become None. Caller-side failure to
+        snapshot must never propagate out.
+        """
+        try:
+            data: Dict[str, Any] = {
+                "ts_ms": int(time.time() * 1000),
+                "trigger": trigger,
+                "persons_visible": _safe_attr(scene_state, "persons_visible"),
+                "user_pose": _safe_user_field(scene_state, "pose"),
+                "user_gesture": _safe_user_field(scene_state, "gesture"),
+                "nearest_person_m": _safe_attr(scene_state, "nearest_person_m"),
+                "nearest_obstacle_m": _safe_attr(scene_state, "nearest_obstacle_m"),
+                "ground_constraint": _safe_attr(scene_state, "ground_constraint"),
+                "warnings": _safe_list(scene_state, "warnings"),
+                "detections_summary": _summarize_detections(scene_state),
+                "frame_ref": (
+                    {k: str(v) for k, v in frame_paths.items()}
+                    if frame_paths else None
+                ),
+            }
+            self._emit_meta("scene_snapshot", data)
+        except Exception:  # noqa: BLE001
+            log.exception("log_scene_snapshot failed; dropped")
+
+    def log_action_result(
+        self,
+        *,
+        tool_use_id: str,
+        tool_name: str,
+        args: Dict[str, Any],
+        status: str,
+        blocked_reason: Optional[str] = None,
+        outcome_metrics: Optional[Dict[str, Any]] = None,
+        result_payload_brief: str = "",
+    ) -> None:
+        try:
+            self._emit_meta("action_result", {
+                "ts_ms": int(time.time() * 1000),
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "args": args,
+                "status": status,
+                "blocked_reason": blocked_reason,
+                "outcome_metrics": outcome_metrics,
+                "result_payload_brief": (result_payload_brief or "")[:256],
+            })
+        except Exception:  # noqa: BLE001
+            log.exception("log_action_result failed; dropped")
+
+    def log_safety_event(
+        self,
+        *,
+        kind: str,
+        rule: Optional[str] = None,
+        from_state: Optional[str] = None,
+        to_state: Optional[str] = None,
+        details: str = "",
+        associated_tool_use_id: Optional[str] = None,
+    ) -> None:
+        try:
+            self._emit_meta("safety_event", {
+                "ts_ms": int(time.time() * 1000),
+                "kind": kind,
+                "rule": rule,
+                "from_state": from_state,
+                "to_state": to_state,
+                "details": (details or "")[:512],
+                "associated_tool_use_id": associated_tool_use_id,
+            })
+        except Exception:  # noqa: BLE001
+            log.exception("log_safety_event failed; dropped")
 
     # ------------------------------------------------------------------ internals
 

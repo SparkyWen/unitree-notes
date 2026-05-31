@@ -1,0 +1,123 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">动态运行主流程</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">系统启动之后一次完整任务怎么跑完：从 argv fast-path 到 transcript 落盘</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 260px;gap:12px">
+
+<!-- 左列 · 主流程 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="display:flex;align-items:center;gap:8px"><span style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 01</span></div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">用户启动 Claude Code / 输入任务</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">CLI 进程拉起，等待 argv 分流决定走哪条入口</div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 02</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">entrypoints/cli.tsx · fast-path 分流</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">argv fast-path 分流，简单命令直接处理，复杂路径懒加载 main.tsx</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints/cli.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 03</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">main.tsx · 初始化与模式路由</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">初始化主命令/模式，决定 interactive 或 headless，调 init.ts / setup.ts</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">main.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 04</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">init.ts + setup.ts · 环境就绪</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">enableConfigs、safe env → full env、trust/onboarding/hooks、cwd/projectRoot/session、worktree/tmux/messaging/watchers/prefetch</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">init.ts · setup.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 05</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">构建运行时基础输入</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">settings 多源合并、config 读取、auth/provider 状态、命令池、工具池（含 MCP）、system/user context 生成</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">settings.ts · config.ts · auth.ts · commands.ts · tools.ts · context.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 06</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">进入 REPL / Headless 执行</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">交互模式挂载 REPL 屏幕，-p 模式直接 drain stream 到 stdout</div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 07 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">query.ts 主循环装配</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">准备 messages + system prompt + contexts + tools，执行上下文治理 snip / microcompact / autoCompact / collapse</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Step 08</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">services/api/claude.ts · 模型流式请求</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">构造 API params、注入 model/provider/auth/tool schemas/cache strategy、streaming 接收 assistant blocks</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/api/claude.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Step 09</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">assistant message / tool_use 到达</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">流式到达 assistant blocks，含文本与 tool_use 条目，流式执行器同步调度</div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 10</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">StreamingToolExecutor · 工具调度</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">runToolUse → toolExecution，pre/post hooks + permission + progress + tool_result</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">StreamingToolExecutor.ts · toolExecution.ts</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 11</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具结果回灌</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">tool_result messages、file/plan/agent/deferred-tool/memory attachments、SessionMemory 相关记忆 prefetch</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">attachments.ts · SessionMemory/**</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 12 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">query.ts 决策</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">还要继续吗？stopHooks / tokenBudget / continuation：需要则进入下一轮 queryLoop，结束则 transcript / config / memory / telemetry 落盘</div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:11px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Step 13</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">任务完成 / 等待下一次输入</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">本轮产物落盘，会话继续等待用户下一次输入或 headless 模式退出进程</div>
+</div>
+
+</div>
+
+<!-- 右列 · 侧分支 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="margin-top:370px;background:#FCEBEB;border:0.5px dashed #E24B4A;border-radius:8px;padding:10px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#A32D2D;text-transform:uppercase">Branch · 错误恢复</div>
+<div style="font-size:11px;font-weight:500;color:#501313;margin-top:4px">从 Step 08 分叉</div>
+<div style="font-size:10px;line-height:1.5;color:#791F1F;margin-top:4px">withRetry 接住 prompt-too-long / media / max_tokens 错误，触发 fallback / retry / cooldown / compact retry</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F7C1C1;color:#501313;padding:2px 6px;border-radius:10px">withRetry.ts · errors.ts</span></div>
+</div>
+
+<div style="margin-top:96px;background:#FCEBEB;border:0.5px dashed #E24B4A;border-radius:8px;padding:10px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#A32D2D;text-transform:uppercase">Branch · MCP 调用</div>
+<div style="font-size:11px;font-weight:500;color:#501313;margin-top:4px">从 Step 10 分叉</div>
+<div style="font-size:10px;line-height:1.5;color:#791F1F;margin-top:4px">若调用的是 MCP 工具，走 mcp/client.ts 的 connect/call/retry/auth 与大输出持久化</div>
+<div style="margin-top:6px"><span style="font-family:var(--font-mono);font-size:9px;background:#F7C1C1;color:#501313;padding:2px 6px;border-radius:10px">services/mcp/client.ts</span></div>
+</div>
+
+</div>
+
+</div>
+
+</div>

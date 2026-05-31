@@ -1,0 +1,156 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">状态与持久化双层架构</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">两层内存状态并存，onChangeAppState 汇集所有副作用，分别落到 JSONL 存档与双层配置文件</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+
+<!-- 列 1 · 进程级内存 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Tier A · Process</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">全局会话单例</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">纯模块级 STATE 常量，80+ 字段含 sessionId、cwd、费用、模型用量与遥测计数器</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">bootstrap/state.ts · 1758 行</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Tier A · Access</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">150+ getter 与 setter</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">不直接暴露 STATE 对象，所有读写走函数入口，便于叠加锁存、校验与遥测</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">setSession · getCwd · 等</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Tier A · Scope</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">跨 React 树的数据</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">遥测、API 请求缓存、beta header 锁存等不应触发 UI 重渲染的数据专门留在这一层</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">latched headers · telemetry</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 会话级 React 内存 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Tier B · Primitive</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">createStore 极简实现</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">35 行完成 getState、setState、subscribe，Object.is 跳过无效更新，零外部依赖</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">state/store.ts · 35 行</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Tier B · Schema</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">AppState 240+ 字段</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">messages、tools、mcp、permissions、tasks、plugins 等所有 React 树需要的运行时数据</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">AppStateStore.ts · 450+ 行</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Tier B · Hooks</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">useAppState selector</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">基于 useSyncExternalStore 实现 React 18 并发安全，只在选择器返回值变化时触发重渲染</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">state/AppState.tsx</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 变更同步枢纽 琥珀 CORE -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Core · Hub</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">唯一副作用入口</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">setState 后的副作用分发器，之前 8 条路径中有 6 条漏掉 CCR 同步，现在收束为一</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">onChangeAppState.ts</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Core · Listeners</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">四类变更监听</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">权限模式、模型、设置、Bridge 模式各自触发持久化与 CCR、SDK 通知的不同组合</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">permission · model · settings · bridge</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Design Note</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">为什么是枢纽</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">内存状态与外部世界（磁盘、CCR、SDK、遥测）之间的唯一协议同步点，彻底杜绝漏同步</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">single source of side effects</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 会话存档 蓝 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Disk · Transcript</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">JSONL 追加日志</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">每条消息一行 JSON，追加写入 ~/.claude/projects/{proj}/{sessionId}.jsonl</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">sessionStorage.ts · 5105 行</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Disk · Queue</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">异步写入队列</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">写入队列串行化防并发冲突，UUID 去重防重写，支持 CCR 同步并行上传到远端</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">recordTranscript</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Disk · Resume</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">/resume 与 agent 侧链</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">按 sessionId 恢复完整对话，agent 子代理写入子目录的独立 transcript 避免污染主线</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">loadTranscriptFromFile</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 配置与历史 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Disk · Config</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">双层配置文件</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">全局 ~/.claude.json 与项目 .claude/.config.json，文件锁防并发，缓存防重复读</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">utils/config.ts · 1817 行</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Disk · History</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">命令历史</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">readline 风格把用户输入持久化到 ~/.claude/history，支持上下箭头跨会话回溯</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">history.ts</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Disk · Cost</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">费用追踪</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">从 bootstrap/state 重导出费用字段，按模型计价累加后持久化到项目配置供跨会话查询</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">cost-tracker.ts</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>进程级内存</div>
+<span style="color:var(--color-text-tertiary)">·</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>会话级 React 内存</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>变更同步枢纽</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>会话存档</div>
+<span style="color:var(--color-text-tertiary)">·</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>配置与历史</div>
+</div>
+
+</div>

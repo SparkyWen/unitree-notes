@@ -25,12 +25,22 @@ class PerceptionRunner:
         config: dict,
         scene_bus: SceneStateBus,
         robot_bus: Optional[RobotStateBus] = None,
+        camera_hub: Optional[CameraHub] = None,
     ):
         self._cfg = config or {}
         self._scene = scene_bus
         self._robot = robot_bus
 
-        self._cams: Optional[CameraHub] = None
+        # When agent_main already built a CameraHub (for skills/vision/
+        # describe_scene), REUSE it instead of building a second one. Each
+        # MuJoCoHeadCamera spins its own offscreen render thread that renders
+        # the SAME head camera on Mesa llvmpipe (~160 ms/frame); two hubs meant
+        # two render threads → doubled CPU and doubled DDS subscribers for zero
+        # benefit (py-spy showed two "g1-brain-head-render" threads pegging
+        # llvmpipe). agent_main owns the injected hub's lifecycle, so we must
+        # NOT close it in stop(); only a hub WE built is ours to close.
+        self._cams: Optional[CameraHub] = camera_hub
+        self._owns_cams = camera_hub is None
         self._yolo = None
         self._pose = None
         self._depth_backend = None
@@ -45,10 +55,12 @@ class PerceptionRunner:
         if self._started:
             return
         self._started = True
-        self._cams = CameraHub(
-            self._cfg.get("cameras", {}),
-            robot_mjcf_path=(self._cfg.get("robot", {}) or {}).get("mjcf_path"),
-        )
+        if self._cams is None:
+            self._cams = CameraHub(
+                self._cfg.get("cameras", {}),
+                robot_mjcf_path=(self._cfg.get("robot", {}) or {}).get("mjcf_path"),
+            )
+            self._owns_cams = True
 
         perc = self._cfg.get("perception", {}) or {}
         device = perc.get("device", "auto")
@@ -139,7 +151,10 @@ class PerceptionRunner:
                     t.join(timeout=1.0)
                 except Exception:
                     pass
-        if self._cams is not None:
+        # Only close a hub we built. An injected hub belongs to agent_main,
+        # which closes it in its own shutdown step (double-close would race
+        # the render thread's GL-context teardown).
+        if self._cams is not None and self._owns_cams:
             self._cams.close()
 
     # ---------------- background loops ----------------

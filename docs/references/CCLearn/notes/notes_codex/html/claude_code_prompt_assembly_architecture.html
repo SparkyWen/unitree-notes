@@ -1,0 +1,289 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:1.25rem">
+  <div style="font-size:18px;font-weight:500;letter-spacing:-0.01em">Claude Code · Prompt 装配与缓存框架</div>
+  <div style="font-size:11px;color:var(--color-text-secondary);margin-top:4px">静态基底 → 运行时注入 → 工具 / Skill → 核心编译中枢 claude.ts → 缓存压缩策略</div>
+  <div style="height:0.5px;background:var(--color-border-tertiary);margin-top:10px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:start">
+
+<!-- ============ COL 1 : 静态基底 purple ============ -->
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="font-size:9px;letter-spacing:0.12em;color:#534AB7;font-weight:500;padding-left:2px">PHASE 01 · 静态基底</div>
+
+  <div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#7F77DD;text-transform:uppercase">LAYER 01</div>
+    <div style="font-size:12px;font-weight:500;color:#26215C;margin-top:3px">静态文本仓库</div>
+    <div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">存放系统基础说明、固定提示片段与通用模板的字符串基底</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#CECBF6;color:#26215C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">constants/prompts.ts</div>
+  </div>
+
+  <div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#7F77DD;text-transform:uppercase">LAYER 02</div>
+    <div style="font-size:12px;font-weight:500;color:#26215C;margin-top:3px">Section 结构切分</div>
+    <div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">把 system prompt 切成结构化 sections，便于稳定拼装与缓存命中</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#CECBF6;color:#26215C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">systemPromptSections.ts</div>
+  </div>
+
+  <div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#7F77DD;text-transform:uppercase">LAYER 03</div>
+    <div style="font-size:12px;font-weight:500;color:#26215C;margin-top:3px">Block 组装器</div>
+    <div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">把 sections 与运行态信息组合成可交给 API 的 prompt block 结构</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#CECBF6;color:#26215C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">utils/systemPrompt.ts</div>
+  </div>
+
+  <div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#7F77DD;text-transform:uppercase">LAYER 04</div>
+    <div style="font-size:12px;font-weight:500;color:#26215C;margin-top:3px">类型约束层</div>
+    <div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">定义 system prompt 类型，为组装器与 API 编译层提供统一结构</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#CECBF6;color:#26215C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">systemPromptType.ts</div>
+  </div>
+
+  <div style="background:transparent;border:0.5px dashed #AFA9EC;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#7F77DD;text-transform:uppercase">设计要点</div>
+    <div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:4px">system prompt 不是纯字符串，而是分层的 block / section 化结构，为 prompt cache 友好设计</div>
+  </div>
+</div>
+
+<!-- ============ COL 2 : 运行时上下文 blue ============ -->
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="font-size:9px;letter-spacing:0.12em;color:#185FA5;font-weight:500;padding-left:2px">PHASE 02 · 运行时上下文</div>
+
+  <div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#378ADD;text-transform:uppercase">LAYER 05</div>
+    <div style="font-size:12px;font-weight:500;color:#042C53;margin-top:3px">Context 主入口</div>
+    <div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">生成 systemContext / userContext，注入 git snapshot 与 currentDate</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#B5D4F4;color:#042C53;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">context.ts</div>
+  </div>
+
+  <div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#378ADD;text-transform:uppercase">LAYER 06</div>
+    <div style="font-size:12px;font-weight:500;color:#042C53;margin-top:3px">Context 辅助处理</div>
+    <div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">分析、组织与规范化 context 结构，配合主入口协同工作</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#B5D4F4;color:#042C53;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">utils/context.ts</div>
+  </div>
+
+  <div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#378ADD;text-transform:uppercase">LAYER 07</div>
+    <div style="font-size:12px;font-weight:500;color:#042C53;margin-top:3px">CLAUDE.md 聚合</div>
+    <div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">发现并读取 CLAUDE.md，把项目说明文档转为可注入的 user 上下文</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#B5D4F4;color:#042C53;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">utils/claudemd.ts</div>
+  </div>
+
+  <div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#378ADD;text-transform:uppercase">LAYER 08</div>
+    <div style="font-size:12px;font-weight:500;color:#042C53;margin-top:3px">Attachments 回流</div>
+    <div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">把运行时副作用打包为 attachment messages，回到下一轮 prompt</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#B5D4F4;color:#042C53;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">utils/attachments.ts</div>
+  </div>
+
+  <div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#378ADD;text-transform:uppercase">LAYER 09</div>
+    <div style="font-size:12px;font-weight:500;color:#042C53;margin-top:3px">SessionMemory 服务</div>
+    <div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">为 query / runtime 提供当前会话应当带回的记忆内容与子 prompt</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#B5D4F4;color:#042C53;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">SessionMemory/*.ts</div>
+  </div>
+
+  <div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#378ADD;text-transform:uppercase">LAYER 10</div>
+    <div style="font-size:12px;font-weight:500;color:#042C53;margin-top:3px">Durable Memory 检索</div>
+    <div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:4px">在持久 memory 目录中检索与当前 query 相关的记忆进行注入</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#B5D4F4;color:#042C53;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">memdir/findRelevantMemories.ts</div>
+  </div>
+</div>
+
+<!-- ============ COL 3 : 工具 Prompt teal ============ -->
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="font-size:9px;letter-spacing:0.12em;color:#0F6E56;font-weight:500;padding-left:2px">PHASE 03 · 工具 Prompt</div>
+
+  <div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#1D9E75;text-transform:uppercase">LAYER 11</div>
+    <div style="font-size:12px;font-weight:500;color:#04342C;margin-top:3px">工具 Prompt 模板</div>
+    <div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">每个工具家族自带 prompt.ts，承担工具说明、schema 与触发语义</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#9FE1CB;color:#04342C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">tools/**/prompt.ts</div>
+  </div>
+
+  <div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#1D9E75;text-transform:uppercase">LAYER 12</div>
+    <div style="font-size:12px;font-weight:500;color:#04342C;margin-top:3px">工具注册总线</div>
+    <div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">把各工具 prompt 与 schema 统一暴露给模型调用层</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#9FE1CB;color:#04342C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">Tool.ts · tools.ts</div>
+  </div>
+
+  <div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#1D9E75;text-transform:uppercase">LAYER 13</div>
+    <div style="font-size:12px;font-weight:500;color:#04342C;margin-top:3px">Deferred Tool Search</div>
+    <div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">处理延迟加载工具与 tool search 面，帮助编译层按需装载 schema</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#9FE1CB;color:#04342C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">utils/toolSearch.ts</div>
+  </div>
+
+  <div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#1D9E75;text-transform:uppercase">LAYER 14</div>
+    <div style="font-size:12px;font-weight:500;color:#04342C;margin-top:3px">Prompt 分类辅助</div>
+    <div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">对 prompt 分类与可视化编辑，辅助识别 prompt 用途与调整内容</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#9FE1CB;color:#04342C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">promptCategory.ts · promptEditor.ts</div>
+  </div>
+
+  <div style="background:transparent;border:0.5px dashed #5DCAA5;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#1D9E75;text-transform:uppercase">关键特征</div>
+    <div style="font-size:10px;line-height:1.5;color:#085041;margin-top:4px">工具 prompt 主要承担能力描述与 schema，不承担长文本任务模板，这一点和 skill prompt 本质不同</div>
+  </div>
+</div>
+
+<!-- ============ COL 4 : Skill / Command Prompt green ============ -->
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="font-size:9px;letter-spacing:0.12em;color:#3B6D11;font-weight:500;padding-left:2px">PHASE 04 · Skill / Command</div>
+
+  <div style="background:#EAF3DE;border:0.5px solid #639922;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#639922;text-transform:uppercase">LAYER 15</div>
+    <div style="font-size:12px;font-weight:500;color:#173404;margin-top:3px">本地 Skill 加载</div>
+    <div style="font-size:10px;line-height:1.5;color:#27500A;margin-top:4px">解析 markdown frontmatter，做参数替换与目录注入，生成 PromptCommand</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#C0DD97;color:#173404;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">skills/loadSkillsDir.ts</div>
+  </div>
+
+  <div style="background:#EAF3DE;border:0.5px solid #639922;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#639922;text-transform:uppercase">LAYER 16</div>
+    <div style="font-size:12px;font-weight:500;color:#173404;margin-top:3px">Bundled Skill 体系</div>
+    <div style="font-size:10px;line-height:1.5;color:#27500A;margin-top:4px">把代码内置 skill 定义转成 PromptCommand，附带文件会落盘并注入基址</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#C0DD97;color:#173404;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">skills/bundledSkills.ts · bundled/**</div>
+  </div>
+
+  <div style="background:#EAF3DE;border:0.5px solid #639922;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#639922;text-transform:uppercase">LAYER 17</div>
+    <div style="font-size:12px;font-weight:500;color:#173404;margin-top:3px">MCP Skill 适配</div>
+    <div style="font-size:10px;line-height:1.5;color:#27500A;margin-top:4px">把 MCP 资源 / skill / prompt 并入统一的 prompt command 体系</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#C0DD97;color:#173404;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">skills/mcpSkillBuilders.ts</div>
+  </div>
+
+  <div style="background:#EAF3DE;border:0.5px solid #639922;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#639922;text-transform:uppercase">LAYER 18</div>
+    <div style="font-size:12px;font-weight:500;color:#173404;margin-top:3px">Plugin 命令体系</div>
+    <div style="font-size:10px;line-height:1.5;color:#27500A;margin-top:4px">从插件 markdown 生成命令 prompt，替换 plugin root / data / user_config 变量</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#C0DD97;color:#173404;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">plugins/loadPluginCommands.ts</div>
+  </div>
+
+  <div style="background:#EAF3DE;border:0.5px solid #639922;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#639922;text-transform:uppercase">LAYER 19</div>
+    <div style="font-size:12px;font-weight:500;color:#173404;margin-top:3px">Shell 插值执行</div>
+    <div style="font-size:10px;line-height:1.5;color:#27500A;margin-top:4px">在 prompt 中执行 shell 命令并把结果动态注入，是 skill / plugin 最强的拼接链</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#C0DD97;color:#173404;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">utils/promptShellExecution.ts</div>
+  </div>
+</div>
+
+<!-- ============ COL 5 : 核心编译中枢 AMBER ============ -->
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="font-size:9px;letter-spacing:0.12em;color:#BA7517;font-weight:500;padding-left:2px">PHASE 05 · 核心编译中枢</div>
+
+  <div style="background:#FAEEDA;border:1px solid #BA7517;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#BA7517;text-transform:uppercase">LAYER 20 · 汇聚点</div>
+    <div style="font-size:12px;font-weight:500;color:#412402;margin-top:3px">Query 运行时</div>
+    <div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">把 messages / tools / systemPrompt / contexts / retryContext 组织进 query</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#FAC775;color:#412402;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">query.ts</div>
+  </div>
+
+  <div style="background:#FAEEDA;border:1px solid #BA7517;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#BA7517;text-transform:uppercase">LAYER 21 · 编译器</div>
+    <div style="font-size:12px;font-weight:500;color:#412402;margin-top:3px">Prompt 编译器总入口</div>
+    <div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">Prompt 编译器 + 请求运行时适配器，真正组织出一次完整模型请求</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#FAC775;color:#412402;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">services/api/claude.ts</div>
+  </div>
+
+  <div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#BA7517;text-transform:uppercase">STEP · system</div>
+    <div style="font-size:12px;font-weight:500;color:#412402;margin-top:3px">System Blocks 构建</div>
+    <div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">把静态 sections 与运行时 context 合并为结构化 block,供 prompt cache 复用</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#FAC775;color:#412402;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">buildSystemPromptBlocks()</div>
+  </div>
+
+  <div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#BA7517;text-transform:uppercase">STEP · messages</div>
+    <div style="font-size:12px;font-weight:500;color:#412402;margin-top:3px">消息归一化</div>
+    <div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">修复 tool_use / tool_result 配对,剥离冗余 media 与模型不支持字段</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#FAC775;color:#412402;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">normalizeMessagesForAPI()</div>
+  </div>
+
+  <div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#BA7517;text-transform:uppercase">STEP · tools</div>
+    <div style="font-size:12px;font-weight:500;color:#412402;margin-top:3px">Tool Schema 编译</div>
+    <div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">依据 model / defer loading / agent / permission 把 Tool[] 编译成 API schema</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#FAC775;color:#412402;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">toolToAPISchema()</div>
+  </div>
+
+  <div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#BA7517;text-transform:uppercase">STEP · retry</div>
+    <div style="font-size:12px;font-weight:500;color:#412402;margin-top:3px">Retry 驱动再编译</div>
+    <div style="font-size:10px;line-height:1.5;color:#633806;margin-top:4px">fallback 时重新生成 model / max_tokens / thinking / cache controls,触发 prompt 再编译</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#FAC775;color:#412402;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">paramsFromContext(retryContext)</div>
+  </div>
+</div>
+
+<!-- ============ COL 6 : 缓存 / 压缩 / 调试 coral ============ -->
+<div style="display:flex;flex-direction:column;gap:8px">
+  <div style="font-size:9px;letter-spacing:0.12em;color:#993C1D;font-weight:500;padding-left:2px">PHASE 06 · 缓存与压缩</div>
+
+  <div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#D85A30;text-transform:uppercase">LAYER 22 · 前哨</div>
+    <div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:3px">缓存断裂检测</div>
+    <div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">判断缓存前缀是否仍稳定,为是否走 cache edits / full compact 提供决策</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#F5C4B3;color:#4A1B0C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">promptCacheBreakDetection.ts</div>
+  </div>
+
+  <div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#D85A30;text-transform:uppercase">LAYER 23 · 轻量</div>
+    <div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:3px">Microcompact 轻量修复</div>
+    <div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">不重写整体 prompt,只删旧 tool_result 等低价值内容,尽量保住缓存前缀</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#F5C4B3;color:#4A1B0C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">microCompact.ts · apiMicrocompact.ts</div>
+  </div>
+
+  <div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#D85A30;text-transform:uppercase">LAYER 24 · 阈值</div>
+    <div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:3px">AutoCompact 决策层</div>
+    <div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">管理 warning / threshold / circuit breaker,决定何时升级到 full compact</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#F5C4B3;color:#4A1B0C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">autoCompact.ts</div>
+  </div>
+
+  <div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#D85A30;text-transform:uppercase">LAYER 25 · 重构</div>
+    <div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:3px">Full Compact 主实现</div>
+    <div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">长历史压缩成 summary + restored attachments,是最后手段也是最强恢复</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#F5C4B3;color:#4A1B0C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">compact.ts · compact/prompt.ts</div>
+  </div>
+
+  <div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#D85A30;text-transform:uppercase">LAYER 26 · 收尾</div>
+    <div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:3px">Compact 后清理</div>
+    <div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:4px">清理 warning 状态与缓存标记,记录 compact 是否已触发或已被抑制</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#F5C4B3;color:#4A1B0C;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">postCompactCleanup · warningState</div>
+  </div>
+
+  <div style="background:#F1EFE8;border:0.5px solid #888780;border-radius:8px;padding:10px">
+    <div style="font-size:9px;letter-spacing:0.08em;color:#5F5E5A;text-transform:uppercase">LAYER 27 · 调试</div>
+    <div style="font-size:12px;font-weight:500;color:#2C2C2A;margin-top:3px">Prompt 调试工具链</div>
+    <div style="font-size:10px;line-height:1.5;color:#444441;margin-top:4px">dump prompt 结构、打断缓存、清理缓存状态,用于观察 cache 失效前后差异</div>
+    <div style="font-size:9px;font-family:var(--font-mono);background:#D3D1C7;color:#2C2C2A;padding:2px 5px;border-radius:4px;margin-top:6px;display:inline-block">dumpPrompts · break-cache · clear/caches</div>
+  </div>
+</div>
+
+</div>
+
+<!-- ============ 底部流程指示条 ============ -->
+<div style="margin-top:1.5rem;padding-top:12px;border-top:0.5px solid var(--color-border-tertiary)">
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:10px;color:var(--color-text-secondary)">
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>静态基底</span>
+    <span style="color:var(--color-text-tertiary)">→</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>运行时上下文</span>
+    <span style="color:var(--color-text-tertiary)">→</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>工具 Prompt</span>
+    <span style="color:var(--color-text-tertiary)">→</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#639922"></span>Skill / Command</span>
+    <span style="color:var(--color-text-tertiary)">→</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:50%;background:#BA7517;box-shadow:0 0 0 2px #FAEEDA"></span><span style="color:#BA7517;font-weight:500">claude.ts 编译中枢</span></span>
+    <span style="color:var(--color-text-tertiary)">→</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>缓存与压缩</span>
+    <span style="color:var(--color-text-tertiary)">→</span>
+    <span style="display:inline-flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#888780"></span>调试链</span>
+  </div>
+</div>
+
+</div>

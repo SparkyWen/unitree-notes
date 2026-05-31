@@ -18,6 +18,7 @@ in onnxruntime / DDS / mujoco at import time.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import sys
@@ -87,6 +88,25 @@ _TURN_DURATION_PER_DEG = math.pi / (180.0 * _TURN_YAW_RATE_RAD_S)  # ≈ 0.0698 
 _TURN_MAX_DURATION_S = 14.0
 
 
+def _normalize_e164(number: str) -> str:
+    """Best-effort canonicalise a phone number to bare E.164 (``+`` + digits).
+
+    The Realtime model often passes a spoken number with separators it heard
+    ("+61 411 706 848", "+61-411-706-848") or with the international call
+    prefix instead of ``+`` ("0061411706848"). All of those denote the SAME
+    destination as the whitelisted "+61411706848", so we strip separators and
+    fold a leading "00" to "+" before comparing against the allowlist. We do
+    NOT invent a missing country code or a missing "+": a genuinely different
+    digit must still fail the whitelist check (the misheard-digit safety gate).
+    """
+    if not number:
+        return ""
+    s = "".join(ch for ch in number if ch.isdigit() or ch == "+")
+    if s.startswith("00"):
+        s = "+" + s[2:]
+    return s
+
+
 class SkillServer:
     """Validate-then-dispatch wrapper around the motion / vision / TTS layer.
 
@@ -107,6 +127,9 @@ class SkillServer:
         fsm,
         sim: bool = True,
         conversation_logger=None,
+        memory=None,
+        dialer=None,
+        default_phone_to: Optional[str] = None,
     ) -> None:
         self.combo = combo_ctl
         self.safety = safety
@@ -121,6 +144,21 @@ class SkillServer:
         # relying on the Realtime model's lossy in-context memory. None when
         # the operator launched with audio_control.transcript.enabled: false.
         self.conv_logger = conversation_logger
+        # Optional memory subsystem (Codex-style long-term recall + ask_slow_brain).
+        # None when memory.enabled is false in config or the subsystem failed
+        # to start. Every new tool checks for None and returns memory_disabled.
+        self.memory = memory
+        # Tracks in-flight ask_slow_brain calls keyed by tool call_id, so
+        # on_response_canceled (fired on barge-in) can set the cancel events.
+        self._ask_cancel_events: Dict[str, Any] = {}
+        # Optional Twilio dialer. None = phone bridge not enabled.
+        self._dialer = dialer
+        self._default_phone_to = default_phone_to
+        # Whitelist of E.164 numbers the LLM may dial via start_phone_call.
+        # Defends against wake-word ASR misheard digits (a real-world incident
+        # 2026-05-24: model heard +6848 as +6888 and rang a stranger for 3min).
+        # Empty list => only the default operator number is allowed.
+        self._allowed_phone_callers: List[str] = []
 
         # Pre-build the gesture lookup table:
         #   name (str)  ->  ArmAction (with .keyframes)
@@ -186,12 +224,21 @@ class SkillServer:
 
     # ----- Public single entry point --------------------------------------
 
-    async def execute(self, tool: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def execute(
+        self,
+        tool: str,
+        args: Optional[Dict[str, Any]] = None,
+        *,
+        call_id: str = "",
+    ) -> Dict[str, Any]:
         """Validate `tool(args)` via safety then dispatch.
 
         Always returns a dict; never raises. ``ok=True`` results from
         motion skills get a ``scene_after`` field with a fresh snapshot
         summary so the brain has post-action context.
+
+        When the memory subsystem is wired, also emits scene_snapshot
+        (pre/post motion) and action_result meta events for every call.
         """
         args = dict(args or {})
         try:
@@ -202,17 +249,41 @@ class SkillServer:
 
         if not ok:
             log.warning("safety rejected %s(%s): %s", tool, args, reason)
+            # Memory: log action_result + safety_event for rejection
+            self._log_action_result_safe(
+                call_id=call_id, tool_name=tool, args=args,
+                status="blocked_by_safety", blocked_reason=str(reason),
+                outcome_metrics=None, result_payload_brief="",
+            )
+            self._log_safety_event_safe(
+                kind="tool_rejected",
+                rule=(reason.split(":")[0] if isinstance(reason, str) and ":" in reason else None),
+                details=str(reason),
+                associated_tool_use_id=call_id,
+            )
             return {"ok": False, "skill": tool, "reason": reason}
 
         sanitized = dict(sanitized or {})
         method = getattr(self, f"_skill_{tool}", None)
         if method is None:
+            self._log_action_result_safe(
+                call_id=call_id, tool_name=tool, args=args,
+                status="exec_error",
+                blocked_reason=None,
+                outcome_metrics=None,
+                result_payload_brief=f"unknown tool: {tool!r}",
+            )
             return {"ok": False, "skill": tool, "reason": f"unknown tool: {tool!r}"}
 
         is_motion = tool in _MOTION_TOOLS
         if is_motion:
+            # Pre-motion scene snapshot (memory pipeline keyframe)
+            self._log_scene_snapshot_safe(trigger="pre_motion")
             self._fsm_safe_transition_to_acting(tool)
 
+        exec_status = "ok"
+        # Expose call_id to _skill_ask_slow_brain for cancel-token registration
+        self._current_call_id_value = call_id
         try:
             result = await method(**sanitized)
         except Exception as e:  # noqa: BLE001
@@ -222,9 +293,12 @@ class SkillServer:
             except Exception:  # noqa: BLE001
                 log.exception("defensive stop also failed")
             result = {"ok": False, "skill": tool, "reason": f"exception: {e!s}"}
+            exec_status = "exec_error"
         finally:
             if is_motion:
                 self._fsm_safe_transition_to_engaged(tool)
+                # Post-motion scene snapshot
+                self._log_scene_snapshot_safe(trigger="post_motion")
 
         # Normalize result envelope.
         if not isinstance(result, dict):
@@ -239,7 +313,111 @@ class SkillServer:
             except Exception:  # noqa: BLE001
                 log.exception("scene snapshot for tool result failed; omitting")
 
+        # Action_result: physical-world view of the outcome
+        if exec_status == "ok" and not result.get("ok", True):
+            exec_status = "exec_error"
+        outcome_metrics = self._extract_outcome_metrics(tool, result) if is_motion else None
+        try:
+            brief = json.dumps(result, ensure_ascii=False)[:256]
+        except (TypeError, ValueError):
+            brief = repr(result)[:256]
+        self._log_action_result_safe(
+            call_id=call_id, tool_name=tool, args=args,
+            status=exec_status,
+            blocked_reason=None,
+            outcome_metrics=outcome_metrics,
+            result_payload_brief=brief,
+        )
         return result
+
+    # ----- conv_logger helpers (best-effort, never raise) -----------------
+
+    def _log_action_result_safe(
+        self, *, call_id: str, tool_name: str, args: Dict[str, Any],
+        status: str, blocked_reason: Optional[str],
+        outcome_metrics: Optional[Dict[str, Any]],
+        result_payload_brief: str,
+    ) -> None:
+        if self.conv_logger is None:
+            return
+        try:
+            self.conv_logger.log_action_result(
+                tool_use_id=call_id or "",
+                tool_name=tool_name,
+                args=args,
+                status=status,
+                blocked_reason=blocked_reason,
+                outcome_metrics=outcome_metrics,
+                result_payload_brief=result_payload_brief,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("log_action_result failed; ignoring")
+
+    def _log_safety_event_safe(
+        self, *, kind: str, rule: Optional[str] = None,
+        from_state: Optional[str] = None, to_state: Optional[str] = None,
+        details: str = "", associated_tool_use_id: Optional[str] = None,
+    ) -> None:
+        if self.conv_logger is None:
+            return
+        try:
+            self.conv_logger.log_safety_event(
+                kind=kind, rule=rule, from_state=from_state, to_state=to_state,
+                details=details,
+                associated_tool_use_id=associated_tool_use_id,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("log_safety_event failed; ignoring")
+
+    def _log_scene_snapshot_safe(self, *, trigger: str) -> None:
+        if self.conv_logger is None or self.scene is None:
+            return
+        try:
+            snap = self.scene.snapshot()
+        except Exception:  # noqa: BLE001
+            return
+        try:
+            self.conv_logger.log_scene_snapshot(
+                trigger=trigger, scene_state=snap, frame_paths=None,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("log_scene_snapshot failed; ignoring")
+
+    def _extract_outcome_metrics(self, tool: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Best-effort outcome metrics for memory's action_result event.
+
+        sim only: combo controller returns displacement / duration; real
+        robot returns nothing useful yet. Both cases collapse to a small
+        dict; missing fields stay missing.
+        """
+        out: Dict[str, Any] = {}
+        for key in ("displacement_m", "duration_actual_s", "end_pose_z",
+                    "end_safety_state"):
+            if key in result:
+                out[key] = result[key]
+        # Sometimes result has nested 'metrics' dict
+        m = result.get("metrics")
+        if isinstance(m, dict):
+            for key in ("displacement_m", "duration_actual_s"):
+                if key in m and key not in out:
+                    out[key] = m[key]
+        return out or None
+
+    # ----- barge-in cancellation propagation ------------------------------
+
+    def on_response_canceled(self, response_id: Optional[str] = None) -> None:
+        """Called when BrainRealtimeAgent fires on_response_canceled.
+
+        Sets every pending ask_slow_brain cancel_event so daemon can send
+        MCP notifications/cancelled and return partial text fast.
+        """
+        if self.memory is not None:
+            try:
+                n = self.memory.cancel_all_in_flight()
+                if n:
+                    log.info("on_response_canceled: cancelled %d in-flight ask(s)", n)
+            except Exception:  # noqa: BLE001
+                log.exception("memory.cancel_all_in_flight failed")
 
     # ----- FSM helpers (never raise to caller) ----------------------------
 
@@ -556,6 +734,42 @@ class SkillServer:
     async def _skill_audio_tts_robot(self, **_kwargs: Any) -> Dict[str, Any]:
         return {"ok": False, "skill": "audio_tts_robot", "reason": "real-robot only"}
 
+    async def _skill_start_phone_call(
+        self, *, to: Optional[str] = None, **_: object,
+    ) -> Dict[str, Any]:
+        if self._dialer is None:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": "phone bridge not enabled"}
+        # When the operator just says "call me" / "call my number", the model
+        # should omit `to` so we dial the configured operator number — that
+        # path can never be derailed by ASR mishearing a digit.
+        dest_raw = to or self._default_phone_to
+        if not dest_raw:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": "no destination configured"}
+        dest = _normalize_e164(dest_raw)
+        # Whitelist-enforce dest. Wake-word ASR can mishear a single digit and
+        # without this gate the LLM happily dials whoever it heard. We compare
+        # on the NORMALIZED form so harmless formatting variance ("+61 411 706
+        # 848", "+61-411-706-848", "0061411706848") still matches a whitelisted
+        # number, while a genuine wrong digit is still rejected.
+        allowed = {_normalize_e164(n) for n in (self._allowed_phone_callers or [])}
+        if self._default_phone_to:
+            allowed.add(_normalize_e164(self._default_phone_to))
+        if allowed and dest not in allowed:
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": f"refusing dial: {dest_raw} is not a saved number. "
+                              f"To call the operator's own phone, call "
+                              f"start_phone_call with no arguments (it dials the "
+                              f"configured operator number)."}
+        try:
+            sid = await self._dialer.dial(dest)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "skill": "start_phone_call",
+                    "reason": f"dial failed: {e!s}"}
+        return {"ok": True, "skill": "start_phone_call",
+                "summary": f"calling {dest}", "call_sid": sid}
+
     # ----- Helpers ---------------------------------------------------------
 
     def _latest_jpeg_b64_preferring_head(self) -> Optional[str]:
@@ -602,6 +816,106 @@ class SkillServer:
                 except Exception:  # noqa: BLE001
                     log.debug("camera_hub.%s raised", getter, exc_info=True)
         return None
+
+    # ----- memory skills (recall + ask_slow_brain) -----------------------
+
+    async def _skill_recall_grep(
+        self,
+        pattern: str,
+        scope: str = "registry",
+        session_id: Optional[str] = None,
+        max_lines: int = 50,
+    ) -> Dict[str, Any]:
+        if self.memory is None:
+            return {"ok": False, "skill": "recall_grep",
+                    "status": "memory_disabled"}
+        try:
+            r = await self.memory.recall.grep(
+                pattern=pattern, scope=scope,
+                session_id=session_id, max_lines=max_lines,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.exception("recall_grep failed")
+            return {"ok": False, "skill": "recall_grep",
+                    "status": "tool_unavailable", "reason": str(e)}
+        r.setdefault("ok", r.get("status") == "ok")
+        r.setdefault("skill", "recall_grep")
+        return r
+
+    async def _skill_recall_read(
+        self,
+        path: str,
+        start_line: int = 1,
+        end_line: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        if self.memory is None:
+            return {"ok": False, "skill": "recall_read",
+                    "status": "memory_disabled"}
+        try:
+            r = await self.memory.recall.read(
+                path=path, start_line=start_line, end_line=end_line,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.exception("recall_read failed")
+            return {"ok": False, "skill": "recall_read",
+                    "status": "tool_unavailable", "reason": str(e)}
+        r.setdefault("ok", r.get("status") == "ok")
+        r.setdefault("skill", "recall_read")
+        return r
+
+    async def _skill_recall_glob(
+        self,
+        pattern: str,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        if self.memory is None:
+            return {"ok": False, "skill": "recall_glob",
+                    "status": "memory_disabled"}
+        try:
+            r = await self.memory.recall.glob(pattern=pattern, limit=limit)
+        except Exception as e:  # noqa: BLE001
+            log.exception("recall_glob failed")
+            return {"ok": False, "skill": "recall_glob",
+                    "status": "tool_unavailable", "reason": str(e)}
+        r.setdefault("ok", r.get("status") == "ok")
+        r.setdefault("skill", "recall_glob")
+        return r
+
+    async def _skill_ask_slow_brain(
+        self,
+        query: str,
+        timeout_s: float = 90.0,
+    ) -> Dict[str, Any]:
+        if self.memory is None:
+            return {"ok": False, "skill": "ask_slow_brain",
+                    "status": "memory_disabled"}
+        call_id = self._current_call_id() or ""
+        cancel_evt = self.memory.register_cancel_token(call_id)
+        try:
+            ask = await self.memory.daemon.ask_slow_brain(
+                query=query,
+                timeout_s=float(timeout_s),
+                cancel_event=cancel_evt,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.exception("ask_slow_brain raised")
+            return {"ok": False, "skill": "ask_slow_brain",
+                    "status": "tool_unavailable", "reason": str(e)}
+        finally:
+            self.memory.unregister_cancel_token(call_id)
+        return {
+            "ok": ask.status == "ok",
+            "skill": "ask_slow_brain",
+            "status": ask.status,
+            "text": ask.text,
+            "latency_ms": ask.latency_ms,
+            "partial": ask.partial,
+        }
+
+    def _current_call_id(self) -> Optional[str]:
+        # The wrapping execute() sets self._current_tool_call_id_var via
+        # a context-local before dispatching skills; if absent, return None.
+        return getattr(self, "_current_call_id_value", None)
 
 
 # Tools that drive motors. Used to gate FSM transitions and to decide

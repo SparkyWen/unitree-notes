@@ -73,6 +73,36 @@ class _StubSkillServer:
         return self._results.get(name, {"ok": True})
 
 
+class _CountingSafety:
+    """Counts validate() calls so we can assert a tool is gated exactly once."""
+
+    def __init__(self):
+        self.validate_calls = 0
+
+    async def validate(self, name, args):
+        self.validate_calls += 1
+        return True, "", args
+
+
+class _ValidatingSkillServer:
+    """Mirrors the REAL SkillServer contract: execute() runs the
+    SafetySupervisor pass internally (skill_server.py is the documented
+    single validation point). Used to prove BrainRealtimeAgent._dispatch_tool
+    must NOT validate a second time — a double validate runs the vision gate
+    and confirm prompt twice for one tool call (field log 2026-05-26)."""
+
+    def __init__(self, safety):
+        self.safety = safety
+        self.calls: List[tuple] = []
+
+    async def execute(self, name, args, *, call_id: str = ""):
+        ok, reason, sanitized = await self.safety.validate(name, args)
+        if not ok:
+            return {"ok": False, "skill": name, "reason": reason}
+        self.calls.append((name, sanitized))
+        return {"ok": True, "skill": name}
+
+
 class _RecordingWS:
     def __init__(self):
         self.sent: List[Dict[str, Any]] = []
@@ -131,6 +161,21 @@ async def test_leaf_response_done_fires_plan_done():
     # Idempotent: a stale response.done after plan_done already fired stays silent.
     await agent._handle_event(_RecordingWS(), _resp_done(with_function_call=False))
     assert fired == ["plan_done"]
+
+
+@pytest.mark.asyncio
+async def test_on_session_ready_fires_once_on_first_session_created():
+    """The 'now listening' banner hook fires exactly once, on session.created."""
+    agent = _make_agent()
+    fired = []
+    agent.on_session_ready = lambda: fired.append(1)
+    await agent._handle_event(_RecordingWS(), {"type": "session.created"})
+    assert fired == [1]
+    # A second session.created (reconnect) must not re-fire the banner.
+    await agent._handle_event(_RecordingWS(), {"type": "session.created"})
+    # session.updated must never fire it.
+    await agent._handle_event(_RecordingWS(), {"type": "session.updated"})
+    assert fired == [1]
 
 
 @pytest.mark.asyncio
@@ -207,6 +252,39 @@ async def test_tool_use_and_tool_result_callbacks_fire():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_validates_exactly_once():
+    """One tool call must be validated exactly ONCE.
+
+    skill_server.execute() is the single validation point (it runs the
+    SafetySupervisor incl. the vision-risk gate + operator confirm prompt).
+    _dispatch_tool must therefore NOT pre-validate, or every motion call is
+    gated twice — two vision evaluations and, on a RISK verdict, two y/N
+    confirm prompts for one walk. Regression for the 2026-05-26 phone log.
+    """
+    safety = _CountingSafety()
+    skill = _ValidatingSkillServer(safety)
+    ws = _RecordingWS()
+    agent = _make_agent(skill_server=skill, ws=ws)
+    # _make_agent wires its own _StubSafety; point the agent at the counter so
+    # any stray _dispatch_tool validate is counted on the same object the
+    # skill server uses.
+    agent.safety = safety
+
+    await agent._dispatch_tool(ws, {
+        "type": "response.function_call_arguments.done",
+        "call_id": "call_walk",
+        "name": "walk",
+        "arguments": json.dumps({"vx": 0.2, "duration_s": 10.0}),
+    })
+
+    assert safety.validate_calls == 1, (
+        f"walk was validated {safety.validate_calls}× — double validation "
+        f"re-runs the vision gate + confirm prompt for a single tool call"
+    )
+    assert skill.calls == [("walk", {"vx": 0.2, "duration_s": 10.0})]
+
+
+@pytest.mark.asyncio
 async def test_user_transcript_callback_fires():
     agent = _make_agent()
     seen = []
@@ -224,7 +302,7 @@ async def test_assistant_transcript_done_callback_fires():
     seen = []
     agent.on_assistant_transcript_done = lambda t: seen.append(t)
     await agent._handle_event(_RecordingWS(), {
-        "type": "response.audio_transcript.done",
+        "type": "response.output_audio_transcript.done",
         "transcript": "好的，开始走",
     })
     assert seen == ["好的，开始走"]
@@ -324,7 +402,7 @@ async def test_audio_delta_writes_speaker_and_fires_callback():
     delta_fired = []
     agent.on_response_audio_delta = lambda: delta_fired.append(1)
     await agent._handle_event(_RecordingWS(), {
-        "type": "response.audio.delta",
+        "type": "response.output_audio.delta",
         "delta": base64.b64encode(b"\x00\x01\x02").decode("ascii"),
     })
     assert bytes(agent.speaker.written) == b"\x00\x01\x02"
@@ -372,7 +450,7 @@ async def test_audio_delta_for_cancelled_response_is_dropped():
 
     # Late audio.delta from the cancelled response: dropped entirely.
     await agent._handle_event(ws, {
-        "type": "response.audio.delta",
+        "type": "response.output_audio.delta",
         "response_id": "resp_old",
         "delta": base64.b64encode(b"\x10\x20\x30").decode("ascii"),
     })
@@ -394,7 +472,7 @@ async def test_audio_transcript_delta_for_cancelled_response_is_dropped(capsys):
     # the leftover phrase (this was the visible 'I've moved forward 10
     # meters' echo in the field log).
     await agent._handle_event(ws, {
-        "type": "response.audio_transcript.delta",
+        "type": "response.output_audio_transcript.delta",
         "response_id": "resp_old",
         "delta": "I've moved forward 10 meters",
     })
@@ -477,7 +555,7 @@ async def test_new_response_after_cancel_passes_through():
         "type": "response.created", "response": {"id": "resp_new"},
     })
     await agent._handle_event(ws, {
-        "type": "response.audio.delta",
+        "type": "response.output_audio.delta",
         "response_id": "resp_new",
         "delta": base64.b64encode(b"\xaa\xbb").decode("ascii"),
     })
@@ -543,3 +621,41 @@ async def test_cancelled_response_id_set_is_bounded():
     assert agent._cancelled_response_ids == [
         "resp_4", "resp_5", "resp_6", "resp_7",
     ]
+
+
+# --------------------------------------------------------------------------
+# phone_enabled wiring: start_phone_call appears/disappears in tool schemas
+# --------------------------------------------------------------------------
+
+def test_phone_enabled_true_exposes_start_phone_call():
+    """BrainRealtimeAgent(phone_enabled=True) must include start_phone_call
+    in its tool schema list so the local Realtime model can dial out."""
+    agent = BrainRealtimeAgent(
+        api_key="sk-test",
+        model="test-model",
+        voice="verse",
+        mic=_StubMic(),
+        speaker=_StubSpeaker(),
+        camera=None,
+        vision=None,
+        tts=None,
+        skills=None,
+        safety=_StubSafety(),
+        skill_server=_StubSkillServer(),
+        phone_enabled=True,
+    )
+    names = {s["name"] for s in agent._resolve_tool_schemas()}
+    assert "start_phone_call" in names, (
+        "start_phone_call must appear when phone_enabled=True; "
+        "model would refuse 'Hi Sparky, call me' without it"
+    )
+
+
+def test_phone_enabled_false_hides_start_phone_call():
+    """BrainRealtimeAgent(phone_enabled=False, the default) must NOT include
+    start_phone_call so non-phone deployments can't accidentally dial."""
+    agent = _make_agent()  # phone_enabled defaults to False
+    names = {s["name"] for s in agent._resolve_tool_schemas()}
+    assert "start_phone_call" not in names
+
+

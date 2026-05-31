@@ -1,0 +1,156 @@
+<div style="padding:1rem 0 0;font-family:var(--font-sans);color:var(--color-text-primary)">
+
+<div style="margin-bottom:22px">
+<div style="font-size:22px;font-weight:500;letter-spacing:-0.3px">Claude Code 启动调用链</div>
+<div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px">从 cli.tsx 的动态导入到 query() 对话循环再到 bridge 远程出口的完整时序</div>
+<div style="height:0.5px;background:var(--color-border-tertiary);margin-top:14px"></div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+
+<!-- 列 1 · 启动引导 紫 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 01</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">CLI 入口</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">进程启动点，解析命令行参数后动态导入主引导文件，延迟加载以提升冷启动速度</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints/cli.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 02</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">主引导装配</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">聚合所有启动步骤，决定走 REPL 还是 bridge 模式，是整条调用链的分叉点</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">main.tsx</span></div>
+</div>
+
+<div style="background:#EEEDFE;border:0.5px solid #7F77DD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#534AB7;text-transform:uppercase">Step 03</div>
+<div style="font-size:12px;font-weight:500;color:#26215C;margin-top:4px">运行时初始化</div>
+<div style="font-size:10px;line-height:1.5;color:#3C3489;margin-top:6px">读取用户设置、恢复会话上下文、准备工作目录，为后续装载提供干净环境</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#CECBF6;color:#26215C;padding:2px 6px;border-radius:10px">entrypoints/init.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 2 · 能力注册 青绿 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 04</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">工具注册表</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">遍历 tools 目录聚合全部可执行工具，构建引擎后续分发需要的统一注册表</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">tools.ts · tools/*</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 05</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">命令注册表</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">加载全部斜杠命令与插件命令，注入到 REPL 的命令路由供用户即时调用</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">commands.ts · commands/*</span></div>
+</div>
+
+<div style="background:#E1F5EE;border:0.5px solid #1D9E75;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#0F6E56;text-transform:uppercase">Step 06</div>
+<div style="font-size:12px;font-weight:500;color:#04342C;margin-top:4px">分析与开关</div>
+<div style="font-size:10px;line-height:1.5;color:#085041;margin-top:6px">初始化 GrowthBook 功能开关与埋点，控制灰度特性与运行时行为遥测</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#9FE1CB;color:#04342C;padding:2px 6px;border-radius:10px">services/analytics/growthbook.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 3 · 对话核心 琥珀 (center) -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 07</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">REPL 启动</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">launchRepl 挂载 Ink App 组件并渲染 REPL 屏幕，等待用户输入触发一轮对话</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">replLauncher.tsx · screens/REPL.tsx</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 08 · Core</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">query 对话循环</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">整个系统的心跳：协调消息归一化、提示装配、API 请求与工具调度的主循环</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">query.ts</span></div>
+</div>
+
+<div style="background:#FAEEDA;border:0.5px solid #BA7517;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#854F0B;text-transform:uppercase">Step 09</div>
+<div style="font-size:12px;font-weight:500;color:#412402;margin-top:4px">请求装配三件套</div>
+<div style="font-size:10px;line-height:1.5;color:#633806;margin-top:6px">归一化历史消息、拼装系统提示、构造 Claude API 请求体，送给模型服务</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#FAC775;color:#412402;padding:2px 6px;border-radius:10px">messages.ts · prompts.ts · claude.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 4 · 工具执行 蓝 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Step 10</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">工具编排</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">收到模型 tool_use 指令后，runTools 按顺序或并发调度工具调用，回传结果给循环</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">services/tools/toolOrchestration.ts</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Step 11</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">单工具执行</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">查表定位具体工具，调用 tool.execute() 运行实现代码并收集输出或错误</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">toolExecution.ts · tools/*</span></div>
+</div>
+
+<div style="background:#E6F1FB;border:0.5px solid #378ADD;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#185FA5;text-transform:uppercase">Step 12</div>
+<div style="font-size:12px;font-weight:500;color:#042C53;margin-top:4px">权限与钩子</div>
+<div style="font-size:10px;line-height:1.5;color:#0C447C;margin-top:6px">执行前经 canUseTool 判断权限，再经 hooks 注入拦截逻辑，保证每次调用可控</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#B5D4F4;color:#042C53;padding:2px 6px;border-radius:10px">useCanUseTool.tsx · hooks.ts</span></div>
+</div>
+
+</div>
+
+<!-- 列 5 · 辅助与远程 珊瑚 -->
+<div style="display:flex;flex-direction:column;gap:10px">
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Aux A</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">自动压缩</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">当上下文逼近窗口上限时，autoCompact 把历史摘要化，让对话循环能持续推进</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">services/compact/</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Aux B</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">附件与记忆</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">把 memdir 里的文件以附件形式挂到消息上，让模型能看到用户本地资料</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">attachments.ts · memdir/</span></div>
+</div>
+
+<div style="background:#FAECE7;border:0.5px solid #D85A30;border-radius:8px;padding:12px">
+<div style="font-size:9px;letter-spacing:1.2px;color:#993C1D;text-transform:uppercase">Branch</div>
+<div style="font-size:12px;font-weight:500;color:#4A1B0C;margin-top:4px">Bridge 远程模式</div>
+<div style="font-size:10px;line-height:1.5;color:#712B13;margin-top:6px">main.tsx 的另一条分支，通过 sessionRunner 与 replBridge 把引擎暴露给远程会话</div>
+<div style="margin-top:8px"><span style="font-family:var(--font-mono);font-size:9px;background:#F5C4B3;color:#4A1B0C;padding:2px 6px;border-radius:10px">bridgeMain.ts · codeSessionApi.ts</span></div>
+</div>
+
+</div>
+
+</div>
+
+<!-- 底部相位指示条 -->
+<div style="margin-top:22px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--color-text-secondary);flex-wrap:wrap;gap:8px">
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#7F77DD"></span>启动引导</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#1D9E75"></span>能力注册</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#BA7517"></span>对话核心</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#378ADD"></span>工具执行</div>
+<span style="color:var(--color-text-tertiary)">→</span>
+<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#D85A30"></span>辅助与远程</div>
+</div>
+
+</div>

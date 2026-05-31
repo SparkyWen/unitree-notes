@@ -1,3 +1,4 @@
+import json
 import mujoco
 import numpy as np
 import pygame
@@ -11,6 +12,7 @@ from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import WirelessController_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__WirelessController_
+from unitree_sdk2py.idl.std_msgs.msg.dds_ import String_
 from unitree_sdk2py.utils.thread import RecurrentThread
 
 import config
@@ -60,8 +62,13 @@ class UnitreeSdk2Bridge:
         self._default_hold_cmd: np.ndarray | None = None
         self._maybe_seed_default_hold_cmd()
 
-        # Check sensor
-        for i in range(self.dim_motor_sensor, self.mj_model.nsensor):
+        # Check sensor — iterate all sensors tracking cumulative sensordata offset
+        self.have_imu = False
+        self.have_frame_sensor = False
+        self.lidar_sensordata_offset = -1  # absolute sensordata index for lidar_00
+        self.num_lidar_rays = 0
+        sd_offset = 0
+        for i in range(self.mj_model.nsensor):
             name = mujoco.mj_id2name(
                 self.mj_model, mujoco._enums.mjtObj.mjOBJ_SENSOR, i
             )
@@ -69,6 +76,11 @@ class UnitreeSdk2Bridge:
                 self.have_imu = True
             if name == "frame_pos":
                 self.have_frame_sensor = True
+            if name == "lidar_00":
+                self.lidar_sensordata_offset = sd_offset
+            if name is not None and name.startswith("lidar_"):
+                self.num_lidar_rays += 1
+            sd_offset += self.mj_model.sensor_dim[i]
 
         # Unitree sdk2 message
         self.low_state = LowState_default()
@@ -101,6 +113,15 @@ class UnitreeSdk2Bridge:
 
         self.low_cmd_suber = ChannelSubscriber(TOPIC_LOWCMD, LowCmd_)
         self.low_cmd_suber.Init(self.LowCmdHandler, 10)
+
+        if self.lidar_sensordata_offset >= 0 and self.num_lidar_rays > 0:
+            self.lidar_scan_puber = ChannelPublisher("rt/utlidar/scan", String_)
+            self.lidar_scan_puber.Init()
+            self.lidarThread = RecurrentThread(
+                interval=0.1, target=self.PublishLidarScan, name="sim_lidar"
+            )
+            self.lidarThread.Start()
+            print(f"[bridge] lidar: {self.num_lidar_rays} rays detected, publishing rt/utlidar/scan at 10 Hz")
 
         # joystick
         self.key_map = {
@@ -359,6 +380,23 @@ class UnitreeSdk2Bridge:
             ]
 
         self.high_state_puber.Write(self.high_state)
+
+    def PublishLidarScan(self):
+        if self.mj_data is None:
+            return
+        raw = self.mj_data.sensordata[
+            self.lidar_sensordata_offset : self.lidar_sensordata_offset + self.num_lidar_rays
+        ]
+        # MuJoCo returns -1 for rays that hit nothing within cutoff; treat as max range
+        cutoff = 10.0
+        rays = [float(v) if v >= 0 else cutoff for v in raw]
+        msg = String_()
+        msg.data = json.dumps({
+            "rays": rays,
+            "step_deg": 360.0 / self.num_lidar_rays,
+            "fov": 360,
+        })
+        self.lidar_scan_puber.Write(msg)
 
     def PublishWirelessController(self):
         if self.joystick != None:

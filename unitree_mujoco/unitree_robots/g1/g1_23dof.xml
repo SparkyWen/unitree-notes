@@ -203,6 +203,43 @@
         <geom pos="0.0039635 0 -0.054" quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1"
           mesh="waist_support_link" />
         <site name="secondary_imu" size="0.01" pos="-0.03959 -0.00224 0.13792"/>
+        <!-- Unitree L1 lidar: 36 horizontal rangefinder rays, 10° spacing, 10 m cutoff -->
+        <site name="lidar_00" pos="0.05 0 0.25" quat="0.7071 -0.0 0.7071 0.0" size="0.001"/>
+        <site name="lidar_01" pos="0.05 0 0.25" quat="0.7071 -0.122787 0.696358 0.0" size="0.001"/>
+        <site name="lidar_02" pos="0.05 0 0.25" quat="0.7071 -0.241842 0.664457 0.0" size="0.001"/>
+        <site name="lidar_03" pos="0.05 0 0.25" quat="0.7071 -0.35355 0.612367 0.0" size="0.001"/>
+        <site name="lidar_04" pos="0.05 0 0.25" quat="0.7071 -0.454515 0.54167 0.0" size="0.001"/>
+        <site name="lidar_05" pos="0.05 0 0.25" quat="0.7071 -0.54167 0.454515 0.0" size="0.001"/>
+        <site name="lidar_06" pos="0.05 0 0.25" quat="0.7071 -0.612367 0.35355 0.0" size="0.001"/>
+        <site name="lidar_07" pos="0.05 0 0.25" quat="0.7071 -0.664457 0.241842 0.0" size="0.001"/>
+        <site name="lidar_08" pos="0.05 0 0.25" quat="0.7071 -0.696358 0.122787 0.0" size="0.001"/>
+        <site name="lidar_09" pos="0.05 0 0.25" quat="0.7071 -0.7071 0.0 0.0" size="0.001"/>
+        <site name="lidar_10" pos="0.05 0 0.25" quat="0.7071 -0.696358 -0.122787 0.0" size="0.001"/>
+        <site name="lidar_11" pos="0.05 0 0.25" quat="0.7071 -0.664457 -0.241842 0.0" size="0.001"/>
+        <site name="lidar_12" pos="0.05 0 0.25" quat="0.7071 -0.612367 -0.35355 0.0" size="0.001"/>
+        <site name="lidar_13" pos="0.05 0 0.25" quat="0.7071 -0.54167 -0.454515 0.0" size="0.001"/>
+        <site name="lidar_14" pos="0.05 0 0.25" quat="0.7071 -0.454515 -0.54167 0.0" size="0.001"/>
+        <site name="lidar_15" pos="0.05 0 0.25" quat="0.7071 -0.35355 -0.612367 0.0" size="0.001"/>
+        <site name="lidar_16" pos="0.05 0 0.25" quat="0.7071 -0.241842 -0.664457 0.0" size="0.001"/>
+        <site name="lidar_17" pos="0.05 0 0.25" quat="0.7071 -0.122787 -0.696358 0.0" size="0.001"/>
+        <site name="lidar_18" pos="0.05 0 0.25" quat="0.7071 -0.0 -0.7071 0.0" size="0.001"/>
+        <site name="lidar_19" pos="0.05 0 0.25" quat="0.7071 0.122787 -0.696358 0.0" size="0.001"/>
+        <site name="lidar_20" pos="0.05 0 0.25" quat="0.7071 0.241842 -0.664457 0.0" size="0.001"/>
+        <site name="lidar_21" pos="0.05 0 0.25" quat="0.7071 0.35355 -0.612367 0.0" size="0.001"/>
+        <site name="lidar_22" pos="0.05 0 0.25" quat="0.7071 0.454515 -0.54167 0.0" size="0.001"/>
+        <site name="lidar_23" pos="0.05 0 0.25" quat="0.7071 0.54167 -0.454515 0.0" size="0.001"/>
+        <site name="lidar_24" pos="0.05 0 0.25" quat="0.7071 0.612367 -0.35355 0.0" size="0.001"/>
+        <site name="lidar_25" pos="0.05 0 0.25" quat="0.7071 0.664457 -0.241842 0.0" size="0.001"/>
+        <site name="lidar_26" pos="0.05 0 0.25" quat="0.7071 0.696358 -0.122787 0.0" size="0.001"/>
+        <site name="lidar_27" pos="0.05 0 0.25" quat="0.7071 0.7071 -0.0 0.0" size="0.001"/>
+        <site name="lidar_28" pos="0.05 0 0.25" quat="0.7071 0.696358 0.122787 0.0" size="0.001"/>
+        <site name="lidar_29" pos="0.05 0 0.25" quat="0.7071 0.664457 0.241842 0.0" size="0.001"/>
+        <site name="lidar_30" pos="0.05 0 0.25" quat="0.7071 0.612367 0.35355 0.0" size="0.001"/>
+        <site name="lidar_31" pos="0.05 0 0.25" quat="0.7071 0.54167 0.454515 0.0" size="0.001"/>
+        <site name="lidar_32" pos="0.05 0 0.25" quat="0.7071 0.454515 0.54167 0.0" size="0.001"/>
+        <site name="lidar_33" pos="0.05 0 0.25" quat="0.7071 0.35355 0.612367 0.0" size="0.001"/>
+        <site name="lidar_34" pos="0.05 0 0.25" quat="0.7071 0.241842 0.664457 0.0" size="0.001"/>
+        <site name="lidar_35" pos="0.05 0 0.25" quat="0.7071 0.122787 0.696358 0.0" size="0.001"/>
         <body name="left_shoulder_pitch_link" pos="0.0039563 0.10022 0.23778"
           quat="0.990264 0.139201 1.38722e-05 -9.86868e-05">
           <inertial pos="0 0.035892 -0.011628" quat="0.654152 0.0130458 -0.326267 0.68225"
@@ -477,6 +514,43 @@
     <framequat name="secondary_imu_quat" objtype="site" objname="secondary_imu" />
     <gyro name="secondary_imu_gyro" site="secondary_imu" noise="5e-4" cutoff="34.9"/>
     <accelerometer name="secondary_imu_acc" site="secondary_imu" noise="1e-2" cutoff="157"/>
+    <!-- Unitree L1 lidar simulation: 36 rays × 10° = 360° horizontal sweep -->
+    <rangefinder name="lidar_00" site="lidar_00" cutoff="10"/>
+    <rangefinder name="lidar_01" site="lidar_01" cutoff="10"/>
+    <rangefinder name="lidar_02" site="lidar_02" cutoff="10"/>
+    <rangefinder name="lidar_03" site="lidar_03" cutoff="10"/>
+    <rangefinder name="lidar_04" site="lidar_04" cutoff="10"/>
+    <rangefinder name="lidar_05" site="lidar_05" cutoff="10"/>
+    <rangefinder name="lidar_06" site="lidar_06" cutoff="10"/>
+    <rangefinder name="lidar_07" site="lidar_07" cutoff="10"/>
+    <rangefinder name="lidar_08" site="lidar_08" cutoff="10"/>
+    <rangefinder name="lidar_09" site="lidar_09" cutoff="10"/>
+    <rangefinder name="lidar_10" site="lidar_10" cutoff="10"/>
+    <rangefinder name="lidar_11" site="lidar_11" cutoff="10"/>
+    <rangefinder name="lidar_12" site="lidar_12" cutoff="10"/>
+    <rangefinder name="lidar_13" site="lidar_13" cutoff="10"/>
+    <rangefinder name="lidar_14" site="lidar_14" cutoff="10"/>
+    <rangefinder name="lidar_15" site="lidar_15" cutoff="10"/>
+    <rangefinder name="lidar_16" site="lidar_16" cutoff="10"/>
+    <rangefinder name="lidar_17" site="lidar_17" cutoff="10"/>
+    <rangefinder name="lidar_18" site="lidar_18" cutoff="10"/>
+    <rangefinder name="lidar_19" site="lidar_19" cutoff="10"/>
+    <rangefinder name="lidar_20" site="lidar_20" cutoff="10"/>
+    <rangefinder name="lidar_21" site="lidar_21" cutoff="10"/>
+    <rangefinder name="lidar_22" site="lidar_22" cutoff="10"/>
+    <rangefinder name="lidar_23" site="lidar_23" cutoff="10"/>
+    <rangefinder name="lidar_24" site="lidar_24" cutoff="10"/>
+    <rangefinder name="lidar_25" site="lidar_25" cutoff="10"/>
+    <rangefinder name="lidar_26" site="lidar_26" cutoff="10"/>
+    <rangefinder name="lidar_27" site="lidar_27" cutoff="10"/>
+    <rangefinder name="lidar_28" site="lidar_28" cutoff="10"/>
+    <rangefinder name="lidar_29" site="lidar_29" cutoff="10"/>
+    <rangefinder name="lidar_30" site="lidar_30" cutoff="10"/>
+    <rangefinder name="lidar_31" site="lidar_31" cutoff="10"/>
+    <rangefinder name="lidar_32" site="lidar_32" cutoff="10"/>
+    <rangefinder name="lidar_33" site="lidar_33" cutoff="10"/>
+    <rangefinder name="lidar_34" site="lidar_34" cutoff="10"/>
+    <rangefinder name="lidar_35" site="lidar_35" cutoff="10"/>
   </sensor>
 
 </mujoco>

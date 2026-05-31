@@ -406,8 +406,7 @@ class UnitreeSdk2Bridge:
         except OSError:
             pass
         # Also publish over DDS for any other subscribers
-        msg = String_()
-        msg.data = payload
+        msg = String_(data=payload)
         self.lidar_scan_puber.Write(msg)
 
     def PublishWirelessController(self):

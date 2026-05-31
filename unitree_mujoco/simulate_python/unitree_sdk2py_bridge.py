@@ -381,6 +381,8 @@ class UnitreeSdk2Bridge:
 
         self.high_state_puber.Write(self.high_state)
 
+    _LIDAR_TMP = "/tmp/g1_lidar_scan.json"
+
     def PublishLidarScan(self):
         if self.mj_data is None:
             return
@@ -390,12 +392,22 @@ class UnitreeSdk2Bridge:
         # MuJoCo returns -1 for rays that hit nothing within cutoff; treat as max range
         cutoff = 10.0
         rays = [float(v) if v >= 0 else cutoff for v in raw]
-        msg = String_()
-        msg.data = json.dumps({
+        payload = json.dumps({
             "rays": rays,
             "step_deg": 360.0 / self.num_lidar_rays,
             "fov": 360,
+            "ts": __import__("time").monotonic(),
         })
+        # Write to tmp file so agent_main can read it without DDS type issues
+        try:
+            with open(self._LIDAR_TMP + ".tmp", "w") as f:
+                f.write(payload)
+            __import__("os").replace(self._LIDAR_TMP + ".tmp", self._LIDAR_TMP)
+        except OSError:
+            pass
+        # Also publish over DDS for any other subscribers
+        msg = String_()
+        msg.data = payload
         self.lidar_scan_puber.Write(msg)
 
     def PublishWirelessController(self):

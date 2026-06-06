@@ -539,3 +539,81 @@ systemctl --user stop sparkytun-tunnel
 # 永久禁用:
 systemctl --user disable --now sparkytun-tunnel
 ```
+
+
+# 6. Fleet 指挥中心（read-only 底座）
+
+跨机的 AI coordinator 第一切片：在 N 台 headless `g1_brain` harness 之上叠一个**只读**指挥控制面（统一状态 + 语义感知聚合 + 事件日志/replay）。**本切片 coordinator→电机零路径**——所有机器人控制仍只经各机本地 `SkillServer → SafetySupervisor`，这里只收遥测、不下发命令。
+
+设计在 `docs/superpowers/specs/2026-06-06-fleet-foundation-design.md`，实现计划在 `docs/superpowers/plans/2026-06-06-fleet-foundation.md`。代码全在 `g1_brain/g1_brain/fleet/`。
+
+## 6.1 现状边界（重要，先读）
+
+当前**可独立运行**的只有 coordinator + 只读 API + console：
+
+- `python -m g1_brain.fleet.coordinator` —— 起 aiohttp 服务，挂 `/fleet`（WS 上行入口）+ 只读 HTTP API。
+- `python -m g1_brain.fleet.console.cli` —— 拉 API 打印 fleet 状态。
+
+**还没有独立的 robot-agent 进程**：`RobotAgent`（`g1_brain/fleet/agent/robot_agent.py`）目前是一个库类（由测试装配 `HarnessCore` + `WsFleetClient` 注入驱动），还没有 `__main__`。把真实 `HarnessCore`（复用 `agent_main` 的 DDS/combo/perception 初始化、跳过快慢脑）接到 FleetBus 上的"headless 车队机进程"是**下一切片**。
+
+所以：单跑 coordinator 时没有机器人接入，`GET /robots` 返回 `[]`。要看到机器人/感知/replay 真数据，目前走 §6.4 的端到端测试（两台真 robot-agent 打到真 coordinator）。
+
+## 6.2 启动 coordinator
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.coordinator --host 0.0.0.0 --port 8090 --db logs/fleet/fleet.sqlite
+```
+
+- `--db` 是 append-only 事件库（sqlite WAL + 同名 `.jsonl` 镜像）；replay 从这里读。
+- 不需要 `.env`（这一层不碰 OpenAI / Twilio）。
+- 端口默认 8090。
+
+## 6.3 只读 API 与 console
+
+另开一个终端查状态：
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+
+# 轻量 console（拉 /robots + /perception 打印一屏）
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090
+
+# 或直接打 API
+curl -s http://127.0.0.1:8090/robots            | python -m json.tool
+curl -s http://127.0.0.1:8090/robots/g1-sim-01  | python -m json.tool
+curl -s "http://127.0.0.1:8090/events?robot_id=g1-sim-01&limit=50" | python -m json.tool
+curl -s http://127.0.0.1:8090/replay/<trace_id> | python -m json.tool
+curl -s http://127.0.0.1:8090/perception        | python -m json.tool
+```
+
+只读路由（无任何 POST/PUT/DELETE，无命令/派发路由）：
+
+| 路由 | 含义 |
+|---|---|
+| `GET /robots` | 全队 {robot_id, status(online/stale/offline), capabilities, 最新 state} |
+| `GET /robots/{id}` | 单机；未知 id 返回 404 |
+| `GET /events?robot_id=&trace_id=&since=&until=&limit=` | 事件查询（按 ts 升序） |
+| `GET /replay/{trace_id}` | 按 trace_id 回放整条时间线 |
+| `GET /perception` | 车队感知 roll-up（reporting / path_blocked / with_humans） |
+| `GET /fleet` (WS) | **上行**入口：robot-agent 发 REGISTER/HEARTBEAT/EVENT，coordinator 只回 PONG |
+
+## 6.4 端到端验证（当前没有 agent 进程，用测试当 proof）
+
+fleet 全套测试（真 aiohttp server + 真 WS client + 两台真 `RobotAgent`，含注册→心跳→感知事件→API 可见→replay 一致）：
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+~/miniforge3/envs/agi/bin/python -m pytest tests/fleet/ -v
+# 预期: 40 passed
+```
+
+> ⚠️ fleet 这一层用的是 `agi` 环境（有 `aiohttp` / `pydantic`）；`unitree` 环境没装 aiohttp，跑 fleet 测试会 ImportError。
+
+## 6.5 接下一切片时会补什么
+
+- `g1_brain/fleet/agent/robot_agent.py` 加 `__main__`：`python -m g1_brain.fleet.agent.robot_agent --config <cfg> --coordinator ws://<host>:8090/fleet`，内部建一个 headless `HarnessCore`（复用 §1/§3 的 DDS/combo/perception 初始化，**不挂** Realtime 快脑 / codex 慢脑 / phone），每台 G1 一个进程、各绑自己的 `domain_id`。
+- 那时跑法是：先 §1 起每台 G1 的 (sim + 它的 harness)，再 `python -m g1_brain.fleet.coordinator`，每台再起一个 robot-agent 指向 coordinator；`GET /robots` 就能看到全队 online。

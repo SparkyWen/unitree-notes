@@ -36,7 +36,14 @@ def test_robot_event_hash_is_deterministic():
     assert ev1.event_id != ev2.event_id
 
 
-def test_reserved_contracts_are_marked():
-    assert CommandEnvelope().status == "reserved"
-    assert TaskSpec().status == "reserved"
-    assert AdmissionDecision().status == "reserved"
+def test_command_contracts_are_live():
+    """These were reserved stubs in the read-only slice; now real contracts."""
+    env = CommandEnvelope.make(issued_by="c", issued_to="r", capability="sleep",
+                               payload={})
+    assert env.schema_version == "CommandEnvelope.v1"
+    assert env.capability == "sleep"
+    t = TaskSpec(task_id="t1")
+    assert t.schema_version == "TaskSpec.v1" and t.type == "patrol"
+    d = AdmissionDecision(command_id="c1", robot_id="r", decision="accepted",
+                          reason_code="OK", ts="2026-06-06T00:00:00Z")
+    assert d.schema_version == "AdmissionDecision.v1" and d.decision == "accepted"

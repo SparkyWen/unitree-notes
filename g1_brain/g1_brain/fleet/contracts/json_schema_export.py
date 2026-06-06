@@ -5,12 +5,20 @@ import json
 from pathlib import Path
 from typing import List
 
-from .models import CapabilityDescriptor, RobotStateMsg, RobotEvent
+from .models import (
+    CapabilityDescriptor, RobotStateMsg, RobotEvent,
+    CommandEnvelope, AdmissionDecision, TaskSpec, Mission, ReplanProposal,
+)
 
 _MODELS = {
     "CapabilityDescriptor.v1": CapabilityDescriptor,
     "RobotStateMsg.v1": RobotStateMsg,
     "RobotEvent.v1": RobotEvent,
+    "CommandEnvelope.v1": CommandEnvelope,
+    "AdmissionDecision.v1": AdmissionDecision,
+    "TaskSpec.v1": TaskSpec,
+    "Mission.v1": Mission,
+    "ReplanProposal.v1": ReplanProposal,
 }
 
 

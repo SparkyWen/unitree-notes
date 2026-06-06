@@ -31,11 +31,13 @@ class ThermalModel:
     def __init__(self, *, n_joints: int = 29, ambient_c: float = 25.0,
                  k: float = 0.02, cooling: float = 0.15,
                  battery_alpha: float = 0.6, base_drain: float = 0.0008,
-                 load_drain: float = 0.00006, soc0: float = 1.0):
+                 load_drain: float = 0.00006, soc0: float = 1.0,
+                 tau_clip: Optional[float] = None):
         self._n = max(1, n_joints)
         self._ambient = ambient_c
         self._k = k
         self._cooling = cooling
+        self._tau_clip = tau_clip
         self._battery_alpha = battery_alpha
         self._base_drain = base_drain
         self._load_drain = load_drain
@@ -50,13 +52,18 @@ class ThermalModel:
 
     def update(self, *, tau: List[float], dt: float) -> None:
         n = min(self._n, len(tau))
+        clip = self._tau_clip
         for i in range(n):
+            ti = abs(tau[i])
+            if clip is not None and ti > clip:
+                ti = clip
             t = self._temps[i]
-            heat = self._k * (tau[i] ** 2) * dt
+            heat = self._k * (ti ** 2) * dt
             cool = self._cooling * (t - self._ambient) * dt
             self._temps[i] = t + heat - cool
         if tau:
-            mean_abs = sum(abs(x) for x in tau[:n]) / max(1, n)
+            mean_abs = sum(min(abs(x), clip) if clip is not None else abs(x)
+                           for x in tau[:n]) / max(1, n)
         else:
             mean_abs = 0.0
         self._soc = max(0.0, self._soc - (self._base_drain + self._load_drain * mean_abs) * dt)

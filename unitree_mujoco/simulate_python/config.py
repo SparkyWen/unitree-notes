@@ -17,8 +17,13 @@ if ROBOT == "g1":
         ROBOT_SCENE = "../unitree_robots/g1/scene_29dof.xml"
 else:
     ROBOT_SCENE = "../unitree_robots/" + ROBOT + "/scene.xml"
-DOMAIN_ID = 1 # Domain id
-INTERFACE = "lo" # Interface
+import os as _os
+# DDS domain / interface. Overridable via env so two GUI sims can run side by
+# side for the fleet coordinator demo, e.g.:
+#   UNITREE_DOMAIN_ID=1 python unitree_mujoco.py   (robot A)
+#   UNITREE_DOMAIN_ID=2 python unitree_mujoco.py   (robot B)
+DOMAIN_ID = int(_os.environ.get("UNITREE_DOMAIN_ID", "1")) # Domain id
+INTERFACE = _os.environ.get("UNITREE_INTERFACE", "lo") # Interface
 
 USE_JOYSTICK = 0 # Simulate Unitree WirelessController using a gamepad
 JOYSTICK_TYPE = "xbox" # support "xbox" and "switch" gamepad layout

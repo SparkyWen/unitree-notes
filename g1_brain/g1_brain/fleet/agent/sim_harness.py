@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
 from g1_brain.fleet.agent.admission_gate import AdmissionGate
 from g1_brain.fleet.agent.local_planner import LocalPlanner
@@ -60,19 +60,24 @@ class SimRobotHarness:
     # ---- factories ----
     @classmethod
     def from_mock(cls, robot_id: str, *, n_joints: int = 29,
-                  initial: RobotFsmState = RobotFsmState.STANDING) -> "SimRobotHarness":
+                  initial: RobotFsmState = RobotFsmState.STANDING,
+                  thermal_kwargs: Optional[dict] = None) -> "SimRobotHarness":
         backend = MockBackend(n_joints=n_joints)
-        return cls._assemble(robot_id, backend=backend, n_joints=n_joints, initial=initial)
+        return cls._assemble(robot_id, backend=backend, n_joints=n_joints,
+                             initial=initial, thermal_kwargs=thermal_kwargs)
 
     @classmethod
     def from_backend(cls, robot_id: str, backend: MotionBackend, *, n_joints: int = 29,
-                     initial: RobotFsmState = RobotFsmState.STANDING) -> "SimRobotHarness":
-        return cls._assemble(robot_id, backend=backend, n_joints=n_joints, initial=initial)
+                     initial: RobotFsmState = RobotFsmState.STANDING,
+                     thermal_kwargs: Optional[dict] = None) -> "SimRobotHarness":
+        return cls._assemble(robot_id, backend=backend, n_joints=n_joints,
+                             initial=initial, thermal_kwargs=thermal_kwargs)
 
     @classmethod
-    def _assemble(cls, robot_id, *, backend, n_joints, initial) -> "SimRobotHarness":
+    def _assemble(cls, robot_id, *, backend, n_joints, initial,
+                  thermal_kwargs: Optional[dict] = None) -> "SimRobotHarness":
         fsm = RobotFsm(initial=initial)
-        thermal = ThermalModel(n_joints=n_joints)
+        thermal = ThermalModel(n_joints=n_joints, **(thermal_kwargs or {}))
         queue: "asyncio.Queue[RobotEvent]" = asyncio.Queue()
         planner = LocalPlanner(robot_id=robot_id, fsm=fsm, backend=backend,
                                emit=queue.put_nowait)

@@ -9,16 +9,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import aiohttp
 
-from g1_brain.fleet.bus.messages import encode_frame, FrameKind
+from g1_brain.fleet.bus.messages import encode_frame, decode_frame, FrameKind
 from g1_brain.fleet.contracts.models import (
-    CapabilityDescriptor, RobotStateMsg, RobotEvent,
+    AdmissionDecision, CapabilityDescriptor, CommandEnvelope, RobotStateMsg,
+    RobotEvent,
 )
 
 log = logging.getLogger(__name__)
+
+OnCommand = Callable[[CommandEnvelope], Awaitable[Optional[AdmissionDecision]]]
 
 
 class WsFleetClient:
@@ -32,13 +35,20 @@ class WsFleetClient:
         self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self._cap: Optional[CapabilityDescriptor] = None
         self._lock = asyncio.Lock()
+        # Set by RobotAgent: handles down-bound commands, returns the decision.
+        self.on_command: Optional[OnCommand] = None
+        self._recv_task: Optional[asyncio.Task] = None
+        self._closing = False
 
     async def connect(self, cap: CapabilityDescriptor) -> None:
         self._cap = cap
+        self._closing = False
         if self._session is not None:
             await self._session.close()
         self._session = aiohttp.ClientSession()
         await self._open_once()
+        if self._recv_task is None:
+            self._recv_task = asyncio.create_task(self._recv_loop())
 
     async def _open_once(self) -> bool:
         try:
@@ -84,7 +94,50 @@ class WsFleetClient:
         self._cap = cap
         await self._send(FrameKind.REGISTER, cap)
 
+    async def _recv_loop(self) -> None:
+        """Own the read side: dispatch inbound COMMAND frames to on_command and
+        reply with an ADMISSION. Survives reconnects (follows self._ws)."""
+        while not self._closing:
+            ws = self._ws
+            if ws is None or ws.closed:
+                await asyncio.sleep(0.05)
+                continue
+            try:
+                msg = await ws.receive()
+            except Exception:  # noqa: BLE001
+                await asyncio.sleep(0.05)
+                continue
+            if msg.type != aiohttp.WSMsgType.TEXT:
+                # CLOSE/CLOSING/CLOSED/ERROR/PING/PONG -> let _send handle reconnect
+                if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING,
+                                aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR):
+                    await asyncio.sleep(0.05)
+                continue
+            try:
+                kind, model = decode_frame(msg.data)
+            except Exception:  # noqa: BLE001
+                log.warning("fleet client: undecodable frame", exc_info=True)
+                continue
+            if kind == FrameKind.COMMAND and isinstance(model, CommandEnvelope):
+                if self.on_command is None:
+                    continue
+                try:
+                    decision = await self.on_command(model)
+                except Exception:  # noqa: BLE001
+                    log.exception("on_command raised")
+                    decision = None
+                if decision is not None:
+                    await self._send(FrameKind.ADMISSION, decision)
+
     async def close(self) -> None:
+        self._closing = True
+        if self._recv_task is not None:
+            self._recv_task.cancel()
+            try:
+                await self._recv_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._recv_task = None
         if self._ws is not None and not self._ws.closed:
             await self._ws.close()
         if self._session is not None:

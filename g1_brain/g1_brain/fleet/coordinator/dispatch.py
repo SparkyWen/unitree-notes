@@ -70,32 +70,47 @@ class DispatchEngine:
         self._bind(task.task_id, rid)
         return self._cmd(rid, "patrol", {"task_id": task.task_id, "type": task.type}, trace_id)
 
+    def release(self, robot_id: str) -> Optional[str]:
+        """Free whatever task ``robot_id`` holds (keeps bookkeeping consistent).
+        Returns the freed task_id, or None."""
+        task_id = self.robot_task.pop(robot_id, None)
+        if task_id is not None:
+            self.assignments.pop(task_id, None)
+        return task_id
+
+    def reassign(self, task_id: str, *, exclude=(),
+                 trace_id: Optional[str] = None) -> Optional[CommandEnvelope]:
+        """Reassign a freed task to the best healthy candidate, else queue it
+        for the operator. Returns the resume_task command if reassigned."""
+        task = self.tasks.get(task_id)
+        req = task.required_capabilities if task else []
+        cands = self._candidates(req, exclude=exclude)
+        if cands:
+            new = cands[0]
+            self._bind(task_id, new)
+            return self._cmd(new, "resume_task",
+                             {"task_id": task_id,
+                              "type": task.type if task else "patrol"}, trace_id)
+        if task_id not in self.needs_operator:
+            self.needs_operator.append(task_id)
+        return None
+
     def handle_anomaly(self, anomaly: Anomaly, *, trace_id: Optional[str] = None) -> List[CommandEnvelope]:
         rid = anomaly.robot_id
         plan: List[CommandEnvelope] = [self._cmd(rid, "sleep", {"reason": anomaly.kind}, trace_id)]
-        task_id = self.robot_task.pop(rid, None)
-        if task_id is not None:
-            self.assignments.pop(task_id, None)
-            task = self.tasks.get(task_id)
-            req = task.required_capabilities if task else []
-            cands = self._candidates(req, exclude={rid})
-            if cands:
-                new = cands[0]
-                self._bind(task_id, new)
-                plan.append(self._cmd(new, "resume_task",
-                                      {"task_id": task_id,
-                                       "type": task.type if task else "patrol"}, trace_id))
-            elif task_id not in self.needs_operator:
-                self.needs_operator.append(task_id)
+        freed = self.release(rid)
+        if freed is not None:
+            cmd = self.reassign(freed, exclude={rid}, trace_id=trace_id)
+            if cmd is not None:
+                plan.append(cmd)
         return plan
 
     def takeover(self, from_robot: str, to_robot: str, *,
                  trace_id: Optional[str] = None) -> List[CommandEnvelope]:
         plan: List[CommandEnvelope] = []
-        task_id = self.robot_task.pop(from_robot, None)
+        task_id = self.release(from_robot)
         plan.append(self._cmd(from_robot, "idle", {}, trace_id))
         if task_id is not None:
-            self.assignments.pop(task_id, None)
             self._bind(task_id, to_robot)
             task = self.tasks.get(task_id)
             plan.append(self._cmd(to_robot, "resume_task",

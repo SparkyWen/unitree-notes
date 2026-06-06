@@ -7,18 +7,12 @@ motors directly: it only chooses a Posture for the MotionBackend. An optional
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from g1_brain.fleet.agent.motion.base import MotionBackend, Posture
+from g1_brain.fleet.clock import iso_now as _iso_now
 from g1_brain.fleet.contracts.models import CommandEnvelope, EventType, RobotEvent
 from g1_brain.safety.state_machine import RobotFsm, RobotFsmState
-
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
-
 
 EmitFn = Callable[[RobotEvent], None]
 
@@ -40,15 +34,18 @@ class LocalPlanner:
     def apply(self, env: CommandEnvelope) -> None:
         cap = env.capability
         if cap == "sleep":
+            if self._fsm.state == RobotFsmState.DORMANT:
+                return  # already asleep: idempotent no-op, no spurious event
             # ensure we reach STANDING first (ACTING/ENGAGED -> STANDING -> DORMANT)
             if self._fsm.state in (RobotFsmState.ACTING, RobotFsmState.ENGAGED):
                 self._fsm.transition(RobotFsmState.STANDING, "pre-sleep")
-            if self._fsm.state == RobotFsmState.STANDING:
-                self._fsm.transition(RobotFsmState.DORMANT, "sleep")
+            self._fsm.transition(RobotFsmState.DORMANT, "sleep")
             self._backend.set_posture(Posture.SLEEP)
             self._event(EventType.ROBOT_SLEEPING, env,
                         {"reason": env.payload.get("reason", "")})
         elif cap == "wake":
+            if self._fsm.state == RobotFsmState.STANDING:
+                return  # already awake: idempotent no-op
             if self._fsm.state == RobotFsmState.DORMANT:
                 self._fsm.transition(RobotFsmState.STANDING, "wake")
             self._backend.set_posture(Posture.ACTIVE)

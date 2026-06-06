@@ -16,7 +16,6 @@ planner -> posture.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import AsyncIterator, Optional
 
 from g1_brain.fleet.agent.admission_gate import AdmissionGate
@@ -24,6 +23,7 @@ from g1_brain.fleet.agent.local_planner import LocalPlanner
 from g1_brain.fleet.agent.motion.base import MotionBackend, Posture
 from g1_brain.fleet.agent.motion.mock import MockBackend
 from g1_brain.fleet.agent.thermal_model import ThermalModel
+from g1_brain.fleet.clock import iso_now as _iso_now
 from g1_brain.fleet.contracts.models import (
     AdmissionDecision, Battery, CapabilityDescriptor, CapabilityEntry, CommandEnvelope,
     CoreState, Health, RobotEvent, RobotStateMsg, SafetyStateMsg, WatchdogOk,
@@ -35,11 +35,6 @@ DISPATCH_CAPABILITIES = ["patrol", "idle", "stop", "sleep", "wake", "resume_task
 
 # Postures that count as "moving" for the north-bound motion_state field.
 _MOVING = {Posture.PATROL, Posture.WAKE}
-
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 class SimRobotHarness:
@@ -75,12 +70,28 @@ class SimRobotHarness:
 
     @classmethod
     def _assemble(cls, robot_id, *, backend, n_joints, initial,
-                  thermal_kwargs: Optional[dict] = None) -> "SimRobotHarness":
+                  thermal_kwargs: Optional[dict] = None,
+                  event_queue_max: int = 256) -> "SimRobotHarness":
         fsm = RobotFsm(initial=initial)
         thermal = ThermalModel(n_joints=n_joints, **(thermal_kwargs or {}))
-        queue: "asyncio.Queue[RobotEvent]" = asyncio.Queue()
-        planner = LocalPlanner(robot_id=robot_id, fsm=fsm, backend=backend,
-                               emit=queue.put_nowait)
+        queue: "asyncio.Queue[RobotEvent]" = asyncio.Queue(maxsize=event_queue_max)
+
+        def _emit(ev: RobotEvent) -> None:
+            # Bounded with drop-oldest: if the publisher stalls (e.g. bus
+            # disconnected), shed the oldest event instead of growing unbounded.
+            try:
+                queue.put_nowait(ev)
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                try:
+                    queue.put_nowait(ev)
+                except asyncio.QueueFull:
+                    pass
+
+        planner = LocalPlanner(robot_id=robot_id, fsm=fsm, backend=backend, emit=_emit)
         gate = AdmissionGate(robot_id=robot_id, fsm=fsm, planner=planner,
                              supported_capabilities=set(DISPATCH_CAPABILITIES))
         return cls(robot_id=robot_id, fsm=fsm, thermal=thermal, backend=backend,

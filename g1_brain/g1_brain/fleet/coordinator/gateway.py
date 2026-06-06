@@ -7,19 +7,14 @@ originating trace_id. This is what makes every dispatch decision replayable.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Awaitable, Callable, Dict, Set
 
+from g1_brain.fleet.clock import iso_now as _iso_now
 from g1_brain.fleet.contracts.models import (
     AdmissionDecision, CommandEnvelope, EventType, RobotEvent,
 )
 
 SendCommand = Callable[[str, CommandEnvelope], Awaitable[None]]
-
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 class CommandGateway:
@@ -44,13 +39,16 @@ class CommandGateway:
                      "payload": env.payload}))
         try:
             await self._send(env.issued_to, env)
-        except KeyError:
-            # robot not connected: undo idempotency so a later retry can succeed
+        except Exception as e:  # noqa: BLE001
+            # robot not connected (KeyError) or send failed mid-flight (e.g. the
+            # ws closed between the conn lookup and send): undo idempotency so a
+            # later retry can succeed, and record why.
             self._issued.discard(env.idempotency_key)
+            reason = "NOT_CONNECTED" if isinstance(e, KeyError) else "SEND_FAILED"
             self._log.append(RobotEvent.make(
                 robot_id=env.issued_to, type=EventType.COMMAND_REFUSED, ts=_iso_now(),
                 trace_id=env.trace_id,
-                payload={"command_id": env.command_id, "reason_code": "NOT_CONNECTED"}))
+                payload={"command_id": env.command_id, "reason_code": reason}))
             return False
         return True
 

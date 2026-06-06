@@ -6,9 +6,9 @@ exposes the fleet contract surface. No control path exists here.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import AsyncIterator
 
+from g1_brain.fleet.clock import iso_now as _iso_now
 from g1_brain.safety.state_machine import RobotFsm
 from g1_brain.scene_state.fusion import SceneStateBus, RobotStateBus
 from g1_brain.scene_state.types import SceneState
@@ -18,11 +18,6 @@ from g1_brain.fleet.contracts.models import (
     WatchdogOk, Battery, Health, AdmissionDecision,
 )
 from g1_brain.fleet.harness_core.event_fanout import EventSink
-
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 class HarnessCore:

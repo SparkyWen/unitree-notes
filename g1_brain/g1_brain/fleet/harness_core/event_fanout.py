@@ -14,17 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict
 
+from g1_brain.fleet.clock import iso_now as _iso_now
 from g1_brain.fleet.contracts.models import EventType, RobotEvent
 
 log = logging.getLogger(__name__)
-
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 class EventSink:

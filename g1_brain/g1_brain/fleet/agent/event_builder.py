@@ -5,16 +5,11 @@ Doc principle: the center receives semantic events, never raw video/point clouds
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
 from typing import List
 
 from g1_brain.scene_state.types import SceneState
+from g1_brain.fleet.clock import iso_now as _iso_now
 from g1_brain.fleet.contracts.models import EventType, RobotEvent
-
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
 def build_perception_events(

@@ -11,13 +11,9 @@ into anomalies lives here (policy), not in the robot's ThermalModel (sensing).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Callable, Dict, List, Set, Tuple
 
-
-def _iso_now() -> str:
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+from g1_brain.fleet.clock import iso_now as _iso_now
 
 
 @dataclass

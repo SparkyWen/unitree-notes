@@ -21,16 +21,22 @@ log = logging.getLogger(__name__)
 
 class RobotAgent:
     def __init__(self, *, core, bus, heartbeat_interval_s: float = 2.0,
-                 perception_interval_s: Optional[float] = 1.0):
+                 perception_interval_s: Optional[float] = 1.0,
+                 tick_interval_s: Optional[float] = None):
         self._core = core
         self._bus = bus
         self._hb_interval = heartbeat_interval_s
         self._perc_interval = perception_interval_s
+        self._tick_interval = tick_interval_s
         self._tasks: list[asyncio.Task] = []
         self._stop = asyncio.Event()
         self._seq = 0
 
     async def start(self) -> None:
+        # Wire the down-bound command path: the bus hands inbound CommandEnvelopes
+        # to the harness's local AdmissionGate (the robot's final authority).
+        if hasattr(self._bus, "on_command") and hasattr(self._core, "on_command"):
+            self._bus.on_command = self._core.on_command
         await self._bus.connect(self._core.get_capabilities())
         self._tasks = [
             asyncio.create_task(self._heartbeat_loop()),
@@ -38,6 +44,19 @@ class RobotAgent:
         ]
         if self._perc_interval is not None:
             self._tasks.append(asyncio.create_task(self._perception_loop()))
+        if self._tick_interval is not None and hasattr(self._core, "tick"):
+            self._tasks.append(asyncio.create_task(self._tick_loop()))
+
+    async def _tick_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._core.tick()
+            except Exception:  # noqa: BLE001
+                log.exception("core tick failed")
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self._tick_interval)
+            except asyncio.TimeoutError:
+                pass
 
     async def _heartbeat_loop(self) -> None:
         while not self._stop.is_set():

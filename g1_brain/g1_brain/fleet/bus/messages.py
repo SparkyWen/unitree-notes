@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 
 from g1_brain.fleet.contracts.models import (
     CapabilityDescriptor, RobotStateMsg, RobotEvent,
+    CommandEnvelope, AdmissionDecision,
 )
 
 
@@ -16,12 +17,16 @@ class FrameKind(str, enum.Enum):
     EVENT = "event"
     PING = "ping"
     PONG = "pong"
+    COMMAND = "command"      # coordinator -> robot (down-bound)
+    ADMISSION = "admission"  # robot -> coordinator (admission decision)
 
 
 _MODEL_FOR = {
     FrameKind.REGISTER: CapabilityDescriptor,
     FrameKind.HEARTBEAT: RobotStateMsg,
     FrameKind.EVENT: RobotEvent,
+    FrameKind.COMMAND: CommandEnvelope,
+    FrameKind.ADMISSION: AdmissionDecision,
 }
 
 

@@ -24,6 +24,11 @@ class RobotFsmState(str, enum.Enum):
     EMERGENCY_STOP = "EMERGENCY_STOP"
     FAULT = "FAULT"
     RECOVERING = "RECOVERING"
+    # Deliberate low-power quiescent state used by the fleet "safe sleep"
+    # capability. Unlike EMERGENCY_STOP it does not auto-recover; the robot
+    # leaves it only on an explicit wake. Additive: pre-existing transitions
+    # are unchanged.
+    DORMANT = "DORMANT"
 
 
 # Allowed transitions. Any state may go to EMERGENCY_STOP or FAULT (the
@@ -38,6 +43,7 @@ _ALLOWED: Dict[RobotFsmState, Set[RobotFsmState]] = {
     RobotFsmState.STANDING: {
         RobotFsmState.ENGAGED,
         RobotFsmState.ACTING,
+        RobotFsmState.DORMANT,
         RobotFsmState.EMERGENCY_STOP,
         RobotFsmState.FAULT,
     },
@@ -59,6 +65,11 @@ _ALLOWED: Dict[RobotFsmState, Set[RobotFsmState]] = {
     },
     RobotFsmState.RECOVERING: {
         RobotFsmState.STANDING,
+        RobotFsmState.EMERGENCY_STOP,
+        RobotFsmState.FAULT,
+    },
+    RobotFsmState.DORMANT: {
+        RobotFsmState.STANDING,        # wake
         RobotFsmState.EMERGENCY_STOP,
         RobotFsmState.FAULT,
     },

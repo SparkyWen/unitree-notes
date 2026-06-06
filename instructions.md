@@ -613,7 +613,119 @@ cd ~/unitree/unitree-notes/g1_brain
 
 > ⚠️ fleet 这一层用的是 `agi` 环境（有 `aiohttp` / `pydantic`）；`unitree` 环境没装 aiohttp，跑 fleet 测试会 ImportError。
 
-## 6.5 接下一切片时会补什么
+## 6.5 下一切片（已落地 → 见 §7）
 
-- `g1_brain/fleet/agent/robot_agent.py` 加 `__main__`：`python -m g1_brain.fleet.agent.robot_agent --config <cfg> --coordinator ws://<host>:8090/fleet`，内部建一个 headless `HarnessCore`（复用 §1/§3 的 DDS/combo/perception 初始化，**不挂** Realtime 快脑 / codex 慢脑 / phone），每台 G1 一个进程、各绑自己的 `domain_id`。
-- 那时跑法是：先 §1 起每台 G1 的 (sim + 它的 harness)，再 `python -m g1_brain.fleet.coordinator`，每台再起一个 robot-agent 指向 coordinator；`GET /robots` 就能看到全队 online。
+read-only 底座之上的**闭环智能调度**切片已经实现：命令下行链路（`CommandEnvelope`）+ 每机本地 `AdmissionGate`（最终否决权）+ coordinator 自主异常感知（电池过热等）→ 安全休眠 → 任务接替，以及人类自然语言/命令派发。运行方式与两台 G1 在 MuJoCo 中的统一调度验证见 **§7**。
+
+---
+
+# 7. Fleet 智能调度（closed-loop 闭环：感知异常 → 安全休眠 → 任务接替）
+
+§6 的只读底座之上叠的闭环切片：AI 指挥调度中心读每台机器人的真实关节/传感遥测，**自主**发现异常（电池过热、电机过热、跌倒、低电量、失联），把高温机器人**安全休眠**，再把它的任务**接替**给健康机器人；也支持**人类命令**驱动多机协作。
+
+不变的安全原则（与 §6 一致，强化）：
+
+- **coordinator 永不直控电机**：它只发 typed `CommandEnvelope`（能力/任务级），机器人本地快慢脑执行。
+- **本地最终裁决**：每机 `AdmissionGate`（快脑）可拒绝任何中心命令；安全休眠/急停是**确定性**的，不由 LLM 决定。
+- **每台机器人保留自己的快慢脑**：快脑＝`RobotFsm`（新增 `DORMANT` 态）+ 看门狗 + admission gate；慢脑＝`LocalPlanner`（能力→姿态技能），可选叠加 LLM 解释。
+- **确定性引擎是最终调度权威**：`AnomalyDetector`（带迟滞）+ `DispatchEngine`（按能力/健康/电量分配）；LLM 只做自然语言解析 + 决策解释，且每个 op 都被重新校验，无 API key 时自动回退到命令语法。
+
+设计文档 `docs/superpowers/specs/2026-06-06-fleet-coordinator-dispatch-design.md`，计划 `docs/superpowers/plans/2026-06-06-fleet-coordinator-dispatch.md`。代码全在 `g1_brain/g1_brain/fleet/`（contracts/bus/agent/coordinator/console/sim）。
+
+## 7.1 一键验证：两台 G1 在 MuJoCo 中统一调度（推荐先跑这个）
+
+**全自动 headless 验证**——两个真实 MuJoCo G1 物理世界 + 完整调度栈，单进程跑完整闭环（自主过热→休眠→接替 + 人类 wake+takeover），并自检打印 `ALL CHECKS PASSED`：
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+MUJOCO_GL=egl python -m g1_brain.fleet.sim.scenario_two_g1 --inject-after 1.0
+```
+
+预期结尾：
+
+```
+=== VERIFICATION ===
+  [PASS] overheated <robot> put to sleep (DORMANT)
+  [PASS] <robot> in SLEEP posture
+  [PASS] task t1 reassigned to <other>
+  [PASS] <other> now patrolling
+  [PASS] both G1s upright in MuJoCo throughout
+  [PASS] <robot> woke on human command
+  [PASS] task handed back to original robot
+  [PASS] anomaly_detected / task_reassigned / robot_sleeping event logged
+=== ALL CHECKS PASSED ===
+```
+
+> 两台 G1 各跑在独立的 `MujocoG1` 物理世界（真实 `mj_step`，弹性带 + PD 维持直立），harness 直接读 `mj_data` 的真实关节力矩 `tau` 喂热模型——`MUJOCO_GL=egl` 走离屏渲染，无需显示器。电池/电机温度 MuJoCo 不建模，由热模型从真实 `tau` 合成 + `inject()` 钩子确定性触发过热。
+
+同样的场景被包进测试做回归（无 MuJoCo/资产时自动跳过）：
+
+```bash
+MUJOCO_GL=egl ~/miniforge3/envs/agi/bin/python -m pytest tests/fleet/test_scenario_two_g1.py -v
+```
+
+## 7.2 纯 Python 闭环证明（Tier-1，CI 永远绿，无需 MuJoCo）
+
+确定性证明整条调度逻辑（过热→异常→休眠→接替→人类协作），用事件日志回放断言顺序：
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+~/miniforge3/envs/agi/bin/python -m pytest tests/fleet/ -q
+# 预期: 全绿（135 passed，含 Tier-1 e2e + Tier-2 mujoco 场景）
+```
+
+## 7.3 coordinator 调度路由（在 §6.2 起的服务上）
+
+`python -m g1_brain.fleet.coordinator` 起的服务现在除了 §6.3 的只读路由，还有调度面：
+
+| 路由 | 含义 |
+|---|---|
+| `POST /missions` | 提交 `Mission`（含 `TaskSpec` 列表）→ 按能力/健康分配 |
+| `POST /commands` | 操作命令：`{"op":"sleep","args":{"robot":"g1_a"}}` / `wake` / `{"op":"takeover","args":{"from":"g1_a","to":"g1_b"}}` / `{"op":"dispatch","args":{"task":"patrol"}}`；自然语言：`{"nl":"sleep g1_a"}`；注入（仿真/调试）：`{"op":"inject","robot":"g1_a","battery_temperature_c":75.0,"fault":"battery_hot"}` |
+| `GET /anomalies` | 最近一次 tick 感知到的异常 |
+| `GET /dispatch` | 当前分配 + needs_operator + 租约 |
+
+后台 tick 每 1s 自动 `scan → 处理异常 → 派发`（`tick_interval_s`，可在 `build_coordinator_app` 调）。
+
+## 7.4 操作员 console
+
+```bash
+conda activate agi
+cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 status        # 全队 + 异常 + 分配 + 租约
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 dispatch patrol
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 inject g1_a --temp 75
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 sleep g1_a
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 wake g1_a
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 takeover g1_a g1_b
+```
+
+## 7.5 可视化两台 G1（GUI，可选）
+
+`scenario_two_g1` 是 headless（无窗口，适合自动验证）。要在 MuJoCo 窗口里**看到**两台 G1，用 DDS 双进程路径（每进程一个 DDS 域；`config.py` 现支持 `UNITREE_DOMAIN_ID` 环境变量覆盖）：
+
+```bash
+# 终端 1 — G1 #1（domain 1）
+conda activate unitree && cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+UNITREE_DOMAIN_ID=1 python unitree_mujoco.py
+# 终端 2 — G1 #2（domain 2）
+UNITREE_DOMAIN_ID=2 python unitree_mujoco.py
+```
+
+> 注：DDS `ChannelFactoryInitialize` 是进程级单例（一进程一域），所以可视化双机走双进程/双域。把每台 G1 的 harness（用 `DdsMujocoBackend` 风格的桥接读 `rt/lowstate` / 发 `rt/lowcmd`）接到 §6.2 的 coordinator 是 GUI 联调路径；自动验证用 §7.1 的 headless 直连物理路径（更稳、可复现，是交付验收基线）。
+
+## 7.6 关键文件地图
+
+| 文件 | 职责 |
+|---|---|
+| `fleet/contracts/models.py` | `CommandEnvelope`/`AdmissionDecision`/`TaskSpec`/`Mission`/`ReplanProposal` + `Battery`/`Health` 遥测 + 调度事件类型 |
+| `fleet/bus/{messages,ws_server,ws_client,loopback}.py` | 双向总线：`COMMAND` 下行 / `ADMISSION` 上行；per-robot 路由；in-process loopback |
+| `fleet/agent/admission_gate.py` | 快脑本地准入（TTL/幂等/能力/FSM 合法性，可拒绝） |
+| `fleet/agent/local_planner.py` | 慢脑能力→姿态技能映射 + 生命周期事件 |
+| `fleet/agent/thermal_model.py` | 由真实 `tau` 合成电池/电机温度 + SOC + `inject()` 钩子 |
+| `fleet/agent/sim_harness.py` | 组装快慢脑的 `SimRobotHarness`（即 RobotAgent 的 core） |
+| `fleet/agent/motion/{base,mock,mujoco_backend}.py` | 可插拔运动后端（mock / 真实 MuJoCo 直连） |
+| `fleet/coordinator/{anomaly,dispatch,lease,gateway,controller,agent_llm,app}.py` | 异常感知 + 确定性调度 + 租约 + 命令网关 + 编排 + 可选 LLM + 路由 |
+| `fleet/sim/{mujoco_world,scenario_two_g1}.py` | headless 真实 G1 物理世界 + 两机验证场景 |

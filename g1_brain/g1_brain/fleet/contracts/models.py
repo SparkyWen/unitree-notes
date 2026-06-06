@@ -113,7 +113,8 @@ class RobotEvent(BaseModel):
     robot_id: str
     type: EventType
     ts: str
-    # Set by producer via make(); the RECEIVER is responsible for re-deriving and verifying it.
+    # Set by producer via make(). Stored for traceability/integrity; receiver-side
+    # verification is deferred to a later slice (not performed in the read-only slice).
     payload_hash: str
     payload: Dict[str, Any] = Field(default_factory=dict)
 

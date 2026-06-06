@@ -1,8 +1,9 @@
 """Tap ConversationLogger's meta loggers and fan out as RobotEvent.
 
 Zero-impact: each wrapper calls the original method first, then enqueues a
-RobotEvent. The queue is bounded; on overflow we drop the OLDEST event to
-protect the newest (best-effort, never blocks the caller).
+RobotEvent. The queue is bounded; on overflow we drop the OLDEST queued event
+(best-effort, never blocks the caller). Only low-rate safety/action events
+flow through here, so overflow is rare.
 
 Only JSON-safe loggers are tapped (log_safety_event, log_action_result).
 Perception/scene events are produced by the robot-agent's perception loop
@@ -38,7 +39,7 @@ class EventSink:
         try:
             self.queue.put_nowait(ev)
         except asyncio.QueueFull:
-            # Drop oldest to make room; protects newest safety/action events.
+            # Bounded queue: drop the oldest queued event to make room for the newest.
             try:
                 self.queue.get_nowait()
                 self.queue.put_nowait(ev)

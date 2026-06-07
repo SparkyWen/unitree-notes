@@ -714,15 +714,14 @@ python -m g1_brain.fleet.sim.verify_dds_fleet --keep-alive
 > 服务在 WSL2 里 100% 正常(`0.0.0.0:8090`)、从 WSL2 内 curl 能通,但 Windows 的 Chrome 连不上 —— 这是 **WSL2→Windows 端口转发**问题,按顺序试:
 > 1. **用 WSL2 IP 直连**(最快兜底,启动 banner 会打印):`http://<WSL2_IP>:8090`(本机当前 `192.168.108.252`,每次重启会变;查:WSL 里 `hostname -I`)。NAT 模式下 Windows 有 `vEthernet (WSL)` 网卡可直达该 IP,绕过 localhost 转发。
 > 2. **重启 WSL 的 localhost 转发**:Windows PowerShell 跑 `wsl --shutdown`,再重开 WSL + 重新起 coordinator。睡眠/VPN/网络切换后转发常失效,重启即恢复。
-> 3. **永久固定 `localhost:8090`(已为本机配置好)**:已写入 `C:\Users\Helios\.wslconfig`:
+> 3. **`.wslconfig` 固定 NAT + localhost 转发(已为本机配置好)**:已写入 `C:\Users\Helios\.wslconfig`:
 >    ```ini
 >    [wsl2]
->    networkingMode=mirrored
->    [experimental]
->    hostAddressLoopback=true
+>    networkingMode=nat
+>    localhostForwarding=true
 >    ```
->    **生效一次**:Windows PowerShell 跑 `wsl --shutdown`,等约 10 秒,重开 WSL 终端,再起 coordinator —— 之后 Windows Chrome 直接用 `http://localhost:8090`,不再依赖 NAT 转发、不受 WSL IP 变化影响。**还原**:把 `networkingMode` 改回 `nat`(或删该文件)再 `wsl --shutdown`。
->    > 注:镜像网络模式偶尔与某些 VPN/Docker 冲突;若切换后 DDS 演示异常,按上面"还原"即可。
+>    **生效一次**:Windows PowerShell 跑 `wsl --shutdown`,等约 10 秒,重开 WSL 终端,再起 coordinator。之后 Windows Chrome 用 `http://localhost:8090` 经 WSL2 自动 localhost 转发直达(coordinator 须监听 `0.0.0.0:8090`)。
+>    > 注:曾试过 `networkingMode=mirrored`(Windows localhost == WSL2 localhost,最干净),但**镜像模式要求 Windows 11 22H2 / build 22621+**;本机是 Windows 10 22H2 / build 19045,WSL 启动会报 `Mirrored networking mode is not supported ... Falling back to NAT networking` 并回退 NAT。故显式写 NAT 以消除该启动警告;等升级 Win11 后可再改回 mirrored。
 > 4. **VPN / 防火墙**:部分 VPN 会劫持 WSL 子网路由;Windows Defender 防火墙可能拦入站。临时关 VPN 或放行 `vEthernet (WSL)` 验证。
 > 5. **确认服务真在跑**:`verify_dds_fleet`(不带 `--keep-alive`)跑完会**拆掉所有进程**,端口随之关闭——要看实时画面用 `--keep-alive` 或单独常驻 `python -m g1_brain.fleet.coordinator`。WSL 里自检:`curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8090/` 应为 `200`。
 >

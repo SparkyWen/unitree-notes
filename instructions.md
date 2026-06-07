@@ -863,9 +863,28 @@ curl -s -X POST http://127.0.0.1:8090/chat -H 'content-type: application/json' \
 
 无 `OPENAI_API_KEY` 时走确定性规划器（关键词 + 快照）；设了 key 则经 OpenAI（同一 op 语法、同样校验）。
 
-> ⚠️ 当前边界：聊天卡返回的是**指挥官的决策（计划 + op）**；"在网页打字 → 共享世界机器人真的动起来"这条线**尚未接通**（coordinator 进程与 §8.1/8.2 的 WorldSim 进程还没用 WS 总线连起来）。**机器人真的按指令会合接力**由 §8.1 的 `scenario_rendezvous`（同进程跑通整条链）展示与验证。
+> ⚠️ 边界（已更新）：本聊天卡（§8.3，coordinator 网页）只返回**指挥官的决策（计划 + op）**，且接的是 DDS registry。要"网页打字 → 共享世界机器人真的动起来"，见下面 **§8.4 AI 指挥调度中心**——同进程把 WorldSim + 3D 窗口 + 网页 + codex 指挥官 + 抢占式执行接通了。
 
-## 8.4 关键文件地图（§8 新增）
+## 8.4 AI 指挥调度中心（实时看 + 实时下达 + 真驱动）★ 新 GUI
+
+把 §8.3 那条"尚未接通"的线接上：**一个进程**同时起 **WorldSim（§8.2 的共享世界）+ MuJoCo 3D 窗口 + 网页控制台**，由 **codex 大脑**当指挥官。浏览器打字 → codex 规划 → 子 agent 展开 op → `LiveExecutor` **抢占式**驱动活的 WorldSim（最新指令优先），机器人在 3D 窗口里动，网页俯视图 / 遥测 / 事件流实时更新。
+
+```bash
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.sim.command_center --viewer      # 3D 窗口 + 控制台
+# 然后浏览器打开 http://127.0.0.1:8787/ ，在"AI 指挥官"框里下达指令
+# 离线 / 无 key（确定性规划，不调 codex，最跟手）：  --no-codex
+# 调 codex 模型 / 思考强度（默认 gpt-5.5 + xhigh）：  --model / --reasoning
+```
+
+- **AI 大脑 = codex**：`CodexFleetLLM`(gpt-5.5 + xhigh) 把自然语言拆成 FleetPlan；codex 默认模型 `gpt-5.3-codex` 在 ChatGPT 计划下不可用，故显式传 `-m gpt-5.5`。codex 出错 / 无 `codex` 二进制自动回退确定性规划。子 agent 始终确定性展开 op（只让 NL→计划走 codex）。
+- **抢占**：机器人还在执行上一条时再下一条，最新指令立即接管（generation 计数，旧任务自停）。
+- **headless 自动验收**（无窗口，CI；POST 一条指令驱动真实物理跑通会合接力）：
+  ```bash
+  python -m pytest -m slow tests/fleet/test_command_center_e2e.py -q
+  ```
+
+## 8.5 关键文件地图（§8 新增）
 
 | 文件 | 职责 |
 |---|---|
@@ -877,5 +896,9 @@ curl -s -X POST http://127.0.0.1:8090/chat -H 'content-type: application/json' \
 | `fleet/coordinator/{fleet_plan,fleet_commander,robot_subagent,barrier}.py` | AI 指挥官决策层：FleetPlan + NL 拆解(OpenAI+回退) + 每机子 agent + 确定性会合 barrier |
 | `fleet/sim/scenario_rendezvous.py` | 端到端会合/接力编排 + 验收（§8.1） |
 | `fleet/coordinator/app.py` `POST /chat` | 仪表盘/接口的分层调度入口（§8.3） |
+| `fleet/sim/command_center.py` | AI 指挥调度中心：WorldSim + 3D 窗口 + 网页控制台 + codex 指挥官 一键起（§8.4） |
+| `fleet/sim/live_executor.py` | 抢占式 op 执行器（最新指令优先），驱动活的 WorldSim（§8.4） |
+| `fleet/coordinator/codex_fleet_llm.py` | 把 codex 大脑接成 FleetCommander 的 LLM（`plan_fleet`，gpt-5.5 + xhigh） |
+| `fleet/sim/command_center_ui.py` | 控制台网页：实时俯视图 + 聊天 + 事件流 |
 
 > 关键工程点：RL 速度策略在自写 MuJoCo 循环里驱动时，**PD 力矩必须每个物理子步（200Hz）用最新 q/dq 重算**，不能每 50Hz 控制 tick 只设一次——否则力矩过时 → 振荡 → 摔倒。这是机器人从"乱飞"到"稳步行走"的分水岭。

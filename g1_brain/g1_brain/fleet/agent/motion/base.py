@@ -17,6 +17,7 @@ class Posture(str, enum.Enum):
     WAKE = "WAKE"       # transition back to stand from sleep
     IDLE = "IDLE"       # quiet stand, no task
     STOP = "STOP"       # zero motion
+    WALK = "WALK"       # navigating to a waypoint (RL gait, nonzero velocity cmd)
 
 
 @runtime_checkable

@@ -164,7 +164,7 @@ class RobotEvent(BaseModel):
 # still gates which it actually supports; this just bounds the wire vocabulary.
 # "inject" is a sim/debug telemetry override (battery temp etc.), handled at the
 # harness before the admission gate — it never touches motion.
-Capability = Literal["sleep", "wake", "patrol", "idle", "resume_task", "stop", "inject"]
+Capability = Literal["sleep", "wake", "patrol", "idle", "resume_task", "stop", "inject", "navigate"]
 
 
 class Lease(BaseModel):

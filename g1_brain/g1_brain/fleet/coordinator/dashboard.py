@@ -66,6 +66,15 @@ INDEX_HTML = r"""<!doctype html>
     <h2>Fleet — live 机器人(姿态实时)</h2>
     <div class="fleet" id="fleet"></div>
   </div>
+  <div class="card">
+    <h2>AI 指挥官 — 自然语言调度 (OpenAI)</h2>
+    <div class="row">
+      <input id="chatin" style="flex:1;background:#0e1116;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px 9px"
+             placeholder="例: 两机到中间会合，然后 g1_a 把巡逻交给 g1_b" onkeydown="if(event.key==='Enter')chat()">
+      <button class="primary" onclick="chat()">发送</button>
+    </div>
+    <div id="chatlog" style="margin-top:10px;font-size:13px;max-height:240px;overflow:auto"></div>
+  </div>
   <div class="card"><h2>Activity — 实时事件流</h2><div id="ticker"></div></div>
   <div class="card"><h2>Dispatch — 任务分配</h2><div id="dispatch" class="row"></div></div>
   <div class="card"><h2>Anomalies — 异常</h2><div id="anomalies"></div></div>
@@ -139,6 +148,19 @@ async function refresh(){
     const an=anomalies.anomalies||[];
     $('anomalies').innerHTML=an.length?an.map(x=>`<div class="anom ${x.severity}"><b>${x.robot_id}</b> ${x.kind} <span class="muted">(${Object.entries(x.evidence||{}).map(([k,v])=>k+'='+v).join(', ')})</span></div>`).join(''):'<div class="empty">none</div>';
   }catch(e){ $('live').style.background='#f85149'; $('meta').textContent='coordinator unreachable'; }
+}
+function add(html){ const e=$('chatlog'); e.innerHTML='<div style="padding:3px 0;border-bottom:1px solid #1b2027">'+html+'</div>'+e.innerHTML; }
+async function chat(){
+  const el=$('chatin'); const nl=el.value.trim(); if(!nl) return; el.value='';
+  add('<b>你</b> '+nl);
+  try{
+    const r=await fetch('/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({nl})});
+    const b=await r.json();
+    if(!b.ok){ add('<span class="warn">指挥官</span> '+(b.needs_clarification||b.reason||'无法执行')); return; }
+    let s='<span style="color:#3fb950">指挥官</span> '+b.plan.summary+' <span class="muted">['+b.plan.coordination.type+']</span>';
+    for(const rid in b.ops){ s+='<br>&nbsp;&nbsp;<b>'+rid+'</b>: '+b.ops[rid].map(o=>o.op).join(' → '); }
+    add(s);
+  }catch(e){ add('<span class="warn">指挥官</span> 错误 '+e); }
 }
 refresh(); setInterval(refresh,1000);
 </script>

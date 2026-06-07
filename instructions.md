@@ -869,20 +869,83 @@ curl -s -X POST http://127.0.0.1:8090/chat -H 'content-type: application/json' \
 
 把 §8.3 那条"尚未接通"的线接上：**一个进程**同时起 **WorldSim（§8.2 的共享世界）+ MuJoCo 3D 窗口 + 网页控制台**，由 **codex 大脑**当指挥官。浏览器打字 → codex 规划 → 子 agent 展开 op → `LiveExecutor` **抢占式**驱动活的 WorldSim（最新指令优先），机器人在 3D 窗口里动，网页俯视图 / 遥测 / 事件流实时更新。
 
+### 关键认知（先读，省得走弯路）
+
+**§8.4 是单一进程，自带整个世界。** 和 §7 的"6 个终端 + DDS 双进程"完全不同——这里**只需要一个终端、一条命令**。你**不需要**先做下面任何一件事：
+
+- ❌ 不需要先起 §1 的 `unitree_mujoco.py`（它自己用 `MjSpec.attach` 现搭一个共享世界）。
+- ❌ 不需要先起 §6.2 的 `coordinator`（§8.3 那条聊天卡才依赖 coordinator；§8.4 不依赖）。
+- ❌ 不需要 DDS / `robot_node` / 域设置（§8.4 直驱内存里的世界，不走 DDS）。
+- ❌ 不需要 `OPENAI_API_KEY` / `.env`（指挥官走 **codex**，不是 OpenAI API）。
+
+一条命令进去，它**自己按顺序**把所有东西拉起来。
+
+### 前提（一次性，基本都已就绪）
+
+1. conda `agi` 环境（§1.1）。
+2. `codex` 已登录（你的 ChatGPT 账号，`~/.codex/config.toml` 已配 `gpt-5.5`）。不想用 codex 就加 `--no-codex` 走确定性规划。
+3. `--viewer` 要弹窗 → WSLg 显示正常（与 §7.5 / §8.2 一致）。没有显示就用 headless（见下面）。
+
+### 启动顺序（照着做，就这几步）
+
 ```bash
+# ① 开一个终端（就一个，够了）
 conda activate agi && cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.sim.command_center --viewer      # 3D 窗口 + 控制台
-# 然后浏览器打开 http://127.0.0.1:8787/ ，在"AI 指挥官"框里下达指令
-# 离线 / 无 key（确定性规划，不调 codex，最跟手）：  --no-codex
-# 调 codex 模型 / 思考强度（默认 gpt-5.5 + xhigh）：  --model / --reasoning
+
+# ②（可选但推荐）先确认 codex 在：有就走真 AI，没有会自动回退确定性规划
+which codex && codex --version
+
+# ③ 起指挥中心（这一条命令内部按顺序自动做完 4 件事，见下）
+python -m g1_brain.fleet.sim.command_center --viewer
 ```
 
-- **AI 大脑 = codex**：`CodexFleetLLM`(gpt-5.5 + xhigh) 把自然语言拆成 FleetPlan；codex 默认模型 `gpt-5.3-codex` 在 ChatGPT 计划下不可用，故显式传 `-m gpt-5.5`。codex 出错 / 无 `codex` 二进制自动回退确定性规划。子 agent 始终确定性展开 op（只让 NL→计划走 codex）。
+`③` 这条命令**进程内部的启动顺序**（你不用管，知道在等什么即可）：
+
+1. 起 **WorldSim**：两台 G1 进同一个 `MjModel`，拉起 **50Hz 控制线程**。终端会打印两行 `[combo] policy engaged …`（两台机器人的 RL 步态控制器就绪，**正常**）。
+2. 建 **codex 指挥官**：终端打印 `[command-center] AI 大脑: codex gpt-5.5 (reasoning=xhigh)`。（没装/没登录 codex 则打印"退回确定性规划"。）
+3. 在后台线程起 **网页服务**，打印 `[command-center] 控制台: http://127.0.0.1:8787/   (Ctrl-C 退出)`。
+4. 在主线程**弹出 MuJoCo 3D 窗口**（`--viewer` 时）。
+
+```bash
+# ④ 等终端打印出 “控制台: http://127.0.0.1:8787/” 这一行，再用浏览器打开它
+#    （服务起来才打开；端口默认 8787，可用 --port 改）
+
+# ⑤ 在网页“AI 指挥官”框里打字下指令，回车。例：
+#    让 g1_a 和 g1_b 到中间会合，然后 g1_a 把巡逻交给 g1_b
+#    首条指令 codex 思考约 10s（xhigh），网页会显示“指挥官思考中…”，正常等它。
+
+# ⑥ 看效果：3D 窗口里两台 G1 真的相向走到中点会合 → g1_b 接手巡逻、g1_a 待命；
+#    网页俯视图 / 遥测 / 事件流实时刷新。中途再下一条新指令 → 立刻抢占（最新优先）。
+
+# ⑦ 退出：关掉 3D 窗口，或在终端按 Ctrl-C（两者都会停掉整个进程）。
+```
+
+> 一句话记忆顺序：**`conda activate agi` → `python -m …command_center --viewer` → 等“控制台: http://…”这行 → 开浏览器 → 打字下指令 → 看 3D 窗口里机器人动**。没有别的"先起 A 再起 B"。
+
+### 常用开关
+
+```bash
+--no-codex                 # 不调 codex，用确定性规划（离线、最跟手、只懂有限句式）
+--reasoning low|medium|high|xhigh   # codex 思考强度（默认 xhigh；想更跟手用 low）
+--model gpt-5.5            # codex 模型（默认；codex 自带的 gpt-5.3-codex 在 ChatGPT 计划下不可用，故固定显式传 gpt-5.5）
+--port 8787 --host 127.0.0.1
+```
+
+### 排查（对症）
+
+- **不弹 3D 窗口**：显示问题（WSLg），与本代码无关；要么修显示，要么**不带 `--viewer`** 纯用网页（headless 时设 `MUJOCO_GL=egl`）。
+- **浏览器打不开**：还没等到"控制台: http://…"那行就开了；或端口被占——`--port` 换一个。
+- **指挥官只懂"会合/接力"这几句**：说明回退到了确定性规划。看终端有没有 `AI 大脑: codex …`；没有就 `which codex` / 检查登录，或干脆 `--no-codex`。
+- **首条指令很慢**：codex `xhigh` 在认真思考，正常（~10s）；想跟手用 `--reasoning low` 或 `--no-codex`。
+
+### headless 自动验收（无窗口，CI；POST 一条指令驱动真实物理跑通会合接力）
+
+```bash
+python -m pytest -m slow tests/fleet/test_command_center_e2e.py -q
+```
+
+- **AI 大脑 = codex**：`CodexFleetLLM`(gpt-5.5 + xhigh) 把自然语言拆成 FleetPlan；codex 出错 / 无 `codex` 二进制自动回退确定性规划。子 agent 始终确定性展开 op（只让 NL→计划走 codex）。
 - **抢占**：机器人还在执行上一条时再下一条，最新指令立即接管（generation 计数，旧任务自停）。
-- **headless 自动验收**（无窗口，CI；POST 一条指令驱动真实物理跑通会合接力）：
-  ```bash
-  python -m pytest -m slow tests/fleet/test_command_center_e2e.py -q
-  ```
 
 ## 8.5 关键文件地图（§8 新增）
 

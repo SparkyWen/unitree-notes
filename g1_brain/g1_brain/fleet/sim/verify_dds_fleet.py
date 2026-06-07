@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -39,7 +40,19 @@ def _post(url: str, body: dict):
         return json.load(r)
 
 
-def run(*, port: int = 8090, inject_after: float = 8.0, poll_s: float = 25.0) -> bool:
+def _primary_ip() -> str:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except Exception:  # noqa: BLE001
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def run(*, port: int = 8090, inject_after: float = 8.0, poll_s: float = 25.0,
+        keep_alive: bool = False) -> bool:
     _LOG.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, "FLEET_FALL_GZ": "2.0"}  # suspended rig tilts; not a fall
     base = f"http://127.0.0.1:{port}"
@@ -60,10 +73,12 @@ def run(*, port: int = 8090, inject_after: float = 8.0, poll_s: float = 25.0) ->
         spawn(["g1_brain.fleet.sim.headless_sim", "--domain", "2"], "sim2")
         time.sleep(4)
 
-        print("[verify] bringing up robot node g1_a (domain 1, self-overheat scheduled)...", flush=True)
+        a_inject = 0.0 if keep_alive else inject_after  # in keep-alive the operator drives it
+        print(f"[verify] bringing up robot node g1_a (domain 1, "
+              f"{'no auto-inject' if keep_alive else 'self-overheat scheduled'})...", flush=True)
         spawn(["g1_brain.fleet.sim.robot_node", "--robot-id", "g1_a", "--domain", "1",
                "--coordinator", f"ws://127.0.0.1:{port}/fleet",
-               "--inject-overheat-after", str(inject_after)], "node_a")
+               "--inject-overheat-after", str(a_inject)], "node_a")
         time.sleep(3)
         print("[verify] dispatch patrol -> g1_a (sole candidate)", flush=True)
         _post(f"{base}/commands", {"op": "dispatch", "args": {"task": "patrol"}})
@@ -74,8 +89,25 @@ def run(*, port: int = 8090, inject_after: float = 8.0, poll_s: float = 25.0) ->
         time.sleep(2)
 
         holder = _get(f"{base}/dispatch")["assignments"].get("task-patrol")
-        print(f"[verify] patrol holder = {holder}; waiting for autonomous overheat dispatch...", flush=True)
 
+        if keep_alive:
+            ip = _primary_ip()
+            bar = "=" * 64
+            print(f"\n{bar}\n  LIVE: 2 G1s + coordinator running. Open the dashboard:\n", flush=True)
+            print(f"    http://localhost:{port}", flush=True)
+            print(f"    http://127.0.0.1:{port}", flush=True)
+            if ip not in ("127.0.0.1",):
+                print(f"    http://{ip}:{port}   <-- use this from Windows if localhost fails", flush=True)
+            print(f"\n  patrol holder = {holder}. Drive it from the dashboard buttons "
+                  f"(inject/sleep/wake/dispatch).\n  Ctrl-C to stop.\n{bar}\n", flush=True)
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("[verify] stopping...", flush=True)
+            return True
+
+        print(f"[verify] patrol holder = {holder}; waiting for autonomous overheat dispatch...", flush=True)
         ok = False
         deadline = time.time() + poll_s
         while time.time() < deadline:
@@ -134,8 +166,11 @@ def main() -> int:  # pragma: no cover
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8090)
     ap.add_argument("--inject-after", type=float, default=8.0)
+    ap.add_argument("--keep-alive", action="store_true",
+                    help="launch coordinator+2 G1s and stay up for the browser dashboard")
     args = ap.parse_args()
-    return 0 if run(port=args.port, inject_after=args.inject_after) else 1
+    return 0 if run(port=args.port, inject_after=args.inject_after,
+                    keep_alive=args.keep_alive) else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

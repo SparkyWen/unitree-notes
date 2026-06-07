@@ -15,27 +15,11 @@ from __future__ import annotations
 import numpy as np
 import mujoco
 
-G1_DEFAULT_JOINT_POS = np.array([
-    -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
-    -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
-    0.0, 0.0, 0.0,
-    0.35, 0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
-    0.35, -0.18, 0.0, 0.87, 0.0, 0.0, 0.0,
-])
-G1_DEFAULT_KP = np.array([
-    40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
-    40.2, 99.1, 40.2, 99.1, 28.5, 28.5,
-    40.2, 28.5, 28.5,
-    14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8,
-    14.3, 14.3, 14.3, 14.3, 14.3, 16.8, 16.8,
-])
-G1_DEFAULT_KD = np.array([
-    2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
-    2.6, 6.3, 2.6, 6.3, 1.8, 1.8,
-    2.6, 1.8, 1.8,
-    0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1,
-    0.9, 0.9, 0.9, 0.9, 0.9, 1.1, 1.1,
-])
+from g1_brain.fleet.sim import g1_consts
+
+G1_DEFAULT_JOINT_POS = np.array(g1_consts.G1_DEFAULT_JOINT_POS)
+G1_DEFAULT_KP = np.array(g1_consts.G1_DEFAULT_KP)
+G1_DEFAULT_KD = np.array(g1_consts.G1_DEFAULT_KD)
 
 
 class MujocoG1:

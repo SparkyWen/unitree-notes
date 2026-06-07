@@ -702,19 +702,47 @@ python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 wake g1_a
 python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 takeover g1_a g1_b
 ```
 
-## 7.5 可视化两台 G1（GUI，可选）
+## 7.5 GUI 双进程：在 MuJoCo 窗口里看到两台 G1（真实 DDS 路径）
 
-`scenario_two_g1` 是 headless（无窗口，适合自动验证）。要在 MuJoCo 窗口里**看到**两台 G1，用 DDS 双进程路径（每进程一个 DDS 域；`config.py` 现支持 `UNITREE_DOMAIN_ID` 环境变量覆盖）：
+§7.1 是 headless 直连物理（自动验收基线）。要**亲眼看到**两台 G1 并被指挥调度,走 **DDS 双进程**路径(每进程一个 DDS 域,`config.py` 支持 `UNITREE_DOMAIN_ID` 覆盖)。拓扑:`2 个 GUI sim 窗口 + 2 个 robot 节点 + 1 个 coordinator`,全部经真实 DDS(`rt/lowstate`/`rt/lowcmd`)。
 
 ```bash
-# 终端 1 — G1 #1（domain 1）
+# 终端 1 — coordinator (悬挂机器人会摆动, 放宽 fall 阈值避免误判)
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+FLEET_FALL_GZ=2.0 python -m g1_brain.fleet.coordinator --port 8090 --db logs/fleet/g.sqlite
+
+# 终端 2 — G1 #1 GUI 窗口 (domain 1)
 conda activate unitree && cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
-UNITREE_DOMAIN_ID=1 python unitree_mujoco.py
-# 终端 2 — G1 #2（domain 2）
-UNITREE_DOMAIN_ID=2 python unitree_mujoco.py
+UNITREE_DOMAIN_ID=1 MUJOCO_GL=glfw python unitree_mujoco.py
+# 终端 3 — G1 #2 GUI 窗口 (domain 2)
+conda activate unitree && cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
+UNITREE_DOMAIN_ID=2 MUJOCO_GL=glfw python unitree_mujoco.py
+
+# 终端 4 — robot 节点 g1_a (domain 1), 14s 后自发电池过热
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.sim.robot_node --robot-id g1_a --domain 1 \
+  --coordinator ws://127.0.0.1:8090/fleet --inject-overheat-after 14
+# 终端 5 — robot 节点 g1_b (domain 2)
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.sim.robot_node --robot-id g1_b --domain 2 \
+  --coordinator ws://127.0.0.1:8090/fleet
+
+# 终端 6 — 操作员: 派发巡逻 + 看状态
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 dispatch patrol
+python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 status
 ```
 
-> 注：DDS `ChannelFactoryInitialize` 是进程级单例（一进程一域），所以可视化双机走双进程/双域。把每台 G1 的 harness（用 `DdsMujocoBackend` 风格的桥接读 `rt/lowstate` / 发 `rt/lowcmd`）接到 §6.2 的 coordinator 是 GUI 联调路径；自动验证用 §7.1 的 headless 直连物理路径（更稳、可复现，是交付验收基线）。
+会看到:两台 G1 在各自窗口里站立(弹性带悬挂,可按 `8` 放低着地、`9` 关弹性带);派发后持有者做巡逻动作;14s 后 g1_a 电池过热 → coordinator 自动让 g1_a 阻尼坐下(SLEEP/DORMANT) → 把巡逻接替给 g1_b。也可手动 `inject g1_a --temp 75` / `sleep` / `wake` / `takeover g1_a g1_b`。
+
+**一键验证整条 DDS 路径(无需 GUI 窗口,自动起 headless sim + 节点 + coordinator 并自检):**
+
+```bash
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.sim.verify_dds_fleet
+# 预期结尾: === ALL CHECKS PASSED ===  (g1_a 过热休眠 → 任务接替给 g1_b, 全程真实 DDS 遥测)
+```
+
+> 说明:(1) DDS `ChannelFactoryInitialize` 是进程级单例(一进程一域),故双机=双进程双域。(2) GUI sim 用弹性带悬挂保持直立(无平衡策略),姿态切换时机身会摆动——这不是真实跌倒,所以 GUI/DDS 演示用 `FLEET_FALL_GZ=2.0` 放宽跌倒检测;真实自平衡机器人保留默认阈值。(3) `headless_sim` 与 GUI `unitree_mujoco.py` 是同一 DDS 契约,只差一个窗口——所以 `verify_dds_fleet`(headless)证明的就是 GUI 路径的数据面。
 
 ## 7.6 关键文件地图
 
@@ -726,6 +754,7 @@ UNITREE_DOMAIN_ID=2 python unitree_mujoco.py
 | `fleet/agent/local_planner.py` | 慢脑能力→姿态技能映射 + 生命周期事件 |
 | `fleet/agent/thermal_model.py` | 由真实 `tau` 合成电池/电机温度 + SOC + `inject()` 钩子 |
 | `fleet/agent/sim_harness.py` | 组装快慢脑的 `SimRobotHarness`（即 RobotAgent 的 core） |
-| `fleet/agent/motion/{base,mock,mujoco_backend}.py` | 可插拔运动后端（mock / 真实 MuJoCo 直连） |
-| `fleet/coordinator/{anomaly,dispatch,lease,gateway,controller,agent_llm,app}.py` | 异常感知 + 确定性调度 + 租约 + 命令网关 + 编排 + 可选 LLM + 路由 |
-| `fleet/sim/{mujoco_world,scenario_two_g1}.py` | headless 真实 G1 物理世界 + 两机验证场景 |
+| `fleet/agent/motion/{base,mock,mujoco_backend,dds_backend}.py` | 可插拔运动后端（mock / 真实 MuJoCo 直连 / DDS 桥接 GUI sim） |
+| `fleet/coordinator/{anomaly,dispatch,lease,gateway,controller,agent_llm,app}.py` | 异常感知 + 确定性调度 + 租约 + 命令网关 + 编排 + 可选 LLM + 路由（异常阈值可经 `FLEET_*` 环境变量覆盖） |
+| `fleet/sim/{mujoco_world,scenario_two_g1}.py` | headless 直连物理 G1 世界 + 两机验证场景（§7.1） |
+| `fleet/sim/{g1_consts,headless_sim,robot_node,verify_dds_fleet}.py` | G1 常量 + 无窗口 sim 进程 + 单机 DDS 节点进程 + 一键 DDS 全链路验证（§7.5） |

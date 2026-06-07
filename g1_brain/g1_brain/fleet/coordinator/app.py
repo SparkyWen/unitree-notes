@@ -63,8 +63,17 @@ def build_coordinator_app(*, db_path: Path, tick_interval_s: float = 1.0,
     app["admission_sink"] = gateway.record_admission  # ws_server reads this live
 
     agent = CoordinatorAgent(llm=(_build_llm() if llm == "auto" else llm))
+    # Anomaly thresholds are env-overridable. A band-suspended sim rig (no
+    # balance policy) legitimately tilts during posture changes, so the GUI/DDS
+    # demo relaxes the fall threshold via FLEET_FALL_GZ; a real free-standing
+    # robot keeps the default and relies on fall detection.
+    detector = AnomalyDetector(
+        battery_hot_c=float(os.environ.get("FLEET_BATTERY_HOT_C", "70.0")),
+        motor_hot_c=float(os.environ.get("FLEET_MOTOR_HOT_C", "80.0")),
+        soc_min=float(os.environ.get("FLEET_SOC_MIN", "0.15")),
+        fall_gz=float(os.environ.get("FLEET_FALL_GZ", "-0.85")))
     controller = DispatchController(
-        registry=registry, detector=AnomalyDetector(),
+        registry=registry, detector=detector,
         engine=DispatchEngine(registry), gateway=gateway, event_log=event_log,
         lease=LeaseManager(), agent=agent, inject_hook=inject_hook)
     app["controller"] = controller

@@ -183,7 +183,7 @@ async def _commands(request: web.Request) -> web.Response:
         robot = body.get("robot") or (body.get("args") or {}).get("robot")
         kw = {k: v for k, v in body.items() if k not in ("op", "robot", "args")}
         kw.update({k: v for k, v in (body.get("args") or {}).items() if k != "robot"})
-        controller.inject(robot, **kw)
+        await controller.inject_or_send(robot, kw)  # hook (in-proc) or DDS command
         return web.json_response({"ok": True, "injected": robot})
     if "nl" in body:
         op = controller.agent.parse(body["nl"])

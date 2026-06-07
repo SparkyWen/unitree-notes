@@ -162,7 +162,9 @@ class RobotEvent(BaseModel):
 
 # Capabilities the coordinator may request. The robot's CapabilityDescriptor
 # still gates which it actually supports; this just bounds the wire vocabulary.
-Capability = Literal["sleep", "wake", "patrol", "idle", "resume_task", "stop"]
+# "inject" is a sim/debug telemetry override (battery temp etc.), handled at the
+# harness before the admission gate — it never touches motion.
+Capability = Literal["sleep", "wake", "patrol", "idle", "resume_task", "stop", "inject"]
 
 
 class Lease(BaseModel):

@@ -139,8 +139,17 @@ class SimRobotHarness:
     def admit(self, env: CommandEnvelope) -> AdmissionDecision:
         return self.gate.admit(env)
 
+    _INJECT_KEYS = ("battery_temperature_c", "soc", "motor_temperature_c",
+                    "fault", "charging")
+
     async def on_command(self, env: CommandEnvelope) -> AdmissionDecision:
         # The bus invokes this; the actual decision is fully synchronous/local.
+        if env.capability == "inject":  # sim/debug telemetry override, not motion
+            kw = {k: v for k, v in env.payload.items() if k in self._INJECT_KEYS}
+            self.thermal.inject(**kw)
+            return AdmissionDecision(command_id=env.command_id, robot_id=self.robot_id,
+                                     decision="accepted", reason_code="OK_INJECT",
+                                     ts=_iso_now())
         return self.gate.admit(env)
 
     # ---- driven by the agent loop ----

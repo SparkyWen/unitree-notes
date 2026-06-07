@@ -56,4 +56,6 @@ async def test_dashboard_served_at_root(client):
     assert r.content_type == "text/html"
     html = await r.text()
     assert "Fleet Coordinator" in html
-    assert "/robots" in html and "/commands" in html  # wired to the live API
+    # wired to the live API (incl. the event ticker) + live robot figures
+    assert "/robots" in html and "/commands" in html and "/events" in html
+    assert "figure(" in html and "<svg" in html

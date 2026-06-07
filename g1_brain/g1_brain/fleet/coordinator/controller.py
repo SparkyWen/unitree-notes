@@ -91,8 +91,21 @@ class DispatchController:
             return self.snapshot()
 
     def inject(self, robot_id: str, **kwargs) -> None:
+        """Synchronous in-process inject (used by the headless scenario/tests)."""
         if self._inject_hook is not None:
             self._inject_hook(robot_id, **kwargs)
+
+    async def inject_or_send(self, robot_id: str, kwargs: dict) -> None:
+        """Inject synthesized telemetry: in-process via the hook, otherwise
+        (multi-process DDS) send an `inject` command down to the robot node."""
+        if self._inject_hook is not None:
+            self._inject_hook(robot_id, **kwargs)
+            return
+        from g1_brain.fleet.contracts.models import CommandEnvelope
+        env = CommandEnvelope.make(issued_by="coordinator", issued_to=robot_id,
+                                   capability="inject", payload=dict(kwargs),
+                                   trace_id=self._next_trace("inject"))
+        await self.gateway.issue(env)
 
     async def run_op(self, op: StructuredOp) -> dict:
         ok, reason = self.agent.validate(op, self.registry)

@@ -32,8 +32,7 @@ from typing import Optional
 
 from aiohttp import web
 
-from g1_brain.fleet.coordinator.fleet_commander import FleetCommander
-from g1_brain.fleet.coordinator.robot_subagent import RobotSubAgent
+from g1_brain.fleet.coordinator.choreographer import plan_mission
 from g1_brain.fleet.sim.command_center_ui import INDEX_HTML
 from g1_brain.fleet.sim.live_executor import LiveExecutor
 
@@ -58,7 +57,7 @@ def build_command_center_app(world, *, llm=None, subagent_llm=None,
     drives the current mission (and is preempted whenever /command submits)."""
     app = web.Application()
     app["world"] = world
-    app["commander"] = FleetCommander(llm=llm)
+    app["commander_llm"] = llm           # codex (or None) — plan_mission drives it
     app["subagent_llm"] = subagent_llm
     events: deque = deque(maxlen=300)
     app["events"] = events
@@ -102,7 +101,7 @@ async def _world(request: web.Request) -> web.Response:
         x, y, yaw = t["pose"]
         robots.append({"robot_id": rid, "x": float(x), "y": float(y),
                        "yaw": float(yaw), "posture": t.get("posture"),
-                       "gz": t.get("gz")})
+                       "activity": t.get("activity"), "gz": t.get("gz")})
     m = request.app["executor"].mission
     mission = None
     if m is not None:
@@ -125,28 +124,21 @@ async def _command(request: web.Request) -> web.Response:
     nl = (body.get("nl") or "").strip()
     if not nl:
         return web.json_response({"ok": False, "reason": "empty command"}, status=400)
-    world = request.app["world"]
-    commander: FleetCommander = request.app["commander"]
-    snapshot = _world_snapshot(world)
+    app = request.app
+    snapshot = _world_snapshot(app["world"])
+    llm, sub_llm = app["commander_llm"], app["subagent_llm"]
     # codex planning can take seconds (xhigh reasoning); never block the event
-    # loop — run the sync FleetCommander.plan() (which calls codex) in a thread.
+    # loop — run the (sync) planner, which may call codex, in a thread.
     loop = asyncio.get_running_loop()
-    plan = await loop.run_in_executor(None, commander.plan, nl, snapshot)
-    if plan.needs_clarification:
-        request.app["events"].append(
-            {"ts": _now(), "msg": f"需要澄清: {plan.needs_clarification}"})
-        return web.json_response({"ok": False, "needs_clarification": plan.needs_clarification,
-                                  "summary": plan.summary})
-    known = set(world.telemetry().keys())
-    ok, reason = commander.validate(plan, known)
-    if not ok:
-        request.app["events"].append({"ts": _now(), "msg": f"指令无效: {reason}"})
-        return web.json_response({"ok": False, "reason": reason})
-    sub_llm = request.app["subagent_llm"]
-    ops = {}
-    for a in plan.assignments:
-        ops[a.robot_id] = RobotSubAgent(a.robot_id, llm=sub_llm).plan_ops(a, plan.coordination)
-    request.app["executor"].submit(plan, ops)   # preempts any running mission
+    res = await loop.run_in_executor(
+        None, lambda: plan_mission(nl, snapshot, llm=llm, sub_llm=sub_llm))
+    if not res["ok"]:
+        msg = res.get("needs_clarification") or res.get("reason") or "无法执行"
+        app["events"].append({"ts": _now(), "msg": f"指挥官: {msg}"})
+        return web.json_response({"ok": False, "needs_clarification": res.get("needs_clarification"),
+                                  "reason": res.get("reason")})
+    plan, ops = res["plan"], res["ops"]
+    app["executor"].submit(plan, ops)   # preempts any running mission
     return web.json_response({
         "ok": True, "summary": plan.summary, "plan": plan.model_dump(),
         "ops": {rid: [o.model_dump() for o in ol] for rid, ol in ops.items()}})

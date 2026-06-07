@@ -46,6 +46,27 @@ _SYS = (
 )
 
 
+_CHOREO_SYS = (
+    "You are the commander of a fleet of Unitree G1 humanoids. Convert the "
+    "operator's command (any language) into per-robot action sequences. Output "
+    "ONE JSON object and NOTHING else:\n"
+    '{"summary": "<short, may be Chinese>",\n'
+    ' "ops": {"<robot_id>": [{"op": <name>, "args": {...}}, ...]}}\n'
+    "Use ONLY these ops:\n"
+    "  navigate {x,y}                  walk to a point (metres)\n"
+    '  circle   {dir:"cw"|"ccw", seconds}   walk a small circle for N seconds\n'
+    "  face     {x,y}                  turn in place to face a point\n"
+    "  arms_up  {seconds}              raise both arms overhead and hold\n"
+    "  hold     {seconds}              stand still for N seconds\n"
+    "  patrol | idle | sleep | wake    posture only (no args)\n"
+    "Rules: use only robot_ids present in the snapshot. Order each robot's ops; "
+    "robots run their sequences concurrently and advance independently. For "
+    "'face each other', set each robot's face target to the OTHER robot's final "
+    "(x,y). For a side-by-side row, give nearby goals offset ~1.2 m along one "
+    "axis. Reply with raw JSON only — no markdown, no commentary."
+)
+
+
 def extract_plan_json(text: str) -> dict:
     """Pull the first balanced top-level JSON object out of ``text``.
 
@@ -119,6 +140,14 @@ class CodexFleetLLM:
 
     def plan_fleet(self, nl: str, snapshot: dict) -> Optional[dict]:
         prompt = (f"{_SYS}\n\ncommand: {nl}\n"
+                  f"snapshot: {json.dumps(snapshot, ensure_ascii=False)}")
+        res = asyncio.run(self._exec(prompt))
+        return extract_plan_json(res.text)
+
+    def plan_choreography(self, nl: str, snapshot: dict) -> Optional[dict]:
+        """Codex composes per-robot op sequences (the rich vocabulary). Returns
+        {"summary", "ops": {rid: [{op,args}]}}."""
+        prompt = (f"{_CHOREO_SYS}\n\ncommand: {nl}\n"
                   f"snapshot: {json.dumps(snapshot, ensure_ascii=False)}")
         res = asyncio.run(self._exec(prompt))
         return extract_plan_json(res.text)

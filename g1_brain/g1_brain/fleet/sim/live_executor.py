@@ -17,11 +17,17 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from typing import Callable, Dict, List, Optional
 
 from g1_brain.fleet.agent.motion.base import Posture
 from g1_brain.fleet.coordinator.barrier import RendezvousBarrier
 from g1_brain.fleet.coordinator.fleet_plan import FleetPlan, SubAgentOp
+
+_FACE_DONE = 0.2       # rad: "facing the target" once heading error is within this
+_FACE_TIMEOUT = 8.0    # s: stop turning toward a face target after this long
+_ARMS_SETTLE = 1.5     # s: stand still this long before raising arms, so the
+                       # robot is settled — raising arms mid-stride topples it
 
 
 class Mission:
@@ -37,6 +43,8 @@ class Mission:
         self.barrier_fired = False
         self.min_sep = 99.0
         self.start_pose: Dict[str, tuple] = {}
+        self.op_t0: Dict[str, tuple] = {}     # rid -> (op_index, clock when it began)
+        self.fired: set = set()               # (rid, op_index) one-shot guards
         c = plan.coordination
         self._barrier = RendezvousBarrier(set(ops), point=c.point, radius=0.7)
 
@@ -50,10 +58,11 @@ class Mission:
 
 class LiveExecutor:
     def __init__(self, world, *, on_event: Optional[Callable[[str], None]] = None,
-                 arrive_radius: float = 0.45):
+                 arrive_radius: float = 0.45, clock: Optional[Callable[[], float]] = None):
         self._world = world
         self._on_event = on_event
         self._arrive_radius = arrive_radius
+        self._clock = clock or time.monotonic
         self._mission: Optional[Mission] = None
         self._gen = 0
 
@@ -76,15 +85,22 @@ class LiveExecutor:
         m = self._mission
         if m is None or m.complete:
             return
+        now = self._clock()
         tel = self._world.telemetry()
         for rid in m.ops:
             t = tel.get(rid)
             if t and t["neighbors"]:
                 m.min_sep = min(m.min_sep, t["neighbors"][0]["dist"])
-            if m.ptr[rid] >= len(m.ops[rid]):
+            i = m.ptr[rid]
+            if i >= len(m.ops[rid]):
                 continue
-            op = m.ops[rid][m.ptr[rid]]
-            px, py, _ = t["pose"]
+            # stamp when this op first begins (timed ops + one-shot triggers)
+            started = m.op_t0.get(rid, (None, 0.0))[0] != i
+            if started:
+                m.op_t0[rid] = (i, now)
+            elapsed = now - m.op_t0[rid][1]
+            op = m.ops[rid][i]
+            px, py, yaw = t["pose"]
             if op.op == "navigate":
                 gx, gy = op.args["x"], op.args["y"]
                 self._world.set_nav_goal(rid, gx, gy)
@@ -98,6 +114,40 @@ class LiveExecutor:
                         m.barrier_fired = True
                         self._event(m, "会合完成 — 两机抵达集合点")
                     m.ptr[rid] += 1
+            elif op.op == "circle":
+                if started:
+                    self._world.set_circle(rid, op.args.get("dir", "ccw"))
+                if elapsed >= float(op.args.get("seconds", 10.0)):
+                    self._world.set_idle(rid)
+                    m.ptr[rid] += 1
+                    self._event(m, f"{rid} 绕圈结束")
+            elif op.op == "face":
+                tx, ty = op.args["x"], op.args["y"]
+                self._world.set_face(rid, tx, ty)
+                desired = math.atan2(ty - py, tx - px)
+                err = math.atan2(math.sin(yaw - desired), math.cos(yaw - desired))
+                if abs(err) < _FACE_DONE or elapsed > _FACE_TIMEOUT:
+                    self._world.set_idle(rid)
+                    m.ptr[rid] += 1
+                    self._event(m, f"{rid} 面向对方")
+            elif op.op == "arms_up":
+                # stand still and settle, THEN raise (raising mid-stride topples)
+                if started:
+                    self._world.set_idle(rid)
+                hold = float(op.args.get("seconds", 2.5))
+                key = (rid, i)
+                if elapsed >= _ARMS_SETTLE and key not in m.fired:
+                    self._world.set_arms_up(rid, True)   # queue gesture ONCE
+                    m.fired.add(key)
+                if elapsed >= _ARMS_SETTLE + hold:
+                    m.ptr[rid] += 1
+                    self._event(m, f"{rid} 抬起双手")
+            elif op.op == "hold":
+                if started:
+                    self._world.set_idle(rid)
+                if elapsed >= float(op.args.get("seconds", 2.0)):
+                    m.ptr[rid] += 1
+                    self._event(m, f"{rid} 就位")
             elif op.op == "patrol":
                 self._world.set_posture(rid, Posture.PATROL)
                 m.start_pose[rid] = (px, py)
@@ -106,7 +156,7 @@ class LiveExecutor:
             elif op.op == "idle":
                 self._world.set_posture(rid, Posture.IDLE)
                 m.ptr[rid] += 1
-                self._event(m, f"{rid} 交接完毕，待命")
+                self._event(m, f"{rid} 待命")
             elif op.op == "sleep":
                 self._world.set_posture(rid, Posture.SLEEP)
                 m.ptr[rid] += 1

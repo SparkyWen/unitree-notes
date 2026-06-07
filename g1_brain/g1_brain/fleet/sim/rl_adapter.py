@@ -87,6 +87,33 @@ class SharedWorldController:
         self.ctl.global_phase = 0.0
         self.ctl.last_raw_action[:] = 0.0
 
+    @property
+    def arm_rest(self) -> np.ndarray:
+        """The policy's default 14-D arm pose (basis for arm gestures)."""
+        return np.asarray(self.cfg.default_q[combo.ARM_START:combo.ARM_END],
+                          dtype=np.float64)
+
+    def hands_up_pose(self) -> np.ndarray:
+        """14-D arm target: both arms straight up overhead. NB: the velocity
+        policy diverges holding this (CoM shifts forward) — use raise_arms_pose
+        for a sustained hold; this stays for reference / brief gestures."""
+        return combo.hands_up_pose(self.arm_rest)
+
+    def raise_arms_pose(self) -> np.ndarray:
+        """14-D arm target for a STABLE sustained 'raise both arms': arms out to
+        the sides (T-pose). Overhead/forward raises shift the CoM forward and the
+        balance policy drifts off; arms-to-the-sides keeps the CoM centred
+        (verified: 0.04 m drift vs 9 m overhead)."""
+        return combo.t_pose_pose(self.arm_rest)
+
+    def push_arm_gesture(self, keyframes) -> None:
+        """Queue an arm gesture through the combo controller's rate-limited
+        blender (each keyframe = (duration_s, 14-D pose)). This is the ONLY
+        safe way to move the arms: snapping a raw arm target spikes joint
+        velocity and the balance policy falls — the combo's 2-2.5 s eased
+        blend keeps it upright (verified)."""
+        self.ctl.push_arm_action(list(keyframes))
+
     def set_command(self, vx, vy, wz):
         self.ctl.set_command(vx, vy, wz)
 

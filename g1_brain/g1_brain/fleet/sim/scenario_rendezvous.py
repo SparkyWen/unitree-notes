@@ -29,7 +29,7 @@ from g1_brain.fleet.agent.motion.base import Posture
 from g1_brain.fleet.coordinator.barrier import RendezvousBarrier
 from g1_brain.fleet.coordinator.fleet_commander import FleetCommander
 from g1_brain.fleet.coordinator.robot_subagent import RobotSubAgent
-from g1_brain.fleet.sim.shared_world_node import WorldSim
+from g1_brain.fleet.sim.shared_world_node import WorldSim, trim_render_cost
 
 _DEFAULT_NL = "让 g1_a 和 g1_b 到中间会合，然后 g1_a 把巡逻交给 g1_b"
 
@@ -139,9 +139,8 @@ def run(nl: str = _DEFAULT_NL, *, viewer: bool = False, llm=None) -> dict:
         th = threading.Thread(target=lambda: box.update(orchestrate(sim, nl, llm=llm)),
                               daemon=True)
         th.start()
+        trim_render_cost(sim.world.m)  # cut render cost BEFORE the GL context is built
         with mujoco.viewer.launch_passive(sim.world.m, sim.world.d) as v:
-            v.opt.flags[mujoco.mjtVisFlag.mjVIS_SHADOW] = False
-            v.opt.flags[mujoco.mjtVisFlag.mjVIS_REFLECTION] = False
             while v.is_running():
                 v.sync()
                 time.sleep(1 / 60)

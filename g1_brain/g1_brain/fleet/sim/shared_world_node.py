@@ -20,6 +20,24 @@ from g1_brain.fleet.agent.motion.rl_shared_backend import RlSharedBackend
 from g1_brain.fleet.agent.motion.base import Posture
 
 
+def trim_render_cost(m) -> None:
+    """Make the passive viewer cheap on WSL2/llvmpipe (memory: mujoco_viewer_perf).
+
+    Render-only — never touches physics. The big per-frame win here is killing
+    MSAA (offsamples 4 -> 0); shadow/reflection passes are also disabled at the
+    *model* level (the proper levers — `mjtVisFlag.mjVIS_SHADOW`/`mjVIS_REFLECTION`
+    do NOT exist; those are `mjtRndFlag` render flags, which is what crashed the
+    old code). Shadow/reflection trims are no-ops while the shared world has no
+    lights/materials, but stay correct if any are added later. Call BEFORE
+    launch_passive so the GL context is built without MSAA."""
+    m.vis.quality.offsamples = 0      # MSAA 4x -> off: the real cost on llvmpipe
+    m.vis.quality.shadowsize = 0      # don't allocate a shadow map
+    if m.nlight:
+        m.light_castshadow[:] = 0     # no light casts a shadow -> no shadow pass
+    if m.nmat:
+        m.mat_reflectance[:] = 0      # no mirror floor/material reflections
+
+
 class WorldSim:
     def __init__(self, robot_ids=("g1_a", "g1_b"),
                  spawn=None):
@@ -81,10 +99,8 @@ def main():
         os.environ.setdefault("MUJOCO_GL", "glfw")
         import mujoco
         import mujoco.viewer
+        trim_render_cost(sim.world.m)  # cut render cost BEFORE the GL context is built
         with mujoco.viewer.launch_passive(sim.world.m, sim.world.d) as v:
-            # cut render cost (per memory: mujoco_viewer_perf / wsl2_gpu_rendering)
-            v.opt.flags[mujoco.mjtVisFlag.mjVIS_SHADOW] = False
-            v.opt.flags[mujoco.mjtVisFlag.mjVIS_REFLECTION] = False
             while v.is_running():
                 v.sync()
                 time.sleep(1 / 60)

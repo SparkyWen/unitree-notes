@@ -796,3 +796,86 @@ python -m g1_brain.fleet.sim.verify_dds_fleet
 | `fleet/coordinator/{anomaly,dispatch,lease,gateway,controller,agent_llm,app}.py` | 异常感知 + 确定性调度 + 租约 + 命令网关 + 编排 + 可选 LLM + 路由（异常阈值可经 `FLEET_*` 环境变量覆盖） |
 | `fleet/sim/{mujoco_world,scenario_two_g1}.py` | headless 直连物理 G1 世界 + 两机验证场景（§7.1） |
 | `fleet/sim/{g1_consts,headless_sim,robot_node,verify_dds_fleet}.py` | G1 常量 + 无窗口 sim 进程 + 单机 DDS 节点进程 + 一键 DDS 全链路验证（§7.5） |
+
+# 8. Fleet 共享世界 + RL 真步态 + AI 指挥官（会合 / 接力）
+
+§7 是"两个独立 MuJoCo 世界 + DDS 双进程"——两台机器人互相看不见。§8 是本次新增的**单一共享世界**路线：**两台 G1 在同一个 MuJoCo 世界（一个窗口）里用 RL 真步态行走、互相感知**，并由**接收自然语言、用 OpenAI 拆解的 AI 指挥官**给每台机器人委派一个子 agent，去完成**会合 / 接力**配合。
+
+设计文档 `docs/superpowers/specs/2026-06-07-fleet-shared-world-rl-coordinator-design.md`；计划 `docs/superpowers/plans/2026-06-07-fleet-shared-world-p1.md` + `2026-06-07-fleet-coordinator-p2.md`。
+
+与 §7 的关键区别：
+
+- **一个世界一个窗口**：`MjSpec.attach` 把两台 G1 合进一个 `MjModel`，真实共享物理（靠近会真碰撞）+ 邻居感知；不再是两域两窗口。
+- **真步态**：移动用 RL 速度跟踪策略（复用 `g1_sim_demo` 的 `ComboController`，去 DDS 直驱），不是绑带悬吊摆姿势。
+- **分层 AI 调度**：`FleetCommander`(NL→多机计划) → 每机 `RobotSubAgent`(→op 序列) → 确定性 `RendezvousBarrier`(会合同步)；无 `OPENAI_API_KEY` 自动回退确定性规划。
+
+## 8.1 看会合 / 接力演示（推荐先跑这个）★ 新 GUI
+
+一句自然语言 → AI 指挥官拆解 → 两个子 agent 各自规划 → 两台 G1 在**同一个窗口**里走到中间会合 → barrier 同步 → 巡逻令牌 a→b：
+
+```bash
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.sim.scenario_rendezvous --viewer
+# 自定义指令：--nl "让 g1_a 和 g1_b 到中间会合，然后 g1_a 把巡逻交给 g1_b"
+```
+
+一个 MuJoCo 窗口里能看到：两台 G1 真步态相向走到中点（保持安全间距不相撞）→ g1_b 接手开始巡逻（原地小圈）、g1_a 停下待命。
+
+**headless 自动验收**（无窗口，CI 用，结尾打印 `ALL CHECKS PASSED`）：
+
+```bash
+MUJOCO_GL=egl python -m g1_brain.fleet.sim.scenario_rendezvous
+```
+
+预期结尾（9 项全过）：
+
+```
+[commander] 会合后交接巡逻 [relay] handoff g1_a -> g1_b
+[subagent g1_a] navigate -> await_barrier -> idle
+[subagent g1_b] navigate -> await_barrier -> patrol
+=== VERIFICATION (rendezvous / relay) ===
+  [PASS] rendezvous barrier fired (both arrived)
+  [PASS] g1_b patrolling after handoff / g1_a idle / both upright / no collision
+=== ALL CHECKS PASSED ===
+```
+
+## 8.2 只看共享世界本身（两台 G1 同窗行走）★ 新 GUI
+
+不带 AI、直接看"两台 G1 在一个世界里走到中点"：
+
+```bash
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+python -m g1_brain.fleet.sim.shared_world_node --viewer
+# headless 冒烟（打印两机末位姿 / gz / 间距）：
+python -m g1_brain.fleet.sim.shared_world_node --seconds 9
+```
+
+> WSL2 下窗口走 WSLg 显示（与 §7.5 的 GUI 一致）。屏显 GL 默认 `glfw`；headless 用 `MUJOCO_GL=egl`。RL 策略走 `onnxruntime` CPU，无需额外 GPU。窗口打不开属显示问题（非本代码），排查思路同 §7.3。
+
+## 8.3 AI 指挥官聊天（仪表盘 / API）
+
+coordinator 网页（§7.3 的 `GET /`）新增 **"AI 指挥官"聊天卡**：打字下达自然语言，返回指挥官的多机计划 + 每机子 agent 的 op 序列。也可直接打 API：
+
+```bash
+curl -s -X POST http://127.0.0.1:8090/chat -H 'content-type: application/json' \
+  -d '{"nl":"两机到中间会合，然后 g1_a 把巡逻交给 g1_b"}' | python -m json.tool
+```
+
+无 `OPENAI_API_KEY` 时走确定性规划器（关键词 + 快照）；设了 key 则经 OpenAI（同一 op 语法、同样校验）。
+
+> ⚠️ 当前边界：聊天卡返回的是**指挥官的决策（计划 + op）**；"在网页打字 → 共享世界机器人真的动起来"这条线**尚未接通**（coordinator 进程与 §8.1/8.2 的 WorldSim 进程还没用 WS 总线连起来）。**机器人真的按指令会合接力**由 §8.1 的 `scenario_rendezvous`（同进程跑通整条链）展示与验证。
+
+## 8.4 关键文件地图（§8 新增）
+
+| 文件 | 职责 |
+|---|---|
+| `fleet/sim/shared_world.py` | `MjSpec.attach` 合两台 G1 进一个 `MjModel` + 每机切片 + 每子步重算 PD + 邻居感知 |
+| `fleet/sim/rl_adapter.py` | 无 DDS 复用 `ComboController`（伪 LowState 喂入 + 截获 `_publish`）跑 RL 速度策略 |
+| `fleet/sim/nav.py` | 位置→速度导航外环（夹到策略命令范围防 OOD） |
+| `fleet/agent/motion/rl_shared_backend.py` | 共享世界单机 MotionBackend（导航 / PATROL 小圈 / IDLE） |
+| `fleet/sim/shared_world_node.py` | World Sim 进程：50Hz 隔离控制线程 + 可选 viewer（§8.2） |
+| `fleet/coordinator/{fleet_plan,fleet_commander,robot_subagent,barrier}.py` | AI 指挥官决策层：FleetPlan + NL 拆解(OpenAI+回退) + 每机子 agent + 确定性会合 barrier |
+| `fleet/sim/scenario_rendezvous.py` | 端到端会合/接力编排 + 验收（§8.1） |
+| `fleet/coordinator/app.py` `POST /chat` | 仪表盘/接口的分层调度入口（§8.3） |
+
+> 关键工程点：RL 速度策略在自写 MuJoCo 循环里驱动时，**PD 力矩必须每个物理子步（200Hz）用最新 q/dq 重算**，不能每 50Hz 控制 tick 只设一次——否则力矩过时 → 振荡 → 摔倒。这是机器人从"乱飞"到"稳步行走"的分水岭。

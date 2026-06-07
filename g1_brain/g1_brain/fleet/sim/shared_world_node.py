@@ -66,12 +66,29 @@ class WorldSim:
         with self._lock:
             self.backends[rid].set_posture(posture)
 
+    def set_circle(self, rid, direction="ccw"):
+        with self._lock:
+            self.backends[rid].set_circle(direction)
+
+    def set_face(self, rid, x, y):
+        with self._lock:
+            self.backends[rid].set_face(x, y)
+
+    def set_idle(self, rid):
+        with self._lock:
+            self.backends[rid].set_idle()
+
+    def set_arms_up(self, rid, up=True):
+        with self._lock:
+            self.backends[rid].set_arms_up(up)
+
     def telemetry(self) -> dict:
         with self._lock:
             return {rid: {"pose": self.world.base_pose(rid),
                           "gz": self.world.gravity_proj_z(rid),
                           "neighbors": self.world.neighbors(rid),
-                          "posture": be.last_posture.value}
+                          "posture": be.last_posture.value,
+                          "activity": be.activity}
                     for rid, be in self.backends.items()}
 
     def _step_once(self):

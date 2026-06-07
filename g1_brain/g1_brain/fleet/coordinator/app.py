@@ -21,6 +21,8 @@ from g1_brain.fleet.coordinator.anomaly import AnomalyDetector
 from g1_brain.fleet.coordinator.controller import DispatchController
 from g1_brain.fleet.coordinator.dashboard import INDEX_HTML
 from g1_brain.fleet.coordinator.dispatch import DispatchEngine
+from g1_brain.fleet.coordinator.fleet_commander import FleetCommander
+from g1_brain.fleet.coordinator.robot_subagent import RobotSubAgent
 from g1_brain.fleet.coordinator.event_log import EventLog
 from g1_brain.fleet.coordinator.gateway import CommandGateway
 from g1_brain.fleet.coordinator.lease import LeaseManager
@@ -41,6 +43,19 @@ def _build_llm() -> Optional[object]:
         return OpenAIChatLLM()
     except Exception:  # noqa: BLE001
         log.warning("LLM adapter unavailable; using command grammar", exc_info=True)
+        return None
+
+
+def _build_fleet_llm() -> Optional[object]:
+    """Best-effort OpenAI adapter for the FleetCommander/sub-agents; None
+    (deterministic fallback) if no key/SDK."""
+    if not os.environ.get("OPENAI_API_KEY"):
+        return None
+    try:
+        from g1_brain.fleet.coordinator.fleet_commander import OpenAIFleetLLM
+        return OpenAIFleetLLM()
+    except Exception:  # noqa: BLE001
+        log.warning("fleet LLM adapter unavailable; using deterministic planner", exc_info=True)
         return None
 
 
@@ -80,6 +95,9 @@ def build_coordinator_app(*, db_path: Path, tick_interval_s: float = 1.0,
     app["controller"] = controller
     app["gateway"] = gateway
 
+    # Hierarchical NL dispatch brain (OpenAI + deterministic fallback).
+    app["commander"] = FleetCommander(llm=(_build_fleet_llm() if llm == "auto" else llm))
+
     # web dashboard (browser view) + read-only routes
     app.router.add_get("/", _index)
     app.router.add_get("/robots", _robots)
@@ -90,6 +108,7 @@ def build_coordinator_app(*, db_path: Path, tick_interval_s: float = 1.0,
     # dispatch routes
     app.router.add_post("/missions", _missions)
     app.router.add_post("/commands", _commands)
+    app.router.add_post("/chat", _chat)
     app.router.add_get("/anomalies", _anomalies)
     app.router.add_get("/dispatch", _dispatch)
 
@@ -193,6 +212,42 @@ async def _commands(request: web.Request) -> web.Response:
         op = StructuredOp(kind=op_kind, args=body.get("args", {}))
     result = await controller.run_op(op)
     return web.json_response(result)
+
+
+def _snapshot(registry) -> dict:
+    """Fleet snapshot for the commander: robot_id + last-known x,y."""
+    robots = []
+    for r in registry.list_robots():
+        core = (r.get("state") or {}).get("core") or {}
+        pose = core.get("pose") or {}
+        robots.append({"robot_id": r["robot_id"],
+                       "x": float(pose.get("x", 0.0)), "y": float(pose.get("y", 0.0))})
+    return {"robots": robots}
+
+
+async def _chat(request: web.Request) -> web.Response:
+    """Hierarchical NL dispatch: FleetCommander -> per-robot RobotSubAgent.
+    Returns the structured plan + per-robot op sequences (the visible
+    delegation). LLM proposes; validate() disposes before anything runs."""
+    body = await request.json()
+    nl = body.get("nl", "")
+    registry = request.app["registry"]
+    commander: FleetCommander = request.app["commander"]
+    plan = commander.plan(nl, _snapshot(registry))
+    if plan.needs_clarification:
+        return web.json_response({"ok": False, "needs_clarification": plan.needs_clarification,
+                                  "summary": plan.summary})
+    known = {r["robot_id"] for r in registry.list_robots()}
+    ok, reason = commander.validate(plan, known)
+    if not ok:
+        return web.json_response({"ok": False, "reason": reason})
+    sub_llm = getattr(commander, "_llm", None)
+    ops = {}
+    for a in plan.assignments:
+        sa = RobotSubAgent(a.robot_id, llm=sub_llm)
+        ops[a.robot_id] = [o.model_dump() for o in sa.plan_ops(a, plan.coordination)]
+    return web.json_response({"ok": True, "plan": plan.model_dump(), "ops": ops,
+                              "explanation": plan.summary})
 
 
 async def _anomalies(request: web.Request) -> web.Response:

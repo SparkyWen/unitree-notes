@@ -65,6 +65,9 @@ class SharedG1World:
                 qj_adr=int(first_hinge.qposadr[0]), dqj_adr=int(first_hinge.dofadr[0]),
                 act_adr=_first_act_for(self.m, rid),
                 torso_bid=self.m.body(f"{rid}/pelvis").id)
+        # per-robot held PD setpoint (q_target, kp, kd); recomputed into torque
+        # every *sim* step (see step()) so torque never goes stale at 50 Hz.
+        self._pd: Dict[str, tuple] = {}
         # seed each robot: spawn xy + standing height, identity quat, default pose
         for rid in robot_ids:
             sl = self.slices[rid]
@@ -103,10 +106,19 @@ class SharedG1World:
         return float((R.reshape(3, 3).T @ np.array([0.0, 0.0, -1.0]))[2])
 
     def set_pd(self, rid: str, q_target: np.ndarray, kp: np.ndarray, kd: np.ndarray) -> None:
-        sl = self.slices[rid]
-        q, dq = self.joint_state(rid)
-        tau = kp * (q_target - q) - kd * dq
-        self.d.ctrl[sl.act_adr:sl.act_adr + _NJ] = tau
+        """Hold a PD setpoint for this robot. The torque is recomputed from
+        fresh q/dq on every sim step (see step()), matching the unitree bridge:
+        applying PD only at the 50 Hz control rate makes torque stale relative
+        to the integrator and drives Kp oscillation -> instability."""
+        self._pd[rid] = (np.asarray(q_target, dtype=np.float64),
+                         np.asarray(kp, dtype=np.float64),
+                         np.asarray(kd, dtype=np.float64))
+
+    def _apply_pd(self) -> None:
+        for rid, (q_target, kp, kd) in self._pd.items():
+            sl = self.slices[rid]
+            q, dq = self.joint_state(rid)
+            self.d.ctrl[sl.act_adr:sl.act_adr + _NJ] = kp * (q_target - q) - kd * dq
 
     def neighbors(self, rid: str) -> List[dict]:
         x, y, yaw = self.base_pose(rid)
@@ -124,6 +136,7 @@ class SharedG1World:
 
     def step(self, n: int = 1) -> None:
         for _ in range(n):
+            self._apply_pd()  # fresh torque every sim step (200 Hz), not stale 50 Hz
             mujoco.mj_step(self.m, self.d)
 
 

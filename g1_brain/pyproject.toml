@@ -40,3 +40,6 @@ include = ["g1_brain*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: empirical physics gates that step real MuJoCo at ~real time",
+]

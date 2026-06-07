@@ -17,3 +17,15 @@ def test_nav_goal_sets_walk():
     assert be.last_posture in (Posture.WALK, Posture.ACTIVE)
     ls = be.read_lowstate()
     assert len(ls.tau_est()) == 29
+
+
+def test_patrol_issues_walk_command_idle_stops():
+    import numpy as np
+    w = SharedG1World()
+    be = RlSharedBackend(w, "g1_a")
+    be.set_posture(Posture.PATROL)
+    be.step()
+    assert np.linalg.norm(be.ctl.ctl.get_command()) > 0.1   # patrolling = moving
+    be.set_posture(Posture.IDLE)
+    be.step()
+    assert np.linalg.norm(be.ctl.ctl.get_command()) < 1e-6   # idle = stopped

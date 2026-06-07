@@ -190,8 +190,7 @@ def run(*, viewer: bool = False, host: str = "127.0.0.1", port: int = 8787,
         use_codex: bool = True, model: str = "gpt-5.5", reasoning: str = "xhigh") -> None:
     from g1_brain.fleet.sim.shared_world_node import WorldSim, trim_render_cost
 
-    sim = WorldSim()
-    sim.start()
+    sim = WorldSim()  # control loop NOT started yet — see below
     llm = _build_codex_llm(model, reasoning, Path.cwd()) if use_codex else None
     app = build_command_center_app(sim, llm=llm)
     state = _serve_in_thread(app, host, port)
@@ -203,10 +202,15 @@ def run(*, viewer: bool = False, host: str = "127.0.0.1", port: int = 8787,
             import mujoco.viewer
             trim_render_cost(sim.world.m)  # cut render cost BEFORE the GL context is built
             with mujoco.viewer.launch_passive(sim.world.m, sim.world.d) as v:
+                # step physics under the viewer's lock, and only AFTER the viewer
+                # exists, so the render-thread mjData copy never races mj_step.
+                sim.set_render_lock(v.lock())
+                sim.start()
                 while v.is_running():
                     v.sync()
                     time.sleep(1 / 60)
         else:
+            sim.start()
             while True:
                 time.sleep(0.5)
     except KeyboardInterrupt:

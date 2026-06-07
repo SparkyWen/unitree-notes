@@ -127,20 +127,24 @@ def orchestrate(sim: WorldSim, nl: str, *, llm=None, timeout_s: float = 22.0,
 
 
 def run(nl: str = _DEFAULT_NL, *, viewer: bool = False, llm=None) -> dict:
-    sim = WorldSim()
-    sim.start()
+    sim = WorldSim()  # control loop started below (after the viewer, if any)
     try:
         if not viewer:
+            sim.start()
             return orchestrate(sim, nl, llm=llm)
         os.environ.setdefault("MUJOCO_GL", "glfw")
         import mujoco
         import mujoco.viewer
-        box: dict = {}
-        th = threading.Thread(target=lambda: box.update(orchestrate(sim, nl, llm=llm)),
-                              daemon=True)
-        th.start()
         trim_render_cost(sim.world.m)  # cut render cost BEFORE the GL context is built
+        box: dict = {}
         with mujoco.viewer.launch_passive(sim.world.m, sim.world.d) as v:
+            # step physics under the viewer's lock, started only after the viewer
+            # exists, so its render-thread mjData copy never races mj_step.
+            sim.set_render_lock(v.lock())
+            sim.start()
+            th = threading.Thread(target=lambda: box.update(orchestrate(sim, nl, llm=llm)),
+                                  daemon=True)
+            th.start()
             while v.is_running():
                 v.sync()
                 time.sleep(1 / 60)

@@ -797,9 +797,9 @@ python -m g1_brain.fleet.sim.verify_dds_fleet
 | `fleet/sim/{mujoco_world,scenario_two_g1}.py` | headless 直连物理 G1 世界 + 两机验证场景（§7.1） |
 | `fleet/sim/{g1_consts,headless_sim,robot_node,verify_dds_fleet}.py` | G1 常量 + 无窗口 sim 进程 + 单机 DDS 节点进程 + 一键 DDS 全链路验证（§7.5） |
 
-# 8. Fleet 共享世界 + RL 真步态 + AI 指挥官（会合 / 接力）
+# 8. Fleet 共享世界 + RL 真步态 + AI 指挥官（会合 / 接力 · 实时指挥中心）
 
-§7 是"两个独立 MuJoCo 世界 + DDS 双进程"——两台机器人互相看不见。§8 是本次新增的**单一共享世界**路线：**两台 G1 在同一个 MuJoCo 世界（一个窗口）里用 RL 真步态行走、互相感知**，并由**接收自然语言、用 OpenAI 拆解的 AI 指挥官**给每台机器人委派一个子 agent，去完成**会合 / 接力**配合。
+§7 是"两个独立 MuJoCo 世界 + DDS 双进程"——两台机器人互相看不见。§8 是本次新增的**单一共享世界**路线：**两台 G1 在同一个 MuJoCo 世界（一个窗口）里用 RL 真步态行走、互相感知**，并由**接收自然语言的 AI 指挥官**（OpenAI 或 §8.4 的 **codex 大脑**）给每台机器人委派一个子 agent，去完成**会合 / 接力**配合。最新增的 **§8.4 AI 指挥调度中心**把这条线做成**实时交互**：浏览器打字下达 → codex 规划 → 机器人在 3D 窗口里真的动起来 → 中途可抢占（最新指令优先）。
 
 设计文档 `docs/superpowers/specs/2026-06-07-fleet-shared-world-rl-coordinator-design.md`；计划 `docs/superpowers/plans/2026-06-07-fleet-shared-world-p1.md` + `2026-06-07-fleet-coordinator-p2.md`。
 

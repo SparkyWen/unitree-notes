@@ -47,3 +47,13 @@ async def test_readonly_routes_still_work(client):
     r = await client.get("/robots")
     assert r.status == 200
     assert await r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_dashboard_served_at_root(client):
+    r = await client.get("/")
+    assert r.status == 200
+    assert r.content_type == "text/html"
+    html = await r.text()
+    assert "Fleet Coordinator" in html
+    assert "/robots" in html and "/commands" in html  # wired to the live API

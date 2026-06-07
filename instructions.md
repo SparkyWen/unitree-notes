@@ -689,6 +689,16 @@ cd ~/unitree/unitree-notes/g1_brain
 
 后台 tick 每 1s 自动 `scan → 处理异常 → 派发`（`tick_interval_s`，可在 `build_coordinator_app` 调）。
 
+### 浏览器仪表盘（GET /）
+
+coordinator 在根路径 `GET /` 提供一个自带网页(纯前端,无新依赖,每秒自动刷新):车队表(状态/FSM/姿态/电池温度/SOC/健康)+ 异常 + 任务分配 + 命令按钮(派发/休眠/唤醒/注入过热)。
+
+```
+在 Windows 的 Chrome 打开:  http://localhost:8090
+```
+
+> ⚠️ **WSL2 常见坑**:`0.0.0.0` 是服务端**监听**地址,不是用来在浏览器里"打开"的。浏览器要连 `http://localhost:8090` 或 `http://127.0.0.1:8090`(WSL2 有 localhost 转发,Windows Chrome 能直达 WSL2)。`http://0.0.0.0:8090` 连不上。另外:3D 机器人画面在 **MuJoCo 窗口**里(§7.5),浏览器仪表盘看的是车队**状态/遥测/指挥**。两者配合 = 完整画面。
+
 ## 7.4 操作员 console
 
 ```bash

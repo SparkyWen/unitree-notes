@@ -19,6 +19,7 @@ from g1_brain.fleet.bus.ws_server import build_fleet_app, send_command
 from g1_brain.fleet.coordinator.agent_llm import CoordinatorAgent, StructuredOp
 from g1_brain.fleet.coordinator.anomaly import AnomalyDetector
 from g1_brain.fleet.coordinator.controller import DispatchController
+from g1_brain.fleet.coordinator.dashboard import INDEX_HTML
 from g1_brain.fleet.coordinator.dispatch import DispatchEngine
 from g1_brain.fleet.coordinator.event_log import EventLog
 from g1_brain.fleet.coordinator.gateway import CommandGateway
@@ -79,7 +80,8 @@ def build_coordinator_app(*, db_path: Path, tick_interval_s: float = 1.0,
     app["controller"] = controller
     app["gateway"] = gateway
 
-    # read-only routes
+    # web dashboard (browser view) + read-only routes
+    app.router.add_get("/", _index)
     app.router.add_get("/robots", _robots)
     app.router.add_get("/robots/{rid}", _robot)
     app.router.add_get("/events", _events)
@@ -120,6 +122,12 @@ async def _tick_loop(controller: DispatchController, interval: float) -> None:
         except Exception:  # noqa: BLE001
             log.exception("dispatch tick failed")
         await asyncio.sleep(interval)
+
+
+# ---- web dashboard ----
+
+async def _index(request: web.Request) -> web.Response:
+    return web.Response(text=INDEX_HTML, content_type="text/html")
 
 
 # ---- read-only handlers ----

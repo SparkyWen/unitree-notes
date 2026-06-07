@@ -41,6 +41,8 @@ class RlSharedBackend:
         if posture in (Posture.ACTIVE, Posture.IDLE, Posture.STOP, Posture.SLEEP):
             self._goal = None
             self.ctl.set_command(0.0, 0.0, 0.0)
+        elif posture == Posture.PATROL:
+            self._goal = None   # step() drives the patrol arc
 
     def set_nav_goal(self, x: float, y: float) -> None:
         self._goal = (x, y)
@@ -55,6 +57,10 @@ class RlSharedBackend:
             else:
                 self.last_posture = Posture.WALK
             self.ctl.set_command(vx, vy, wz)
+        elif self.last_posture == Posture.PATROL:
+            # tight slow circle (~0.25 m radius) = visibly "patrolling" while
+            # staying near its post (keeps clear of an idle peer ~0.8 m away)
+            self.ctl.set_command(0.15, 0.0, 0.6)
         q_target, kp, kd = self.ctl.compute()
         self.world.set_pd(self.rid, q_target, kp, kd)
         q, dq = self.world.joint_state(self.rid)

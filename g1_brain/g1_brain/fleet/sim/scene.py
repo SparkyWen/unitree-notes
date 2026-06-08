@@ -98,7 +98,7 @@ def _demo_scene() -> Scene:
 
 SCENES: Dict[str, Scene] = {"bare": Scene()}
 SCENES["demo"] = _demo_scene()
-SCENES["solo"] = copy.copy(SCENES["demo"])
+SCENES["solo"] = copy.deepcopy(SCENES["demo"])
 
 
 def get_scene(name: str) -> Scene:

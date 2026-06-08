@@ -26,4 +26,4 @@ def test_demo_world_render_footprints():
 def test_solo_spawn_defaults_for_one_robot():
     w = SharedG1World(robot_ids=("g1_a",), scene="demo")
     x, y, _ = w.base_pose("g1_a")
-    assert x < -1.0
+    assert abs(x - (-1.5)) < 0.01

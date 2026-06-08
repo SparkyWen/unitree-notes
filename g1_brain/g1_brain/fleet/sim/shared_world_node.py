@@ -40,8 +40,8 @@ def trim_render_cost(m) -> None:
 
 class WorldSim:
     def __init__(self, robot_ids=("g1_a", "g1_b"),
-                 spawn=None):
-        self.world = SharedG1World(robot_ids=robot_ids, spawn=spawn)
+                 spawn=None, scene="bare"):
+        self.world = SharedG1World(robot_ids=robot_ids, spawn=spawn, scene=scene)
         self.backends: Dict[str, RlSharedBackend] = {
             rid: RlSharedBackend(self.world, rid) for rid in robot_ids}
         self._lock = threading.Lock()
@@ -81,6 +81,19 @@ class WorldSim:
     def set_arms_up(self, rid, up=True):
         with self._lock:
             self.backends[rid].set_arms_up(up)
+
+    def set_peer_avoid(self, rid, on: bool):
+        with self._lock:
+            self.backends[rid].set_peer_avoid(on)
+
+    def obstacles(self):
+        return self.world.obstacles()
+
+    def landmarks(self):
+        return self.world.landmarks()
+
+    def scene_render(self):
+        return self.world.scene_render()
 
     def telemetry(self) -> dict:
         with self._lock:

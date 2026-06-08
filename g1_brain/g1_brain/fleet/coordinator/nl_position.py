@@ -21,6 +21,10 @@ _BACK = ("后退", "向后", "backward", "retreat")
 _ALL = ("两机", "所有", "都去", "全部", "all ", "both", "everyone")
 _CHOREO = ("绕圈", "转圈", "走圈", "circle", "面对面", "面朝", "对视", "face",
            "抬手", "举手", "双手", "arms", "hands up", "排成", "列队")
+# commander-intent verbs (relay/handoff/rendezvous) -> let plan_mission fall
+# through to the FleetCommander. Safe: none is a substring of a landmark name
+# ("集合点" contains "集合", not "会合").
+_COMMANDER = ("交给", "接力", "handoff", "relay", "会合", "rendezvous")
 
 
 def parse_position_command(nl: str, snapshot: dict) -> Optional[dict]:
@@ -29,6 +33,8 @@ def parse_position_command(nl: str, snapshot: dict) -> Optional[dict]:
         return None
     low = text.lower()
     if any(k in low for k in _CHOREO):
+        return None
+    if any(k in low for k in _COMMANDER):
         return None
 
     robots = snapshot.get("robots", [])

@@ -59,3 +59,19 @@ def test_plan_mission_still_does_circle_without_codex():
     res = plan_mission("两机顺时针绕圈", SNAP, llm=None)
     assert res["ok"] is True
     assert res["plan"].coordination.type == "choreography"
+
+
+def test_relay_handoff_falls_through():
+    # relay/handoff must reach the commander, not be parsed as navigate-to-center
+    assert parse_position_command(
+        "让 g1_a 和 g1_b 到中间会合，然后 g1_a 把巡逻交给 g1_b", SNAP) is None
+
+
+def test_rendezvous_verb_falls_through():
+    assert parse_position_command("两机到中间会合", SNAP) is None
+
+
+def test_plain_landmark_still_parses_after_guard():
+    # 集合点 contains 集合 but NOT 会合 — must still parse as a position
+    r = parse_position_command("两机都去集合点", SNAP)
+    assert r is not None and r["ops"]["g1_a"][0].args == {"x": 0.0, "y": 0.0}

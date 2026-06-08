@@ -7,6 +7,7 @@ snapshot, and the web map. PERFORMANCE: geoms are static primitives only
 no extra render passes on WSL2/llvmpipe. No heightfield/mesh/lights."""
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -60,7 +61,8 @@ def resolve_landmark(landmarks: Dict[str, Tuple[float, float]],
         if name.lower() in low:
             xy = landmarks[name]
             return (float(xy[0]), float(xy[1]))
-    for alias, canon in LANDMARK_ALIASES.items():
+    for alias, canon in sorted(LANDMARK_ALIASES.items(),
+                               key=lambda kv: len(kv[0]), reverse=True):
         if alias in low and canon in landmarks:
             xy = landmarks[canon]
             return (float(xy[0]), float(xy[1]))
@@ -96,7 +98,7 @@ def _demo_scene() -> Scene:
 
 SCENES: Dict[str, Scene] = {"bare": Scene()}
 SCENES["demo"] = _demo_scene()
-SCENES["solo"] = SCENES["demo"]
+SCENES["solo"] = copy.copy(SCENES["demo"])
 
 
 def get_scene(name: str) -> Scene:

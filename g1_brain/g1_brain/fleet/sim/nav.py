@@ -36,7 +36,7 @@ def nav_command(pose: Tuple[float, float, float], goal: Tuple[float, float], *,
     # reactive repulsion from obstacle circles (+ optional peer as a moving one)
     obs = list(obstacles)
     if peer is not None:
-        obs = obs + [(peer[0], peer[1], 0.45)]
+        obs = obs + [(peer[0], peer[1], 0.45)]   # peer ~0.45 m collision bubble
     for ox, oy, orad in obs:
         dx, dy = x - ox, y - oy                      # obstacle -> robot
         d = math.hypot(dx, dy)
@@ -49,9 +49,10 @@ def nav_command(pose: Tuple[float, float, float], goal: Tuple[float, float], *,
             # tangential bias to escape head-on local minima: only when the
             # obstacle is roughly ahead toward the goal
             ahead = (-ux) * gxn + (-uy) * gyn
-            if ahead > 0.3:
+            if ahead > 0.3:                       # obstacle within ~72° of goal dir
                 cross = gxn * (-uy) - gyn * (-ux)
                 sgn = 1.0 if cross >= 0 else -1.0
+                # tangential ≈ 80% of radial weight, to slip past a head-on prop
                 des_x += 0.8 * w * (-uy) * sgn
                 des_y += 0.8 * w * (ux) * sgn
 

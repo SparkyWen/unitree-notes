@@ -43,3 +43,19 @@ def test_choreography_not_hijacked():
 
 def test_non_positional_returns_none():
     assert parse_position_command("你好", SNAP) is None
+
+
+from g1_brain.fleet.coordinator.choreographer import plan_mission
+
+
+def test_plan_mission_routes_position_without_codex():
+    res = plan_mission("g1_a 走到 2,1", SNAP, llm=None)
+    assert res["ok"] is True
+    assert res["plan"].coordination.type == "navigate"
+    assert res["ops"]["g1_a"][0].op == "navigate"
+
+
+def test_plan_mission_still_does_circle_without_codex():
+    res = plan_mission("两机顺时针绕圈", SNAP, llm=None)
+    assert res["ok"] is True
+    assert res["plan"].coordination.type == "choreography"

@@ -8,7 +8,7 @@ import math
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from g1_brain.fleet.sim.command_center import build_command_center_app
+from g1_brain.fleet.sim.command_center import build_command_center_app, _world_snapshot
 
 
 class FakeWorld:
@@ -32,6 +32,16 @@ class FakeWorld:
             out[rid] = {"pose": (x, y, yaw), "neighbors": nb,
                         "posture": self._posture[rid], "gz": -1.0}
         return out
+
+    def landmarks(self):
+        return {"集合点": (0.0, 0.0)}
+
+    def scene_render(self):
+        return [{"type": "cylinder", "x": -2.5, "y": 1.8, "sx": 0.15,
+                 "sy": 0.15, "rgba": [1, 0, 0, 1], "name": "红色柱子"}]
+
+    def obstacles(self):
+        return [(-2.5, 1.8, 0.45)]
 
 
 @pytest.fixture
@@ -61,7 +71,7 @@ async def test_world_endpoint_returns_robot_poses(client):
 
 async def test_command_submits_mission_and_returns_plan(client):
     r = await client.post("/command",
-                          json={"nl": "两机到中间会合，然后 g1_a 把巡逻交给 g1_b"})
+                          json={"nl": "g1_a 把巡逻交给 g1_b"})
     body = await r.json()
     assert body["ok"] is True
     assert body["plan"]["coordination"]["type"] == "relay"
@@ -89,3 +99,16 @@ async def test_events_endpoint_streams_decisions(client):
     body = await r.json()
     text = " ".join(e["msg"] for e in body["events"])
     assert "指挥官" in text                  # the commander's decision was logged
+
+
+def test_snapshot_carries_landmarks_and_yaw():
+    snap = _world_snapshot(FakeWorld({"g1_a": (-1.5, 0.0)}))
+    assert snap["robots"][0]["yaw"] == 0.0
+    assert snap["landmarks"] == {"集合点": (0.0, 0.0)}
+
+
+async def test_scene_endpoint_returns_geoms_and_landmarks(client):
+    r = await client.get("/scene")
+    data = await r.json()
+    assert data["landmarks"]["集合点"] == [0.0, 0.0]
+    assert data["geoms"][0]["name"] == "红色柱子"

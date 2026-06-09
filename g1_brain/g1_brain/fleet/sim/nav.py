@@ -17,21 +17,51 @@ def _clip(v: float, lo: float, hi: float) -> float:
 
 def nav_command(pose: Tuple[float, float, float], goal: Tuple[float, float], *,
                 stop_radius: float = 0.25, k_fwd: float = 1.2, k_lat: float = 1.2,
-                k_yaw: float = 1.5, slow_yaw_deg: float = 60.0) -> Tuple[float, float, float]:
+                k_yaw: float = 1.5, slow_yaw_deg: float = 60.0,
+                slow_radius: float = 0.8,
+                obstacles=(), peer: Tuple[float, float] = None,
+                avoid_radius: float = 0.9, k_avoid: float = 0.9
+                ) -> Tuple[float, float, float]:
     x, y, yaw = pose
     gx, gy = goal
     ex, ey = gx - x, gy - y
     dist = math.hypot(ex, ey)
     if dist < stop_radius:
         return (0.0, 0.0, 0.0)
-    # error in body frame
-    c, s = math.cos(-yaw), math.sin(-yaw)
-    e_fwd = c * ex - s * ey
-    e_lat = s * ex + c * ey
-    heading_err = math.atan2(ey, ex) - yaw
-    heading_err = math.atan2(math.sin(heading_err), math.cos(heading_err))  # wrap
+    gxn, gyn = ex / dist, ey / dist                 # unit goal direction
+    # goal pull: full speed far away, eased within slow_radius
+    approach = min(1.0, dist / slow_radius)
+    des_x, des_y = approach * gxn, approach * gyn
+
+    # reactive repulsion from obstacle circles (+ optional peer as a moving one)
+    obs = list(obstacles)
+    if peer is not None:
+        obs = obs + [(peer[0], peer[1], 0.45)]   # peer ~0.45 m collision bubble
+    for ox, oy, orad in obs:
+        dx, dy = x - ox, y - oy                      # obstacle -> robot
+        d = math.hypot(dx, dy)
+        reach = avoid_radius + orad
+        if 1e-6 < d < reach:
+            w = k_avoid * (reach - d) / reach
+            ux, uy = dx / d, dy / d                  # radial push (away)
+            des_x += w * ux
+            des_y += w * uy
+            # tangential bias to escape head-on local minima: only when the
+            # obstacle is roughly ahead toward the goal
+            ahead = (-ux) * gxn + (-uy) * gyn
+            if ahead > 0.3:                       # obstacle within ~72° of goal dir
+                cross = gxn * (-uy) - gyn * (-ux)
+                sgn = 1.0 if cross >= 0 else -1.0
+                # tangential ≈ 80% of radial weight, to slip past a head-on prop
+                des_x += 0.8 * w * (-uy) * sgn
+                des_y += 0.8 * w * (ux) * sgn
+
+    heading_err = math.atan2(des_y, des_x) - yaw
+    heading_err = math.atan2(math.sin(heading_err), math.cos(heading_err))
     wz = _clip(k_yaw * heading_err, *RANGES["wz"])
-    # don't barrel forward until roughly facing the goal
+    c, s = math.cos(-yaw), math.sin(-yaw)
+    e_fwd = c * des_x - s * des_y
+    e_lat = s * des_x + c * des_y
     facing = max(0.0, math.cos(heading_err))
     if abs(math.degrees(heading_err)) > slow_yaw_deg:
         facing = 0.0

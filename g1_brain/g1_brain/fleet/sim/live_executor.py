@@ -100,6 +100,8 @@ class LiveExecutor:
                 m.op_t0[rid] = (i, now)
             elapsed = now - m.op_t0[rid][1]
             op = m.ops[rid][i]
+            if hasattr(self._world, "set_peer_avoid"):
+                self._world.set_peer_avoid(rid, op.op not in ("await_barrier", "face"))
             px, py, yaw = t["pose"]
             if op.op == "navigate":
                 gx, gy = op.args["x"], op.args["y"]

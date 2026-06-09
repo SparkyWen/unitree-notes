@@ -138,6 +138,22 @@ def plan_mission(nl: str, snapshot: dict, *, llm=None, sub_llm=None) -> dict:
         except Exception:  # noqa: BLE001
             log.warning("codex choreography failed; deterministic fallback", exc_info=True)
 
+    # 1.5) deterministic offline position parser (coords/landmark/relative/multi)
+    #      — makes NL position control work WITHOUT codex.
+    from g1_brain.fleet.coordinator.nl_position import parse_position_command
+    pos = parse_position_command(nl, snapshot)
+    if pos is not None and pos.get("ops"):
+        try:
+            ops = parse_ops(pos["ops"], known)
+            if any(ops.values()):
+                plan = FleetPlan(summary=pos["summary"],
+                                 coordination=Coordination(type="navigate"))
+                return {"ok": True, "plan": plan, "ops": ops,
+                        "needs_clarification": None, "reason": None}
+        except ValueError as e:
+            return {"ok": False, "plan": None, "ops": {},
+                    "needs_clarification": None, "reason": str(e)}
+
     # 2) deterministic choreography for circle/face/arms commands
     det = deterministic_choreography(nl, snapshot)
     if det is not None:

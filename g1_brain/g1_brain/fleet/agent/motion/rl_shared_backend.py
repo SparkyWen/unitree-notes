@@ -51,6 +51,7 @@ class RlSharedBackend:
         self._circle_dir: str = "ccw"
         self._face_target: Optional[Tuple[float, float]] = None
         self._last_tau = [0.0] * 29
+        self.peer_avoid: bool = True       # avoid the other robot unless converging
 
     def set_posture(self, posture: Posture) -> None:
         self.last_posture = posture
@@ -88,6 +89,9 @@ class RlSharedBackend:
         self.last_posture = Posture.IDLE
         self.activity = "idle"
 
+    def set_peer_avoid(self, on: bool) -> None:
+        self.peer_avoid = bool(on)
+
     def set_arms_up(self, up: bool) -> None:
         if up:
             pose = self.ctl.raise_arms_pose()   # arms out to sides (stable hold)
@@ -99,7 +103,15 @@ class RlSharedBackend:
 
     def _drive(self) -> None:
         if self._mode == "walk" and self._goal is not None:
-            vx, vy, wz = nav_command(self.world.base_pose(self.rid), self._goal)
+            pose = self.world.base_pose(self.rid)
+            obstacles = self.world.obstacles() if hasattr(self.world, "obstacles") else ()
+            peer = None
+            if self.peer_avoid:
+                nb = self.world.neighbors(self.rid)
+                if nb:
+                    peer = (pose[0] + nb[0]["dx"], pose[1] + nb[0]["dy"])
+            vx, vy, wz = nav_command(pose, self._goal,
+                                     obstacles=obstacles, peer=peer)
             if (vx, vy, wz) == (0.0, 0.0, 0.0):
                 self.last_posture = Posture.ACTIVE
                 self._mode = "idle"

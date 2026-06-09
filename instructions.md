@@ -17,14 +17,6 @@ cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 python unitree_mujoco.py
 ```
 
-终端 2：
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_sim_demo
-python g1_sim_rl_combo.py
-```
-
 终端2：
 
 ```
@@ -33,6 +25,46 @@ cd ~/unitree/unitree-notes/g1_brain
 set -a; source .env; set +a            # OPENAI_API_KEY etc.
 python -m g1_brain.apps.agent_main --mode confirm
 ```
+
+
+
+### 启动顺序（照着做，就这几步）
+
+```bash
+# ① 开一个终端（就一个，够了）
+conda activate agi && cd ~/unitree/unitree-notes/g1_brain
+
+# ②（可选但推荐）先确认 codex 在：有就走真 AI，没有会自动回退确定性规划
+which codex && codex --version
+
+# ③ 起指挥中心（这一条命令内部按顺序自动做完 4 件事，见下）
+python -m g1_brain.fleet.sim.command_center --viewer
+```
+
+`③` 这条命令**进程内部的启动顺序**（你不用管，知道在等什么即可）：
+
+1. 起 **WorldSim**：两台 G1 进同一个 `MjModel`，拉起 **50Hz 控制线程**。终端会打印两行 `[combo] policy engaged …`（两台机器人的 RL 步态控制器就绪，**正常**）。
+2. 建 **codex 指挥官**：终端打印 `[command-center] AI 大脑: codex gpt-5.5 (reasoning=xhigh)`。（没装/没登录 codex 则打印"退回确定性规划"。）
+3. 在后台线程起 **网页服务**，打印 `[command-center] 控制台: http://127.0.0.1:8787/   (Ctrl-C 退出)`。
+4. 在主线程**弹出 MuJoCo 3D 窗口**（`--viewer` 时）。
+
+```bash
+# ④ 等终端打印出 “控制台: http://127.0.0.1:8787/” 这一行，再用浏览器打开它
+#    （服务起来才打开；端口默认 8787，可用 --port 改）-
+
+# ⑤ 在网页“AI 指挥官”框里打字下指令，回车。例：
+#    让 g1_a 和 g1_b 到中间会合，然后 g1_a 把巡逻交给 g1_b
+#    首条指令 codex 思考约 10s（xhigh），网页会显示“指挥官思考中…”，正常等它。
+
+# ⑥ 看效果：3D 窗口里两台 G1 真的相向走到中点会合 → g1_b 接手巡逻、g1_a 待命；
+#    网页俯视图 / 遥测 / 事件流实时刷新。中途再下一条新指令 → 立刻抢占（最新优先）。
+
+# ⑦ 退出：关掉 3D 窗口，或在终端按 Ctrl-C（两者都会停掉整个进程）。
+```
+
+
+
+---
 
 # 2. mujoco跑va
 
@@ -140,31 +172,6 @@ python -m va_demo.main --mode active
 
 
 
-## 2. 启动语音控制和安全加载demo
-
-```python
-# Terminal 3 — E-stop listener (independent process)
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.safety.estop_listener
-
-
-# Press ESC at any time to engage; the file /tmp/g1_brain_estop is
-# touched and the agent's SafetySupervisor rejects all motion until the
-# file is removed.
-```
-
-
-
-```python
-# Terminal 4 — agent
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-set -a; source .env; set +a
-python -m g1_brain.apps.agent_main --mode confirm
-```
-
-
 # 3. Memory Harness 全流程
 
 把 G1 接入 Codex 订阅做长期记忆 + ask_slow_brain 的完整跑法。设计在 `docs/harness-design.md`,spec 在 `g1_brain/docs/superpowers/specs/2026-05-21-g1-memory-harness-design.md`。
@@ -231,87 +238,8 @@ codex daemon ready (tool=codex)
 memory: injected N chars of passive context     # 首次启用时 N=0,Phase2 跑过一次以后才有
 ```
 
-## 3.3 第一次运行会发生什么
+---
 
-- `~/.unitree/g1_brain/` 自动建出来:`memories/{AGENTS.md, MEMORY.md, .git/, rollout_summaries/}` + `state.sqlite` + `.codex_runtime/`(隔离的 CODEX_HOME)
-- `MEMORY.md` 首行写下时间锚:`# Memory enabled at <ISO>`,这之前的所有 `logs/conversations/*.jsonl` 永不进 pipeline
-- 每个 turn 的 `plan_done` 后,Phase1 在 30s debounce 后台跑(`codex exec --json --ephemeral`),把这次 session 的 JSONL 抽成 `{raw_memory, rollout_summary, slug}` 写进 SQLite
-- Phase1 完成立刻评估 Phase2(没有 idle 周期):同步 `raw_memories.md` + `rollout_summaries/`,git diff 非空时再调一次 `codex exec` 整合,产出 `MEMORY.md` 和 `memory_summary.md`,然后 `git commit`
-- session 结束(Ctrl-C / 关 agent)时强制 Phase1 + Phase2 各跑一次,保证当前 session 落盘
-
-## 3.4 LLM 在 turn 内能用的 4 个新 tool
-
-- `recall_grep(pattern, scope, [session_id], [max_lines])` — scope: `registry` / `rollouts` / `jsonl` / `all`。毫秒级,纯本地 rg。
-- `recall_read(path, [start_line], [end_line])` — 沙箱路径,只读 `memories/` 和 `logs/conversations/`。
-- `recall_glob(pattern, [limit])` — 列出 memory 文件。
-- `ask_slow_brain(query, [timeout_s=20])` — 通过常驻 `codex mcp-server` daemon 做深思考。barge-in 自动取消。
-
-LLM 按 `~/.unitree/g1_brain/memories/AGENTS.md` 里写的 4-6 步顺序自主调用(summary → 提关键词 → grep MEMORY.md → 开 1-2 个 rollout_summaries → 必要时 grep jsonl)。
-
-## 3.5 检查状态
-
-```bash
-# 看 memory 树
-ls -la ~/.unitree/g1_brain/memories/
-cat ~/.unitree/g1_brain/memories/MEMORY.md
-cat ~/.unitree/g1_brain/memories/memory_summary.md
-ls ~/.unitree/g1_brain/memories/rollout_summaries/
-
-# 看 SQLite jobs 表
-sqlite3 ~/.unitree/g1_brain/state.sqlite \
-  "SELECT kind, job_key, status, retry_remaining, last_error
-   FROM jobs ORDER BY started_at DESC LIMIT 10;"
-
-# 看 stage1 输出
-sqlite3 ~/.unitree/g1_brain/state.sqlite \
-  "SELECT session_id, rollout_slug, length(raw_memory), generated_at
-   FROM stage1_outputs ORDER BY generated_at DESC LIMIT 10;"
-
-# 看 baseline 历史
-git -C ~/.unitree/g1_brain/memories log --oneline
-
-# 看 agent 日志里的 memory 子系统轨迹
-grep -E "memory|phase1|phase2|codex daemon" \
-  ~/unitree/unitree-notes/g1_brain/logs/agent.log | tail -30
-```
-
-## 3.6 出问题怎么救
-
-```bash
-cd ~/unitree/unitree-notes/g1_brain
-
-# state.sqlite 损坏 / 想清空 job 状态
-python -m g1_brain.tools.reset_memory --rebuild-state
-
-# memories/.git 损坏
-python -m g1_brain.tools.reset_memory --rebuild-git
-
-# MEMORY.md / summary / rollout_summaries 想推倒重来(stage1 在 DB 里保留,下次 Phase2 重建)
-python -m g1_brain.tools.reset_memory --reset-md
-
-# 整个核弹清空(慎重,要传两次 --confirm)
-python -m g1_brain.tools.reset_memory --nuke --confirm --confirm
-```
-
-常见症状对照:
-
-| 现象 | 原因 | 修法 |
-|---|---|---|
-| `codex daemon dead after 5 attempts` 在 agent.log | codex 没登录 / binary 在别处 | `codex login` 后重启 agent |
-| ask_slow_brain 总返回 `quota_exhausted` | 订阅额度用尽 | 等 30min 冷却,或换账号 |
-| ask_slow_brain 总返回 `queue_full` | 同时太多 LLM 调,设计默认上限 2 | 改 `memory.ask_queue_max` |
-| Phase1 jobs 卡在 `failed` | 看 `last_error`,通常是 JSON parse 失败 | 通常自愈,持续失败时 `--rebuild-state` |
-| 想关掉 memory 跑老路径 | — | `memory.enabled: false` 改回 |
-
-## 3.7 验证一切就绪
-
-```bash
-# 所有测试绿(不烧订阅,codex subprocess 全 mock)
-cd ~/unitree/unitree-notes/g1_brain
-~/miniforge3/envs/agi/bin/python -m pytest tests/ \
-  --ignore=tests/manual -q
-# 预期: 416 passed
-```
 
 
 # 4. WSL2 下用 `run_sim.sh` 替代手动 export
@@ -400,6 +328,9 @@ cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
 ```
 
 其它终端（agent / teleimager / estop / va_demo 主进程）都不变。
+
+---
+
 
 
 # 5. mujoco跑 phone bridge (Twilio + Realtime)
@@ -491,313 +422,9 @@ T3 已经在跑，话筒打开。说 "Hi Sparky"，等到日志出现 `wake hear
 
 **安全注意**：模型只能拨 `PHONE_ALLOWED_CALLERS` 白名单里的号码——这是 2026-05-24 一次事故后加的硬门，那次 wake-word ASR 把 `+6848` 听成 `+6888`，结果给一个澳洲陌生人拨了 3 分钟电话。现在即使 ASR 出错，dial 也会被 SkillServer 拒掉并返回 `not in allowed callers`。
 
-## 5.4 通话中
-
-接听后直接说话，**不需要唤醒词**——电话 session 是独立的 Realtime context，server VAD 自动处理 turn-taking。
-
-| 你说 | 期望听到 / 看到 |
-|---|---|
-| (接通后第一句) | "Hi, this is Sparky. What would you like me to do?" — 英文 |
-| "Wave your right hand" | 模型说 "Waving my right hand now"，MuJoCo 里 G1 右手挥动 |
-| "Walk forward one step" | 模型说 "Walking forward"，G1 迈步 |
-| "Stop" | 模型说 "Stopping"，G1 立即停下 |
-| "Goodbye" | 模型调用 `end_call`，电话挂断 |
-
-T3 日志里看：
-
-```
-... phone: start streamSid=MZ... callSid=CA... bsid=...
-... openai.session.updated
-... tool: gesture(name="wave_right")
-... safety.check pass
-... vision_gate.review: SAFE
-... skill.execute → {"ok":true,"summary":"..."}
-... [assistant] Waving my right hand now.
-... twilio.stop received
-... phone: lease released
-```
-
-## 5.5 故障排查
-
-| 症状 | 第一时间检查 |
-|---|---|
-| 拨号成功但 1 秒挂断（"click"）| T3 还没打印 `phone bridge listening`；桥没起来。等到那行再拨。 |
-| 电话响 → 接通 → 听到一段 Twilio 自动留言 "by upgrading to a full account, press any key to execute your code" | Twilio 处于 Trial 模式，每次外拨都加 preroll。按任意键跳过；升级账号后消失。 |
-| 接通了但 Sparky 说的不是英文也不是中文 | 检查 T3 日志 `[assistant]` 行看模型说了什么。`PHONE_CALL_PREAMBLE` 已经 pin 了语言（caller 用什么语言就回什么，默认英文）；如果还跑偏，加强 prompt。 |
-| 拨号返回 `401 Authenticate` | API Key 失效或 Account SID/Auth Token 不匹配。`TwilioDialer._auth()` 默认用 Account SID + Auth Token；改成 API Key 看注释。 |
-| 拨号返回 `21219 unverified number` | Twilio Trial 账户只能拨 verified 号码。去 console → Phone Numbers → Verified Caller IDs 加号码（或升级账号）。 |
-| Tool call 后机器人没动，模型说 "I can't" | `safety.vision_gate.enabled` 必须 true（fail-closed）。`safety/supervisor.py` 的 `ALLOWED_TOOLS_*` 白名单必须包含该 tool。检查 T3 是否打印了 `vision_gate.review: RISK: ...`。 |
-| 通话中我说话模型没反应 | `cancel_in_flight` 已经 gated 在 `_current_response_id` 非空时才发；如果还是有 `response_cancel_not_active` 错，看 OpenAI Realtime WS 状态。或 server VAD threshold 太高，调 `_session_update` 里的 0.5。 |
-| 模型自己挂断后 lease 没释放 | bridge_server 的 finally 块永远会 release lease + defensive `stop()`；如果真的卡住，看 `/tmp/g1_brain_voice_lease` JSON。 |
-
-## 5.6 关掉电话桥（保留 brain 本地话筒）
-
-按 Ctrl+C 停 T3。隧道（`sparkytun-tunnel.service`）继续在后台跑——下次 T3 起来时桥立刻又通。要彻底停隧道：
-
-```bash
-systemctl --user stop sparkytun-tunnel
-# 永久禁用:
-systemctl --user disable --now sparkytun-tunnel
-```
-
-
-# 6. Fleet 指挥中心（read-only 底座）
-
-跨机的 AI coordinator 第一切片：在 N 台 headless `g1_brain` harness 之上叠一个**只读**指挥控制面（统一状态 + 语义感知聚合 + 事件日志/replay）。**本切片 coordinator→电机零路径**——所有机器人控制仍只经各机本地 `SkillServer → SafetySupervisor`，这里只收遥测、不下发命令。
-
-设计在 `docs/superpowers/specs/2026-06-06-fleet-foundation-design.md`，实现计划在 `docs/superpowers/plans/2026-06-06-fleet-foundation.md`。代码全在 `g1_brain/g1_brain/fleet/`。
-
-## 6.1 现状边界（重要，先读）
-
-当前**可独立运行**的只有 coordinator + 只读 API + console：
-
-- `python -m g1_brain.fleet.coordinator` —— 起 aiohttp 服务，挂 `/fleet`（WS 上行入口）+ 只读 HTTP API。
-- `python -m g1_brain.fleet.console.cli` —— 拉 API 打印 fleet 状态。
-
-**还没有独立的 robot-agent 进程**：`RobotAgent`（`g1_brain/fleet/agent/robot_agent.py`）目前是一个库类（由测试装配 `HarnessCore` + `WsFleetClient` 注入驱动），还没有 `__main__`。把真实 `HarnessCore`（复用 `agent_main` 的 DDS/combo/perception 初始化、跳过快慢脑）接到 FleetBus 上的"headless 车队机进程"是**下一切片**。
-
-所以：单跑 coordinator 时没有机器人接入，`GET /robots` 返回 `[]`。要看到机器人/感知/replay 真数据，目前走 §6.4 的端到端测试（两台真 robot-agent 打到真 coordinator）。
-
-## 6.2 启动 coordinator
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.coordinator --host 0.0.0.0 --port 8090 --db logs/fleet/fleet.sqlite
-```
-
-- `--db` 是 append-only 事件库（sqlite WAL + 同名 `.jsonl` 镜像）；replay 从这里读。
-- 不需要 `.env`（这一层不碰 OpenAI / Twilio）。
-- 端口默认 8090。
-
-## 6.3 只读 API 与 console
-
-另开一个终端查状态：
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-
-# 轻量 console（拉 /robots + /perception 打印一屏）
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090
-
-# 或直接打 API
-curl -s http://127.0.0.1:8090/robots            | python -m json.tool
-curl -s http://127.0.0.1:8090/robots/g1-sim-01  | python -m json.tool
-curl -s "http://127.0.0.1:8090/events?robot_id=g1-sim-01&limit=50" | python -m json.tool
-curl -s http://127.0.0.1:8090/replay/<trace_id> | python -m json.tool
-curl -s http://127.0.0.1:8090/perception        | python -m json.tool
-```
-
-只读路由（无任何 POST/PUT/DELETE，无命令/派发路由）：
-
-| 路由 | 含义 |
-|---|---|
-| `GET /robots` | 全队 {robot_id, status(online/stale/offline), capabilities, 最新 state} |
-| `GET /robots/{id}` | 单机；未知 id 返回 404 |
-| `GET /events?robot_id=&trace_id=&since=&until=&limit=` | 事件查询（按 ts 升序） |
-| `GET /replay/{trace_id}` | 按 trace_id 回放整条时间线 |
-| `GET /perception` | 车队感知 roll-up（reporting / path_blocked / with_humans） |
-| `GET /fleet` (WS) | **上行**入口：robot-agent 发 REGISTER/HEARTBEAT/EVENT，coordinator 只回 PONG |
-
-## 6.4 端到端验证（当前没有 agent 进程，用测试当 proof）
-
-fleet 全套测试（真 aiohttp server + 真 WS client + 两台真 `RobotAgent`，含注册→心跳→感知事件→API 可见→replay 一致）：
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-~/miniforge3/envs/agi/bin/python -m pytest tests/fleet/ -v
-# 预期: 40 passed
-```
-
-> ⚠️ fleet 这一层用的是 `agi` 环境（有 `aiohttp` / `pydantic`）；`unitree` 环境没装 aiohttp，跑 fleet 测试会 ImportError。
-
-## 6.5 下一切片（已落地 → 见 §7）
-
-read-only 底座之上的**闭环智能调度**切片已经实现：命令下行链路（`CommandEnvelope`）+ 每机本地 `AdmissionGate`（最终否决权）+ coordinator 自主异常感知（电池过热等）→ 安全休眠 → 任务接替，以及人类自然语言/命令派发。运行方式与两台 G1 在 MuJoCo 中的统一调度验证见 **§7**。
-
 ---
 
-# 7. Fleet 智能调度（closed-loop 闭环：感知异常 → 安全休眠 → 任务接替）
-
-§6 的只读底座之上叠的闭环切片：AI 指挥调度中心读每台机器人的真实关节/传感遥测，**自主**发现异常（电池过热、电机过热、跌倒、低电量、失联），把高温机器人**安全休眠**，再把它的任务**接替**给健康机器人；也支持**人类命令**驱动多机协作。
-
-不变的安全原则（与 §6 一致，强化）：
-
-- **coordinator 永不直控电机**：它只发 typed `CommandEnvelope`（能力/任务级），机器人本地快慢脑执行。
-- **本地最终裁决**：每机 `AdmissionGate`（快脑）可拒绝任何中心命令；安全休眠/急停是**确定性**的，不由 LLM 决定。
-- **每台机器人保留自己的快慢脑**：快脑＝`RobotFsm`（新增 `DORMANT` 态）+ 看门狗 + admission gate；慢脑＝`LocalPlanner`（能力→姿态技能），可选叠加 LLM 解释。
-- **确定性引擎是最终调度权威**：`AnomalyDetector`（带迟滞）+ `DispatchEngine`（按能力/健康/电量分配）；LLM 只做自然语言解析 + 决策解释，且每个 op 都被重新校验，无 API key 时自动回退到命令语法。
-
-设计文档 `docs/superpowers/specs/2026-06-06-fleet-coordinator-dispatch-design.md`，计划 `docs/superpowers/plans/2026-06-06-fleet-coordinator-dispatch.md`。代码全在 `g1_brain/g1_brain/fleet/`（contracts/bus/agent/coordinator/console/sim）。
-
-## 7.1 一键验证：两台 G1 在 MuJoCo 中统一调度（推荐先跑这个）
-
-**全自动 headless 验证**——两个真实 MuJoCo G1 物理世界 + 完整调度栈，单进程跑完整闭环（自主过热→休眠→接替 + 人类 wake+takeover），并自检打印 `ALL CHECKS PASSED`：
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-MUJOCO_GL=egl python -m g1_brain.fleet.sim.scenario_two_g1 --inject-after 1.0
-```
-
-预期结尾：
-
-```
-=== VERIFICATION ===
-  [PASS] overheated <robot> put to sleep (DORMANT)
-  [PASS] <robot> in SLEEP posture
-  [PASS] task t1 reassigned to <other>
-  [PASS] <other> now patrolling
-  [PASS] both G1s upright in MuJoCo throughout
-  [PASS] <robot> woke on human command
-  [PASS] task handed back to original robot
-  [PASS] anomaly_detected / task_reassigned / robot_sleeping event logged
-=== ALL CHECKS PASSED ===
-```
-
-> 两台 G1 各跑在独立的 `MujocoG1` 物理世界（真实 `mj_step`，弹性带 + PD 维持直立），harness 直接读 `mj_data` 的真实关节力矩 `tau` 喂热模型——`MUJOCO_GL=egl` 走离屏渲染，无需显示器。电池/电机温度 MuJoCo 不建模，由热模型从真实 `tau` 合成 + `inject()` 钩子确定性触发过热。
-
-同样的场景被包进测试做回归（无 MuJoCo/资产时自动跳过）：
-
-```bash
-MUJOCO_GL=egl ~/miniforge3/envs/agi/bin/python -m pytest tests/fleet/test_scenario_two_g1.py -v
-```
-
-## 7.2 纯 Python 闭环证明（Tier-1，CI 永远绿，无需 MuJoCo）
-
-确定性证明整条调度逻辑（过热→异常→休眠→接替→人类协作），用事件日志回放断言顺序：
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-~/miniforge3/envs/agi/bin/python -m pytest tests/fleet/ -q
-# 预期: 全绿（135 passed，含 Tier-1 e2e + Tier-2 mujoco 场景）
-```
-
-## 7.3 coordinator 调度路由（在 §6.2 起的服务上）
-
-`python -m g1_brain.fleet.coordinator` 起的服务现在除了 §6.3 的只读路由，还有调度面：
-
-| 路由 | 含义 |
-|---|---|
-| `POST /missions` | 提交 `Mission`（含 `TaskSpec` 列表）→ 按能力/健康分配 |
-| `POST /commands` | 操作命令：`{"op":"sleep","args":{"robot":"g1_a"}}` / `wake` / `{"op":"takeover","args":{"from":"g1_a","to":"g1_b"}}` / `{"op":"dispatch","args":{"task":"patrol"}}`；自然语言：`{"nl":"sleep g1_a"}`；注入（仿真/调试）：`{"op":"inject","robot":"g1_a","battery_temperature_c":75.0,"fault":"battery_hot"}` |
-| `GET /anomalies` | 最近一次 tick 感知到的异常 |
-| `GET /dispatch` | 当前分配 + needs_operator + 租约 |
-
-后台 tick 每 1s 自动 `scan → 处理异常 → 派发`（`tick_interval_s`，可在 `build_coordinator_app` 调）。
-
-### 浏览器仪表盘（GET /）
-
-coordinator 在根路径 `GET /` 提供一个自带网页(纯前端,无新依赖,每秒自动刷新):
-- **每台机器人一个实时小人图**(姿态驱动:站立 / 巡逻挥臂动画 / 过热坐下,颜色随健康/电池变)——**不开 MuJoCo 窗口也能直接在浏览器里看到每台在干什么**;
-- **实时事件流**(anomaly_detected → command_issued → task_reassigned → robot_sleeping …,带时间戳);
-- 任务分配、异常、命令按钮(派发 / 休眠 / 唤醒 / **🔥注入过热**——按钮经 DDS 下发到机器人节点,真实触发过热→休眠→接替)。
-
-> 想看**真实 3D 物理画面**(机器人在地面/弹性带上的真实动作),那是 §7.5 的 MuJoCo GUI 窗口;浏览器仪表盘看的是**示意小人 + 调度状态 + 实时事件**。两者互补:不想折腾 GUI 就只看浏览器(小人 + 事件流已足够判断"实时在执行什么");想看物理本体再开 §7.5 的窗口。
-
-**最省事:一条命令起整套(coordinator + 2 台 G1)并常驻,然后开浏览器看 + 用按钮指挥:**
-
-```bash
-conda activate agi && cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.sim.verify_dds_fleet --keep-alive
-# 它会打印要打开的 URL(含 WSL2 IP 兜底);两台 g1_a/g1_b 在线,Ctrl-C 停止
-```
-
-启动时 coordinator 会**打印可访问 URL**(含 WSL2 IP),照着 Windows Chrome 打开即可。
-
-> ⚠️ **`0.0.0.0` 不是用来打开的**:它是服务端*监听*地址。浏览器要连 `http://localhost:8090` / `http://127.0.0.1:8090`。
->
-> #### WSL2 网络排查(localhost / 127.0.0.1 都打不开时)
-> 服务在 WSL2 里 100% 正常(`0.0.0.0:8090`)、从 WSL2 内 curl 能通,但 Windows 的 Chrome 连不上 —— 这是 **WSL2→Windows 端口转发**问题,按顺序试:
-> 1. **用 WSL2 IP 直连**(最快兜底,启动 banner 会打印):`http://<WSL2_IP>:8090`(本机当前 `192.168.108.252`,每次重启会变;查:WSL 里 `hostname -I`)。NAT 模式下 Windows 有 `vEthernet (WSL)` 网卡可直达该 IP,绕过 localhost 转发。
-> 2. **重启 WSL 的 localhost 转发**:Windows PowerShell 跑 `wsl --shutdown`,再重开 WSL + 重新起 coordinator。睡眠/VPN/网络切换后转发常失效,重启即恢复。
-> 3. **`.wslconfig` 固定 NAT + localhost 转发(已为本机配置好)**:已写入 `C:\Users\Helios\.wslconfig`:
->    ```ini
->    [wsl2]
->    networkingMode=nat
->    localhostForwarding=true
->    ```
->    **生效一次**:Windows PowerShell 跑 `wsl --shutdown`,等约 10 秒,重开 WSL 终端,再起 coordinator。之后 Windows Chrome 用 `http://localhost:8090` 经 WSL2 自动 localhost 转发直达(coordinator 须监听 `0.0.0.0:8090`)。
->    > 注:曾试过 `networkingMode=mirrored`(Windows localhost == WSL2 localhost,最干净),但**镜像模式要求 Windows 11 22H2 / build 22621+**;本机是 Windows 10 22H2 / build 19045,WSL 启动会报 `Mirrored networking mode is not supported ... Falling back to NAT networking` 并回退 NAT。故显式写 NAT 以消除该启动警告;等升级 Win11 后可再改回 mirrored。
-> 4. **VPN / 防火墙**:部分 VPN 会劫持 WSL 子网路由;Windows Defender 防火墙可能拦入站。临时关 VPN 或放行 `vEthernet (WSL)` 验证。
-> 5. **确认服务真在跑**:`verify_dds_fleet`(不带 `--keep-alive`)跑完会**拆掉所有进程**,端口随之关闭——要看实时画面用 `--keep-alive` 或单独常驻 `python -m g1_brain.fleet.coordinator`。WSL 里自检:`curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8090/` 应为 `200`。
->
-> 另外:3D 机器人画面在 **MuJoCo 窗口**里(§7.5),浏览器仪表盘看的是车队**状态/遥测/指挥**。
-
-## 7.4 操作员 console
-
-```bash
-conda activate agi
-cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 status        # 全队 + 异常 + 分配 + 租约
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 dispatch patrol
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 inject g1_a --temp 75
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 sleep g1_a
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 wake g1_a
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 takeover g1_a g1_b
-```
-
-## 7.5 GUI 双进程：在 MuJoCo 窗口里看到两台 G1（真实 DDS 路径）
-
-§7.1 是 headless 直连物理（自动验收基线）。要**亲眼看到**两台 G1 并被指挥调度,走 **DDS 双进程**路径(每进程一个 DDS 域,`config.py` 支持 `UNITREE_DOMAIN_ID` 覆盖)。拓扑:`2 个 GUI sim 窗口 + 2 个 robot 节点 + 1 个 coordinator`,全部经真实 DDS(`rt/lowstate`/`rt/lowcmd`)。
-
-```bash
-# 终端 1 — coordinator (悬挂机器人会摆动, 放宽 fall 阈值避免误判)
-conda activate agi && cd ~/unitree/unitree-notes/g1_brain
-FLEET_FALL_GZ=2.0 python -m g1_brain.fleet.coordinator --port 8090 --db logs/fleet/g.sqlite
-
-# 终端 2 — G1 #1 GUI 窗口 (domain 1)
-conda activate unitree && cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
-UNITREE_DOMAIN_ID=1 MUJOCO_GL=glfw python unitree_mujoco.py
-# 终端 3 — G1 #2 GUI 窗口 (domain 2)
-conda activate unitree && cd ~/unitree/unitree-notes/unitree_mujoco/simulate_python
-UNITREE_DOMAIN_ID=2 MUJOCO_GL=glfw python unitree_mujoco.py
-
-# 终端 4 — robot 节点 g1_a (domain 1), 14s 后自发电池过热
-conda activate agi && cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.sim.robot_node --robot-id g1_a --domain 1 \
-  --coordinator ws://127.0.0.1:8090/fleet --inject-overheat-after 14
-# 终端 5 — robot 节点 g1_b (domain 2)
-conda activate agi && cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.sim.robot_node --robot-id g1_b --domain 2 \
-  --coordinator ws://127.0.0.1:8090/fleet
-
-# 终端 6 — 操作员: 派发巡逻 + 看状态
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 dispatch patrol
-python -m g1_brain.fleet.console.cli --base http://127.0.0.1:8090 status
-```
-
-会看到:两台 G1 在各自窗口里站立(弹性带悬挂,可按 `8` 放低着地、`9` 关弹性带);派发后持有者做巡逻动作;14s 后 g1_a 电池过热 → coordinator 自动让 g1_a 阻尼坐下(SLEEP/DORMANT) → 把巡逻接替给 g1_b。也可手动 `inject g1_a --temp 75` / `sleep` / `wake` / `takeover g1_a g1_b`。
-
-**一键验证整条 DDS 路径(无需 GUI 窗口,自动起 headless sim + 节点 + coordinator 并自检):**
-
-```bash
-conda activate agi && cd ~/unitree/unitree-notes/g1_brain
-python -m g1_brain.fleet.sim.verify_dds_fleet
-# 预期结尾: === ALL CHECKS PASSED ===  (g1_a 过热休眠 → 任务接替给 g1_b, 全程真实 DDS 遥测)
-```
-
-> 说明:(1) DDS `ChannelFactoryInitialize` 是进程级单例(一进程一域),故双机=双进程双域。(2) GUI sim 用弹性带悬挂保持直立(无平衡策略),姿态切换时机身会摆动——这不是真实跌倒,所以 GUI/DDS 演示用 `FLEET_FALL_GZ=2.0` 放宽跌倒检测;真实自平衡机器人保留默认阈值。(3) `headless_sim` 与 GUI `unitree_mujoco.py` 是同一 DDS 契约,只差一个窗口——所以 `verify_dds_fleet`(headless)证明的就是 GUI 路径的数据面。
-
-## 7.6 关键文件地图
-
-| 文件 | 职责 |
-|---|---|
-| `fleet/contracts/models.py` | `CommandEnvelope`/`AdmissionDecision`/`TaskSpec`/`Mission`/`ReplanProposal` + `Battery`/`Health` 遥测 + 调度事件类型 |
-| `fleet/bus/{messages,ws_server,ws_client,loopback}.py` | 双向总线：`COMMAND` 下行 / `ADMISSION` 上行；per-robot 路由；in-process loopback |
-| `fleet/agent/admission_gate.py` | 快脑本地准入（TTL/幂等/能力/FSM 合法性，可拒绝） |
-| `fleet/agent/local_planner.py` | 慢脑能力→姿态技能映射 + 生命周期事件 |
-| `fleet/agent/thermal_model.py` | 由真实 `tau` 合成电池/电机温度 + SOC + `inject()` 钩子 |
-| `fleet/agent/sim_harness.py` | 组装快慢脑的 `SimRobotHarness`（即 RobotAgent 的 core） |
-| `fleet/agent/motion/{base,mock,mujoco_backend,dds_backend}.py` | 可插拔运动后端（mock / 真实 MuJoCo 直连 / DDS 桥接 GUI sim） |
-| `fleet/coordinator/{anomaly,dispatch,lease,gateway,controller,agent_llm,app}.py` | 异常感知 + 确定性调度 + 租约 + 命令网关 + 编排 + 可选 LLM + 路由（异常阈值可经 `FLEET_*` 环境变量覆盖） |
-| `fleet/sim/{mujoco_world,scenario_two_g1}.py` | headless 直连物理 G1 世界 + 两机验证场景（§7.1） |
-| `fleet/sim/{g1_consts,headless_sim,robot_node,verify_dds_fleet}.py` | G1 常量 + 无窗口 sim 进程 + 单机 DDS 节点进程 + 一键 DDS 全链路验证（§7.5） |
-
-# 8. Fleet 共享世界 + RL 真步态 + AI 指挥官（会合 / 接力 · 实时指挥中心）
+# 6. Fleet 共享世界 + RL 真步态 + AI 指挥官（会合 / 接力 · 实时指挥中心）
 
 §7 是"两个独立 MuJoCo 世界 + DDS 双进程"——两台机器人互相看不见。§8 是本次新增的**单一共享世界**路线：**两台 G1 在同一个 MuJoCo 世界（一个窗口）里用 RL 真步态行走、互相感知**，并由**接收自然语言的 AI 指挥官**（OpenAI 或 §8.4 的 **codex 大脑**）给每台机器人委派一个子 agent，去完成**会合 / 接力**配合。最新增的 **§8.4 AI 指挥调度中心**把这条线做成**实时交互**：浏览器打字下达 → codex 规划 → 机器人在 3D 窗口里真的动起来 → 中途可抢占（最新指令优先）。
 
@@ -809,7 +436,7 @@ python -m g1_brain.fleet.sim.verify_dds_fleet
 - **真步态**：移动用 RL 速度跟踪策略（复用 `g1_sim_demo` 的 `ComboController`，去 DDS 直驱），不是绑带悬吊摆姿势。
 - **分层 AI 调度**：`FleetCommander`(NL→多机计划) → 每机 `RobotSubAgent`(→op 序列) → 确定性 `RendezvousBarrier`(会合同步)；无 `OPENAI_API_KEY` 自动回退确定性规划。
 
-## 8.1 看会合 / 接力演示（推荐先跑这个）★ 新 GUI
+## 6.1 看会合 / 接力演示（推荐先跑这个）★ 新 GUI
 
 一句自然语言 → AI 指挥官拆解 → 两个子 agent 各自规划 → 两台 G1 在**同一个窗口**里走到中间会合 → barrier 同步 → 巡逻令牌 a→b：
 
@@ -839,7 +466,7 @@ MUJOCO_GL=egl python -m g1_brain.fleet.sim.scenario_rendezvous
 === ALL CHECKS PASSED ===
 ```
 
-## 8.2 只看共享世界本身（两台 G1 同窗行走）★ 新 GUI
+## 6.2 只看共享世界本身（两台 G1 同窗行走）★ 新 GUI
 
 不带 AI、直接看"两台 G1 在一个世界里走到中点"：
 
@@ -852,7 +479,7 @@ python -m g1_brain.fleet.sim.shared_world_node --seconds 9
 
 > WSL2 下窗口走 WSLg 显示（与 §7.5 的 GUI 一致）。屏显 GL 默认 `glfw`；headless 用 `MUJOCO_GL=egl`。RL 策略走 `onnxruntime` CPU，无需额外 GPU。窗口打不开属显示问题（非本代码），排查思路同 §7.3。
 
-## 8.3 AI 指挥官聊天（仪表盘 / API）
+## 6.3 AI 指挥官聊天（仪表盘 / API）
 
 coordinator 网页（§7.3 的 `GET /`）新增 **"AI 指挥官"聊天卡**：打字下达自然语言，返回指挥官的多机计划 + 每机子 agent 的 op 序列。也可直接打 API：
 
@@ -865,7 +492,7 @@ curl -s -X POST http://127.0.0.1:8090/chat -H 'content-type: application/json' \
 
 > ⚠️ 边界（已更新）：本聊天卡（§8.3，coordinator 网页）只返回**指挥官的决策（计划 + op）**，且接的是 DDS registry。要"网页打字 → 共享世界机器人真的动起来"，见下面 **§8.4 AI 指挥调度中心**——同进程把 WorldSim + 3D 窗口 + 网页 + codex 指挥官 + 抢占式执行接通了。
 
-## 8.4 AI 指挥调度中心（实时看 + 实时下达 + 真驱动）★ 新 GUI
+## 6.4 AI 指挥调度中心（实时看 + 实时下达 + 真驱动）★ 新 GUI
 
 把 §8.3 那条"尚未接通"的线接上：**一个进程**同时起 **WorldSim（§8.2 的共享世界）+ MuJoCo 3D 窗口 + 网页控制台**，由 **codex 大脑**当指挥官。浏览器打字 → codex 规划 → 子 agent 展开 op → `LiveExecutor` **抢占式**驱动活的 WorldSim（最新指令优先），机器人在 3D 窗口里动，网页俯视图 / 遥测 / 事件流实时更新。
 
@@ -873,7 +500,7 @@ curl -s -X POST http://127.0.0.1:8090/chat -H 'content-type: application/json' \
 
 ### 关键认知（先读，省得走弯路）
 
-**§8.4 是单一进程，自带整个世界。** 和 §7 的"6 个终端 + DDS 双进程"完全不同——这里**只需要一个终端、一条命令**。你**不需要**先做下面任何一件事：
+**§6.4 是单一进程，自带整个世界。** 和 §7 的"6 个终端 + DDS 双进程"完全不同——这里**只需要一个终端、一条命令**。你**不需要**先做下面任何一件事：
 
 - ❌ 不需要先起 §1 的 `unitree_mujoco.py`（它自己用 `MjSpec.attach` 现搭一个共享世界）。
 - ❌ 不需要先起 §6.2 的 `coordinator`（§8.3 那条聊天卡才依赖 coordinator；§8.4 不依赖）。
@@ -911,7 +538,7 @@ python -m g1_brain.fleet.sim.command_center --viewer
 
 ```bash
 # ④ 等终端打印出 “控制台: http://127.0.0.1:8787/” 这一行，再用浏览器打开它
-#    （服务起来才打开；端口默认 8787，可用 --port 改）
+#    （服务起来才打开；端口默认 8787，可用 --port 改）-
 
 # ⑤ 在网页“AI 指挥官”框里打字下指令，回车。例：
 #    让 g1_a 和 g1_b 到中间会合，然后 g1_a 把巡逻交给 g1_b

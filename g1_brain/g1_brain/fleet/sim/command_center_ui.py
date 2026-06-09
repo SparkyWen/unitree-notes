@@ -60,6 +60,9 @@ INDEX_HTML = r"""<!doctype html>
              onkeydown="if(event.key==='Enter')send()">
       <button onclick="send()">发送</button>
     </div>
+    <div class="muted" style="margin-top:6px">
+      例 / examples: g1_a 走到 2,1 · 去红色柱子 · 两机都去集合点 · g1_a 前进 2米 · 顺时针绕圈
+    </div>
     <div id="chatlog"></div>
   </div>
   <div class="card"><h2>事件流 — 调度 / 执行</h2><div id="ticker"></div></div>
@@ -71,6 +74,8 @@ const SC = 72;                                   // px per metre
 const COLORS = ['#58a6ff','#3fb950','#d2a8ff','#f0883e'];
 const fx = x => x*SC, fy = y => -y*SC;           // world -> svg (y up)
 let order = [];                                  // stable colour assignment
+let scene = {geoms:[], landmarks:{}};
+fetch('/scene').then(r=>r.json()).then(s=>{scene=s; world();}).catch(()=>{});
 
 function drawMap(robots, mission){
   let s = '';
@@ -78,6 +83,22 @@ function drawMap(robots, mission){
   s += `<line x1="-280" y1="0" x2="280" y2="0" stroke="#1b2027"/>`;
   s += `<line x1="0" y1="-210" x2="0" y2="210" stroke="#1b2027"/>`;
   for(const r of [1,2]) s += `<circle cx="0" cy="0" r="${r*SC}" fill="none" stroke="#161b22"/>`;
+  // static arena: props (filled) + named landmarks (labelled)
+  for(const g of scene.geoms){
+    const gx=fx(g.x), gy=fy(g.y);
+    const col = `rgba(${(g.rgba[0]*255)|0},${(g.rgba[1]*255)|0},${(g.rgba[2]*255)|0},0.85)`;
+    if(g.type==='cylinder'){
+      s += `<circle cx="${gx}" cy="${gy}" r="${g.sx*SC}" fill="${col}" stroke="#0b0e13"/>`;
+    } else {
+      s += `<rect x="${gx-g.sx*SC}" y="${gy-g.sy*SC}" width="${g.sx*2*SC}" `+
+           `height="${g.sy*2*SC}" fill="${col}" stroke="#0b0e13"/>`;
+    }
+  }
+  for(const name in scene.landmarks){
+    const p=scene.landmarks[name], lx=fx(p[0]), ly=fy(p[1]);
+    s += `<circle cx="${lx}" cy="${ly}" r="2.5" fill="#8b949e"/>`+
+         `<text x="${lx+5}" y="${ly-4}" style="fill:#6e7681">${name}</text>`;
+  }
   // rendezvous point
   if(mission && mission.point){
     const px=fx(mission.point[0]), py=fy(mission.point[1]);

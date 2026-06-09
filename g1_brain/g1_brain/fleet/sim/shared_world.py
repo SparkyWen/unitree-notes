@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import yaml
 import mujoco
+from g1_brain.fleet.sim.scene import get_scene
 
 _WS = Path(__file__).resolve().parents[4]
 _CHILD = _WS / "unitree_mujoco" / "unitree_robots" / "g1" / "g1_29dof.xml"
@@ -27,6 +28,15 @@ _STAND_Z = 0.78  # pelvis spawn height (m); puts feet ~on the floor at default_q
 def _load_default_q() -> np.ndarray:
     cfg = yaml.safe_load(open(_DEPLOY))
     return np.asarray(cfg["default_joint_pos"], dtype=np.float64)
+
+
+def _default_spawn(robot_ids) -> Dict[str, Tuple[float, float]]:
+    """Spread robots along x at y=0. Handles any count (1 robot -> -1.5,0)."""
+    n = len(robot_ids)
+    if n == 1:
+        return {robot_ids[0]: (-1.5, 0.0)}
+    xs = [-1.5 + 3.0 * i / (n - 1) for i in range(n)]
+    return {rid: (xs[i], 0.0) for i, rid in enumerate(robot_ids)}
 
 
 @dataclass
@@ -42,11 +52,14 @@ class RobotSlice:
 class SharedG1World:
     def __init__(self, *, robot_ids=("g1_a", "g1_b"),
                  spawn: Dict[str, Tuple[float, float]] | None = None,
-                 timestep: float = 0.005):
-        spawn = spawn or {robot_ids[0]: (-1.5, 0.0), robot_ids[1]: (1.5, 0.0)}
+                 timestep: float = 0.005, scene: str = "bare"):
+        spawn = spawn or _default_spawn(robot_ids)
+        self.scene_name = scene
+        self._scene = get_scene(scene)
         self.default_q = _load_default_q()
         spec = mujoco.MjSpec()
         spec.worldbody.add_geom(type=mujoco.mjtGeom.mjGEOM_PLANE, size=[0, 0, 0.05])
+        self._add_scene_geoms(spec)
         for rid in robot_ids:
             x, y = spawn[rid]
             child = mujoco.MjSpec.from_file(str(_CHILD))
@@ -132,6 +145,38 @@ class SharedG1World:
             bearing = math.atan2(dy, dx) - yaw
             out.append({"peer": other, "dx": dx, "dy": dy, "dist": dist,
                         "bearing": math.atan2(math.sin(bearing), math.cos(bearing))})
+        return out
+
+    _GTYPE = {"box": mujoco.mjtGeom.mjGEOM_BOX,
+              "cylinder": mujoco.mjtGeom.mjGEOM_CYLINDER}
+
+    def _add_scene_geoms(self, spec) -> None:
+        """Add the scene's static primitives to the worldbody (no body/joint)."""
+        for g in self._scene.geoms:
+            geom = spec.worldbody.add_geom(
+                type=self._GTYPE[g.gtype], pos=list(g.pos),
+                size=list(g.size), rgba=list(g.rgba))
+            geom.quat = list(g.quat)
+            if g.name:
+                geom.name = g.name
+
+    def obstacles(self) -> List[Tuple[float, float, float]]:
+        """Circular footprints (x, y, r) the navigator avoids (props only)."""
+        return [(g.pos[0], g.pos[1], g.avoid_r)
+                for g in self._scene.geoms if g.avoid_r > 0]
+
+    def landmarks(self) -> Dict[str, Tuple[float, float]]:
+        return dict(self._scene.landmarks)
+
+    def scene_render(self) -> List[dict]:
+        """Top-down footprints for the web map (box: half-extents sx,sy;
+        cylinder: radius in sx,sy)."""
+        out = []
+        for g in self._scene.geoms:
+            sx = g.size[0]
+            sy = g.size[1] if g.gtype == "box" else g.size[0]
+            out.append({"type": g.gtype, "x": g.pos[0], "y": g.pos[1],
+                        "sx": sx, "sy": sy, "rgba": list(g.rgba), "name": g.name})
         return out
 
     def step(self, n: int = 1) -> None:

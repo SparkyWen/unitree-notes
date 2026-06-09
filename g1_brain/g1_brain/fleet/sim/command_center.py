@@ -42,9 +42,13 @@ def _now() -> str:
 
 
 def _world_snapshot(world) -> dict:
-    """Commander's fleet snapshot: robot_id + last-known x,y from telemetry."""
-    return {"robots": [{"robot_id": rid, "x": t["pose"][0], "y": t["pose"][1]}
+    """Commander's fleet snapshot: robot poses (x,y,yaw) + named landmarks."""
+    snap = {"robots": [{"robot_id": rid, "x": t["pose"][0], "y": t["pose"][1],
+                        "yaw": t["pose"][2]}
                        for rid, t in world.telemetry().items()]}
+    if hasattr(world, "landmarks"):
+        snap["landmarks"] = world.landmarks()
+    return snap
 
 
 def build_command_center_app(world, *, llm=None, subagent_llm=None,
@@ -68,6 +72,7 @@ def build_command_center_app(world, *, llm=None, subagent_llm=None,
     app.router.add_get("/", _index)
     app.router.add_get("/world", _world)
     app.router.add_get("/events", _events)
+    app.router.add_get("/scene", _scene)
     app.router.add_post("/command", _command)
 
     if start_loop:
@@ -113,6 +118,14 @@ async def _world(request: web.Request) -> web.Response:
                    "ops": {rid: [o.op for o in ops] for rid, ops in m.ops.items()},
                    "cur": {rid: m.current_op(rid) for rid in m.ops}}
     return web.json_response({"robots": robots, "mission": mission})
+
+
+async def _scene(request: web.Request) -> web.Response:
+    world = request.app["world"]
+    geoms = world.scene_render() if hasattr(world, "scene_render") else []
+    lms = world.landmarks() if hasattr(world, "landmarks") else {}
+    return web.json_response({"geoms": geoms,
+                              "landmarks": {k: list(v) for k, v in lms.items()}})
 
 
 async def _events(request: web.Request) -> web.Response:
@@ -179,14 +192,28 @@ def _serve_in_thread(app: web.Application, host: str, port: int) -> dict:
 
 
 def run(*, viewer: bool = False, host: str = "127.0.0.1", port: int = 8787,
-        use_codex: bool = True, model: str = "gpt-5.5", reasoning: str = "xhigh") -> None:
+        use_codex: bool = True, model: str = "gpt-5.5", reasoning: str = "xhigh",
+        scene: str = "demo", solo: bool = False) -> None:
+    import webbrowser
     from g1_brain.fleet.sim.shared_world_node import WorldSim, trim_render_cost
 
-    sim = WorldSim()  # control loop NOT started yet — see below
+    robot_ids = ("g1_a",) if solo else ("g1_a", "g1_b")
+    sim = WorldSim(robot_ids=robot_ids, scene=scene)  # control loop not started yet
     llm = _build_codex_llm(model, reasoning, Path.cwd()) if use_codex else None
     app = build_command_center_app(sim, llm=llm)
     state = _serve_in_thread(app, host, port)
-    print(f"[command-center] 控制台: http://{host}:{port}/   (Ctrl-C 退出)", flush=True)
+    url = f"http://{host}:{port}/"
+    print("\n" + "=" * 60, flush=True)
+    print(f"[command-center] 控制台 / console:  {url}", flush=True)
+    print(f"[command-center] 场景 scene={scene}  机器人 {list(robot_ids)}"
+          + ("  (solo)" if solo else ""), flush=True)
+    print("[command-center] 试试 / try:  g1_a 走到 2,1 · 去红色柱子 · "
+          "两机都去集合点 · 顺时针绕圈", flush=True)
+    print("=" * 60 + "\n", flush=True)
+    try:
+        webbrowser.open(url)               # best-effort; harmless if headless
+    except Exception:                       # noqa: BLE001
+        pass
     try:
         if viewer:
             os.environ.setdefault("MUJOCO_GL", "glfw")
@@ -224,9 +251,14 @@ def main() -> int:  # pragma: no cover
     ap.add_argument("--model", default="gpt-5.5", help="codex model (account's working model)")
     ap.add_argument("--reasoning", default="xhigh",
                     help="codex reasoning effort: minimal|low|medium|high|xhigh")
+    ap.add_argument("--scene", default="demo", choices=["bare", "demo"],
+                    help="arena scene (demo = props + terrain; bare = flat)")
+    ap.add_argument("--solo", action="store_true",
+                    help="single robot (g1_a) for solo performance testing")
     args = ap.parse_args()
     run(viewer=args.viewer, host=args.host, port=args.port,
-        use_codex=not args.no_codex, model=args.model, reasoning=args.reasoning)
+        use_codex=not args.no_codex, model=args.model, reasoning=args.reasoning,
+        scene=args.scene, solo=args.solo)
     return 0
 
 

@@ -71,6 +71,7 @@
   - [🎙️ `va-demo/` — voice + vision agent](#%EF%B8%8F-va-demo--voice--vision-agent)
   - [🧠 `g1_brain/` v1.1.0 — Three-Brain cognitive agent](#-g1_brain-v110--three-brain-cognitive-agent)
   - [📞 `g1_brain/phone/` — Twilio + Realtime phone bridge](#-g1_brainphone--twilio--realtime-phone-bridge)
+  - [🛰️ `g1_brain/fleet/` — Multi-Robot Fleet Command Center](#%EF%B8%8F-g1_brainfleet--multi-robot-fleet-command-center)
 - [🧰 Skill Catalog (`g1_brain`)](#-skill-catalog-g1_brain)
 - [🛡️ Safety Supervisor — the 12 rules](#%EF%B8%8F-safety-supervisor--the-12-rules)
 - [💾 Memory Subsystem (Codex-native, v1.1.0)](#-memory-subsystem-codex-native-v110)
@@ -98,6 +99,7 @@
 | 🎙️ **Voice + Vision Realtime agent** | `va-demo/` ships a wake-word ("Hi Sparky") gated, full-duplex Realtime voice agent that can **describe scenes via vision** *and* tool-call `walk` / `gesture` / `stop` against the running RL policy — confirm / observe / active / vision-only run modes. |
 | 🧠 **Three-Brain agent (v1.1.0)** | `g1_brain/` is no longer a single Realtime loop — it's a **three-brain system**: **🧠 Fast Brain** (OpenAI Realtime, persistently online, 0.2–2 Hz turns) decides + talks; **🐢 Slow Brain online** (a resident `codex mcp-server` subprocess at `reasoning_effort=high` + `service_tier=fast`) is on-demand via the `ask_slow_brain(query)` tool; **💾 Slow Brain offline** (`codex exec --json` Phase 1 + Phase 2 workers) distills every voice session into `MEMORY.md`. Plus the existing **Fast Reflex** (50 Hz RL + 20 Hz watchdog + 5 Hz perception, no LLM). Full audit: [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md). |
 | 📞 **Phone bridge — talk to the robot from anywhere** | `g1_brain/phone/` (NEW, May 2026) bridges **Twilio Voice Media Streams** ⇄ a dedicated **OpenAI Realtime** session ⇄ the existing **`SafetySupervisor` + `vision_risk_gate` + `SkillServer`** chain. Operator dials in (CLI `python -m g1_brain.phone.call_me` or by saying *"Hi Sparky, call me"* to the local mic) — the phone Realtime gets the **same tool schemas, safety rules and DDS pipe** as the laptop mic path. No code duplication: `PhoneRealtimeSession` is a 200-line subclass of `BrainRealtimeAgent` overriding only the audio transport. Voice lease (`/tmp/g1_brain_voice_lease`) ensures the laptop mic and the phone can't both drive the robot at once. Full design: [`mcp_twilio_design.md`](mcp_twilio_design.md). |
+| 🛰️ **Multi-robot Fleet Command Center** | `g1_brain/fleet/` (**6 200 LOC**, branch `feature/multi-geo`) drives **two RL-walking G1s in one MuJoCo world** from natural language. Ships **two coordinators** sharing one set of contracts: a **🅰️ Live Command Center** (`sim/command_center.py` @ :8787 — codex `gpt-5.5` brain + preemptive `LiveExecutor` + web top-down map, robots self-balance band-free) and a **🅱️ Distributed Coordinator** (`coordinator/app.py` @ :8090 — per-robot `RobotAgent` over a WebSocket bus, 1 Hz anomaly-driven closed loop, per-robot `AdmissionGate` the center can't bypass). The fleet AI commander **is the same MCP-backed codex slow brain** the single robot uses. NL position control (coords / landmarks / relative / "all") runs **fully offline**; rendezvous/relay/patrol fall through to the LLM. Design: [`docs/multi-architecture.md`](docs/multi-architecture.md) · [`docs/coordinator-design.md`](docs/coordinator-design.md). |
 | 🛡️ **12-rule safety + GPT-5.5 vision risk gate** | Every tool call walks **12 in-order rules**: whitelist · FSM · run-mode · 4 watchdogs (lowstate / head-cam / RL-active / USB) · pose check · param clamp · obstacle-distance scene-check · person-distance scene-check · **Rule 12 — GPT-5.5-mini Vision Risk Gate** (snapshot + action sentence → `SAFE: …` / `RISK: …`, only the latter falls through to a y/N confirm) · E-stop. Spec: [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md). |
 | 💾 **Codex-native memory subsystem** | Every session writes a Claude-harness-shape JSONL to `g1_brain/logs/conversations/`. Phase 1 distills each into a per-session `rollout_summary` + raw-memory bullets via `codex exec`. Phase 2 (debounced, git-diff-gated) rolls them up into `MEMORY.md` (≤200 lines) + `memory_summary.md` (≤80 lines), the latter auto-injected as developer instructions into the next Realtime session. **4 new recall tools** — `recall_grep` · `recall_read` · `recall_glob` · `ask_slow_brain` — let the LLM introspect past sessions live. SQLite + Markdown only, no embeddings. Design: [`docs/harness-design.md`](docs/harness-design.md). |
 | ⚡ **23 LLM-callable skills** | 8 I/O (`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`) · 4 memory/slow-brain (`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`) · 6 motion (`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`) · 2 phone bridge (`start_phone_call`, `end_call`) · 3 real-only stubs (`loco_high`, `arm_action_high`, `audio_tts_robot`). |
@@ -119,6 +121,9 @@
 | 🌟 **In-house deliverables** | **4** (`g1_sim_demo` · `g1_real_demo` · `va-demo` · `g1_brain`) |
 | 🎮 **G1 MuJoCo demo scripts** | **5** sim + **1** real ≈ 2 700 LOC of annotated control loops |
 | 🧠 **Brains in `g1_brain` v1.1.0** | **3** — Fast (Realtime, online) + Slow online (codex daemon, on-demand) + Slow offline (codex exec, Phase 1+2 background) |
+| 🛰️ **Fleet command center (`g1_brain/fleet`)** | **2** coordinators — Live Command Center (`:8787`, codex `gpt-5.5`) + Distributed Coordinator (`:8090`, WebSocket bus) — sharing `FleetPlan`/`Coordination`/`SubAgentOp` contracts · **~6 200 LOC** |
+| 🤖 **Robots in one MuJoCo world** | **2** RL G1s via `MjSpec.attach` (`nq=72 · nu=58 · nv=70`) — **50 Hz** control / **200 Hz** physics, PD recomputed every substep · band-free RL self-balancing · 4 swappable motion backends (mock · mujoco · rl_shared · DDS) |
+| 🌡️ **Fleet anomaly triggers** | **5** edge-triggered — `battery_overheat` ≥70 °C · `motor_overheat` ≥80 °C · `low_soc` ≤0.15 · `fall` (`gz>−0.85`) · `stale/offline` → auto sleep + task reassignment |
 | 🛠️ **LLM-callable skills (`g1_brain`)** | **23** — 8 I/O · 4 memory/slow-brain · 6 motion · 3 real-only stubs · 2 phone bridge (`start_phone_call`, `end_call`) |
 | 🛡️ **Safety rules (`g1_brain`)** | **12** — 11 static + 1 GPT-5.5-mini Vision Risk Gate (Rule 12) — see [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) |
 | 💾 **Memory artefacts** | `MEMORY.md` (≤200 lines) · `memory_summary.md` (≤80 lines, auto-injected next session) · `raw_memories.md` · `rollout_summaries/*.md` · `state.sqlite` (WAL, jobs/sessions/stage1_outputs) |
@@ -199,6 +204,17 @@ unitree-notes/
 │   │                                   ├ schemas.py        · dataclasses, AskResult, meta types
 │   │                                   └ prompts/          · phase1/phase2/default_agents_md
 │   ├── 🆕 g1_brain/tools/           ·  reset_memory.py CLI — operator-grade memory recovery
+│   ├── g1_brain/phone/              ·  📞 Twilio Media Streams ⇄ PhoneRealtimeSession bridge
+│   ├── 🆕 g1_brain/fleet/           ·  🛰️ multi-robot command center (~6 200 LOC, feature/multi-geo)
+│   │    ├ sim/                      ·  Live Command Center :8787 — command_center · WorldSim /
+│   │    │                              SharedG1World (MjSpec.attach) · LiveExecutor · nav · scenarios
+│   │    ├ coordinator/              ·  Distributed Coordinator :8090 — app · controller · anomaly /
+│   │    │                              dispatch · gateway · registry · lease · nl_position · codex_fleet_llm
+│   │    ├ agent/                    ·  per-robot RobotAgent · AdmissionGate · LocalPlanner · ThermalModel /
+│   │    │                              motion backends {mock · dds · mujoco · rl_shared}
+│   │    ├ bus/                      ·  FleetBus / CommandTransport — loopback + WebSocket (ws_client/server)
+│   │    ├ contracts/               ·  pydantic-v2 schemas (FleetPlan · CommandEnvelope · …) + JSON-Schema export
+│   │    └ harness_core/             ·  read-only per-robot core facade + event fan-out
 │   ├── g1_brain/mock_imitation/     ·  user gesture → MIRRORABLE robot gesture (Phase 5)
 │   ├── g1_brain/apps/               ·  agent_main + perception/safety/skill/estop debug
 │   ├── configs/g1_brain.yaml        ·  Single source of truth — adds memory · audio_control ·
@@ -819,6 +835,130 @@ The bridge listens on `127.0.0.1:8787` only — never `0.0.0.0`. Public access i
 
 ---
 
+#### 🛰️ `g1_brain/fleet/` — Multi-Robot Fleet Command Center
+
+> **The flagship multi-robot stack** (`git@github.com:SparkyWen/unitree-notes.git`, branch `feature/multi-geo`). Type *"両機都去集合点"* / *"g1_a go to the red pillar"* / *"meet in the middle, then g1_a hand patrol to g1_b"* into a web console and watch **two RL-walking G1s** cooperate live in **one MuJoCo world** — planned by a **codex slow brain**, gated by **per-robot admission control**. The fleet **reuses** the same fast/slow-brain + MCP machinery the single-robot `g1_brain` is built on, lifted to fleet scale. **6 200 LOC** across `g1_brain/g1_brain/fleet/`.
+>
+> 📂 **Read first:** 🆕 [`docs/multi-architecture.md`](docs/multi-architecture.md) (the running architecture, fully Mermaid-diagrammed) · 🆕 [`docs/coordinator-design.md`](docs/coordinator-design.md) (the layered-autonomy design rationale) · 🆕 [`docs/command-center-arena-how-to-use.md`](docs/command-center-arena-how-to-use.md) (obstacle/terrain demo + NL position control).
+
+##### 🧭 Two architectures, one set of contracts
+
+The fleet ships **two** coordinators that share the *same* planning data contracts (`FleetPlan` / `Coordination` / `SubAgentOp`) and the *same* planning brains (`FleetCommander` / `RobotSubAgent` / `RendezvousBarrier`), but run in completely different shapes:
+
+| | 🅰️ **Live Command Center** *(the demo you run)* | 🅱️ **Distributed Coordinator** *(the production-shaped sibling)* |
+|---|---|---|
+| **Entry** | `python -m g1_brain.fleet.sim.command_center` | `python -m g1_brain.fleet.coordinator` |
+| **Where the robots live** | **one process, one `MjModel`** — both G1s | each robot its **own** process, joins over the network |
+| **Transport** | none — direct thread-safe in-memory calls | **WebSocket bus** (`bus/ws_*`) or in-proc loopback |
+| **AI brain** | **codex** (`CodexFleetLLM`, gpt-5.5 / xhigh / `service_tier=fast`) | OpenAI (`OpenAIFleetLLM`, gpt-4o-mini) or fully deterministic |
+| **Scheduler** | `LiveExecutor` (preemptive single-mission) | `DispatchEngine` (capability/health match + anomaly reassignment) |
+| **Safety gate** | none (trusts internal plan + nav velocity clamp) | per-robot `AdmissionGate` (TTL · idempotency · FSM · capability) |
+| **What you see** | MuJoCo 3D window + web top-down map @ **:8787** | HTML dashboard (live SVG humanoids + event stream) @ **:8090** |
+| **Physics** | RL velocity policy **self-balances** (band-free) | elastic-band single-robot physics / mock |
+
+> 🔑 **The reuse story (why this lives inside `g1_brain`).** The Live Command Center's "AI 指挥官" *is the same MCP-backed codex slow brain* the single robot uses for `ask_slow_brain()` — `CodexFleetLLM` drives a read-only `codex` process at `reasoning_effort=xhigh` + `service_tier=fast`. And every robot's per-robot stack is the **fast/slow split in miniature**: a deterministic, real-time **`AdmissionGate` + reflexes (fast brain)** that is the final authority over motors, plus a **`LocalPlanner` (slow-brain seam)** whose optional `explain_hook` *is never on the control path*. The governing principle (from [`docs/coordinator-design.md`](docs/coordinator-design.md)): **AI plans, explains, replans; a deterministic scheduler validates & allocates; the robot's local harness admits, executes, and self-protects — MCP is a tool/context channel that can never bypass the safety gate into motion control.**
+
+##### 🅰️ Live Command Center — `sim/command_center.py` (port 8787)
+
+One launcher welds four things together so you can *steer while you watch*:
+
+```mermaid
+flowchart LR
+    OP(["operator"])
+    subgraph PROC["command_center · single process"]
+        direction TB
+        WEB["web console<br/>aiohttp :8787<br/>top-down map + chat + events"]
+        CODEX["codex brain<br/>CodexFleetLLM<br/>= fleet commander"]
+        EXEC["LiveExecutor<br/>preemptive driver"]
+        WORLD["WorldSim<br/>2× RL G1 @ 50 Hz"]
+        VIEW["MuJoCo 3D passive viewer<br/>--viewer"]
+        WEB --> CODEX
+        WEB --> EXEC
+        EXEC --> WORLD
+        WORLD --> VIEW
+    end
+    OP -->|browser| WEB
+    OP -->|watches robots move| VIEW
+```
+
+One operator request flows: **browser `POST /command`** → `plan_mission(nl, world_snapshot)` (run in a thread so codex's seconds-long xhigh reasoning never blocks the event loop) → `LiveExecutor.submit(plan)` **preempts** any running mission → `WorldSim` drives the robots live → the 2D map (`/world`, ~8 Hz) + event ticker (`/events`, 1 Hz) refresh in the browser.
+
+- 🌍 **Two RL G1s in one `MjModel`.** `SharedG1World` builds the world with `MjSpec.attach`, namespacing every body/joint/actuator with a `g1_a/` · `g1_b/` prefix (verified `nq=72, nu=58, nv=70`; 29 actuators each). No DDS — each robot is driven by a **reused `ComboController`** (the exact one from `g1_sim_rl_combo.py`) whose publish is redirected into the shared world.
+- ⚙️ **THE shared-world gotcha** — **PD torque is recomputed every 200 Hz physics substep, not once per 50 Hz control tick.** Control runs at **50 Hz** (`dt=0.02`), physics at **200 Hz** (`timestep=0.005`) → **4 substeps/tick**, and `ctrl = kp·(q_target−q) − kd·dq` is re-derived from fresh `q/dq` on *each* substep. Apply PD only at 50 Hz and the torque goes stale relative to the integrator → Kp oscillation → the robot falls.
+- 🧭 **Band-free self-balancing.** Unlike the single-robot sim, the shared world has **no elastic band** — the RL velocity policy keeps each robot upright on its own (boot ramp shortened to 0.3 s). `nav.py` converts a goal `(x,y)` into a body-frame `[vx, vy, wz]` **clamped to the policy's trained ranges** (`vx∈[-0.5,1.0]`, `vy∈[-0.5,0.5]`, `wz∈[-1.0,1.0]`) with reactive obstacle + peer repulsion, so the gait never goes out-of-distribution.
+- 🤖 **`LiveExecutor` = preemptive single mission.** It holds *one* current `Mission`; a new `submit()` swaps it and bumps a generation id — "latest operator intent wins," no task juggling. It ticks ~20 Hz over op verbs `navigate · await_barrier · circle · face · arms_up · hold · patrol · idle · sleep · wake`, toggling peer-avoidance off when robots are meant to converge (`await_barrier`/`face`).
+
+```bash
+# Full experience: codex brain + 3D window + web console + demo arena
+conda activate agi
+python -m g1_brain.fleet.sim.command_center --viewer --scene demo
+#   web console → http://127.0.0.1:8787/
+
+# Deterministic, no LLM (position control still works fully offline):
+python -m g1_brain.fleet.sim.command_center --viewer --no-codex
+# One robot:  --solo      Flat ground:  --scene bare      Bind/port:  --host --port
+```
+
+**CLI flags:** `--viewer` (open the MuJoCo 3D window; headless without it) · `--scene {bare,demo}` (demo = props + terrain) · `--solo` (single robot `g1_a`) · `--no-codex` (deterministic planner only) · `--model gpt-5.5` · `--reasoning xhigh` · `--host 127.0.0.1` · `--port 8787`.
+
+##### 🗣️ Natural-language fleet control — two tiers (the LLM is the *fallback*, not the front door)
+
+The router (`choreographer.plan_mission`) tries the cheap deterministic parsers **first**, and only falls through to codex/`FleetCommander` for the genuinely hard verbs. Positional commands need **no LLM call at all** — they work with `--no-codex`:
+
+| Say (any of EN / 中文) | Tier | Resolves to |
+|---|---|---|
+| `g1_a 走到 2,1` · `g1_a go to 2,1` | 🟢 deterministic `nl_position` | absolute-coordinate `navigate` |
+| `去红色柱子` · `go to the blue box` · `左上角` | 🟢 deterministic `nl_position` | named-landmark `navigate` (11 landmarks + EN/中文 aliases) |
+| `g1_a 前进 2米` · `g1_a back 1m` | 🟢 deterministic `nl_position` | relative move along current heading |
+| `两机都去集合点` · `all go to center` | 🟢 deterministic `nl_position` | every robot `navigate` |
+| `顺时针绕圈` · `面对面` · `抬双手` | 🟡 deterministic choreographer | `circle` / `face` / `arms_up` op chains |
+| `中间会合，然后把巡逻交给 g1_b` · `relay / rendezvous / patrol` | 🔴 codex / `FleetCommander` | `rendezvous`/`relay` plan + `RendezvousBarrier` |
+
+The codex commander emits **one JSON `FleetPlan`** (or a richer per-robot `ops` choreography); a balanced-brace scanner (`extract_plan_json`) pulls it out of codex prose, and on any parse/validation failure the system falls back to a **deterministic planner** so the demo never dies on an LLM hiccup. Robot ids and handoff targets are validated against the **live registry** before anything executes.
+
+##### 🅱️ Distributed Coordinator — `coordinator/app.py` (port 8090)
+
+The production-shaped sibling: each robot is a headless **`RobotAgent`** that joins a central coordinator over a **WebSocket bus**, and the coordinator runs a **1 Hz anomaly-driven closed loop** — *no center→motor path ever exists.*
+
+```
+   每机 RobotAgent (own process)                 Coordinator (one process)
+   ├ HarnessCore (real) / SimRobotHarness (sim)        ┌──────────────────────────────┐
+   ├ AdmissionGate  ← final authority over motors      │ FleetRegistry  (who's alive) │
+   ├ LocalPlanner   (capability → Posture)             │ AnomalyDetector (policy)     │
+   ├ MotionBackend  {mock|dds|mujoco|rl_shared}        │ DispatchEngine (LLM proposes,│
+   └ ThermalModel   (synthesizes batt/motor °C)        │   engine decides)            │
+            ▲   │ heartbeat / events / perception      │ CommandGateway (idempotent,  │
+            │   └──────────────────────────────────────►   audited, replayable)       │
+            │            WebSocket bus (bus/ws_*)       │ LeaseManager (TTL authority) │
+            └───────────── CommandEnvelope ◄───────────┤ FleetCommander (OpenAI/det.) │
+                          (TTL · idempotency ·          └──────────────────────────────┘
+                           safety_envelope · lease)        dashboard @ :8090
+```
+
+- 🔁 **The closed loop** (`DispatchController.tick`, 1 Hz): `AnomalyDetector.scan(registry)` reads *only* north-bound telemetry → on an anomaly, `DispatchEngine.handle_anomaly` builds a plan (e.g. **sleep the hot robot + reassign its task** to the highest-SOC healthy candidate) → `CommandGateway.issue` stamps an idempotency key, logs `COMMAND_ISSUED`, and sends it down-bound → the robot's `AdmissionGate` returns accept/refuse, recorded as `COMMAND_ACCEPTED`/`REFUSED`. Every command is correlated by `trace_id` and **replayable** via `GET /replay/{trace_id}`.
+- 🌡️ **Anomalies are synthesized, then classified.** MuJoCo models no thermals, so `ThermalModel` derives per-joint motor temp, battery temp, and SOC from real joint efforts (`tau_est`). `AnomalyDetector` is **edge-triggered with hysteresis**: `battery_overheat` ≥ 70 °C, `motor_overheat` ≥ 80 °C, `low_soc` ≤ 0.15, `fall` (`gravity_proj_z > −0.85`), `stale/offline`. The dashboard's **🔥 inject 75 °C** button forces a deterministic overheat so you can watch the whole perception→anomaly→dispatch→re-arm cycle.
+- 🛡️ **`AdmissionGate` = the boundary the coordinator can never bypass.** Each inbound `CommandEnvelope` is checked in order — TTL (`EXPIRED`) · idempotency (`DUPLICATE`) · capability supported (`UNSUPPORTED_CAPABILITY`) · FSM legality (`FSM_FORBIDDEN`) · apply (`PLAN_ERROR`) — and only an accepted command reaches `LocalPlanner.apply → backend.set_posture`. It shares the same `RobotFsm` as the single-robot `SafetySupervisor` but guards a *different* entry point: the network edge, not the local tool call.
+- 🔌 **One robot, four bodies.** The `MotionBackend` protocol (`set_posture · step · read_lowstate`) has **four** interchangeable implementations — `MockBackend` (CI), `MujocoBackend` (headless, in-proc), `RlSharedBackend` (the shared RL world), `DdsMujocoBackend` (**real robot / separate sim over `rt/lowcmd`+`rt/lowstate`**). The `RobotAgent` and `LocalPlanner` are byte-identical regardless — this is what carries the same code from CI mock → headless MuJoCo → real DDS hardware.
+- 📜 **Contracts are the wire format.** `fleet/contracts/models.py` is pydantic-v2 with `schema_version` literals + `payload_hash` on every model (`CapabilityDescriptor`, `RobotStateMsg`, `CommandEnvelope`, `AdmissionDecision`, …); `json_schema_export.py` dumps them as CI artifacts, and `CapabilityDescriptor` is derived from the **real tool catalog** so the advertised capabilities and the actual skills can't drift.
+
+```bash
+# Coordinator + dashboard
+conda activate agi
+python -m g1_brain.fleet.coordinator --host 0.0.0.0 --port 8090
+#   dashboard → http://localhost:8090   (per-robot SVG humanoids, sleep/wake/inject, /chat)
+
+# Tier-1 end-to-end (two RL G1s, hierarchical dispatch, rendezvous + relay handoff):
+python -m g1_brain.fleet.sim.scenario_rendezvous --viewer
+#   runs deterministically with no OPENAI_API_KEY; set the key to route planning through the LLM
+
+# Tier-2 anomaly dispatch (battery overheat → safe sleep → task reassignment):
+python -m g1_brain.fleet.sim.scenario_two_g1 --inject-after 6
+```
+
+> 🧪 **Tested.** The fleet has its own pytest subtree (`g1_brain/tests/fleet/` — `pytest tests/fleet -k rendezvous`) covering the bus (loopback + WS), admission gate, anomaly/dispatch closed loop, leases, barriers, contracts round-trip, and the deterministic NL parsers.
+
+---
+
 ### 🧰 Skill Catalog (`g1_brain`)
 
 > **23 OpenAI tool schemas** (18 in sim + 3 real-only + 2 phone bridge when `--enable-phone`) exposed to the Fast Brain. Source of truth: [`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py). Every schema is validated against the **12 rules** in [§ Safety Supervisor](#%EF%B8%8F-safety-supervisor--the-12-rules) before reaching `SkillServer`. `--vision-only` mode trims down to the 8 no-motion + no-DDS tools (4 I/O + 4 memory).
@@ -1121,6 +1261,47 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete enti
 
 > 📐 The 7-layer reference is in [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md); the per-line implementation audit (with file:line citations) is in [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md).
 
+#### `g1_brain/fleet/` — two-coordinator process model
+
+```
+            ┌───────────────────────────────────────────────────────────────┐
+            │  SHARED PLANNING CONTRACTS + BRAINS (reused by both)          │
+            │  FleetPlan · Coordination · SubAgentOp   (pydantic schemas)    │
+            │  FleetCommander · RobotSubAgent · RendezvousBarrier            │
+            └───────────────────────────────────────────────────────────────┘
+                  ▲                                            ▲
+                  │ reuse                                      │ reuse
+   ┌──────────────┴───────────────────┐        ┌──────────────┴────────────────────────┐
+   │ 🅰️ LIVE COMMAND CENTER  (:8787)  │        │ 🅱️ DISTRIBUTED COORDINATOR  (:8090)   │
+   │  sim/command_center.py           │        │  coordinator/app.py                    │
+   │                                  │        │                                        │
+   │  web console (aiohttp, poll)     │        │  dashboard (SVG humanoids, /chat)      │
+   │     │ POST /command              │        │     │ 1 Hz tick                        │
+   │     ▼                            │        │     ▼                                  │
+   │  codex brain  ───────────────┐   │        │  AnomalyDetector (edge+hysteresis)     │
+   │  CodexFleetLLM gpt-5.5/xhigh │   │        │     │  battery≥70°C motor≥80°C fall   │
+   │  /fast (= MCP slow brain)    │   │        │     ▼                                  │
+   │     │ FleetPlan / ops        │   │        │  DispatchEngine (LLM proposes,         │
+   │     ▼                        │   │        │   engine decides: sleep + reassign)    │
+   │  LiveExecutor (preemptive)   │   │        │     │                                  │
+   │     │ navigate/circle/face/  │   │        │     ▼                                  │
+   │     │ arms_up/await_barrier  │   │        │  CommandGateway (idempotent · audited  │
+   │     ▼                        │   │        │   · trace_id replayable)               │
+   │  WorldSim 50 Hz ctrl ────────┘   │        │     │ CommandEnvelope (TTL · lease ·   │
+   │  SharedG1World 200 Hz PD/substep │        │     ▼  safety_envelope)                │
+   │  2× reused ComboController       │        │  ═════ WebSocket bus (bus/ws_*) ═════  │
+   │  RL self-balancing, no DDS       │        │     ▼                                  │
+   │     │                            │        │  per-robot RobotAgent                  │
+   │     ▼                            │        │   AdmissionGate (FINAL authority) →    │
+   │  MuJoCo 3D viewer (--viewer)     │        │   LocalPlanner → MotionBackend         │
+   │                                  │        │   {mock|mujoco|rl_shared|dds}          │
+   └──────────────────────────────────┘        └────────────────────────────────────────┘
+     in-process · no safety gate                 networked · per-robot gate · sim↔real
+     (trusts plan + nav clamp)                    (no center→motor path ever)
+```
+
+> 📐 The running architecture (every layer, fully Mermaid-diagrammed) is in [`docs/multi-architecture.md`](docs/multi-architecture.md); the layered-autonomy design rationale (AI Coordinator / Swarm / Remote Bridge / per-robot harness, and where MCP is allowed) is in [`docs/coordinator-design.md`](docs/coordinator-design.md).
+
 ---
 
 ### 🔌 DDS Topic & Joint Reference
@@ -1256,6 +1437,14 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete enti
 | 🆕 [`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md`](docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md) | Approved design spec (the brainstorming output). |
 | 🆕 [`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`](docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md) | TDD implementation plan — 23 tasks across 7 phases, with full code blocks per step. |
 
+#### 🛰️ Fleet / multi-robot command center (**NEW, branch `feature/multi-geo`**)
+
+| Doc | Scope |
+|---|---|
+| 🆕 [`docs/multi-architecture.md`](docs/multi-architecture.md) | **The running architecture (fully Mermaid-diagrammed).** §0 distinguishes the two coordinators; §1–§9 walk the Live Command Center end-to-end (browser → codex plan → preemptive `LiveExecutor` → 50 Hz physics); §10 the Distributed Coordinator control plane; §11 how they share contracts. |
+| 🆕 [`docs/coordinator-design.md`](docs/coordinator-design.md) | **The layered-autonomy design rationale** — AI Coordinator / Swarm / Remote Bridge / per-robot harness; what may use AI and what may touch motors; where MCP is allowed (tool/context only, never bypassing the safety gate); LLM-multi-robot research distilled (SMART-LLM, capability matching, task allocation). |
+| 🆕 [`docs/command-center-arena-how-to-use.md`](docs/command-center-arena-how-to-use.md) | Operator quick-start — launch flags, the obstacle/terrain demo arena, and the full natural-language position-control vocabulary (coords / landmarks / relative / "all" / choreography), all usable offline with `--no-codex`. |
+
 #### 📡 Upstream deep-dives
 
 | Doc | Scope |
@@ -1336,6 +1525,7 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # delete enti
 - `va-demo/` — wake-word-gated Realtime voice + vision agent (4 run modes) — Hi-Sparky barge-in in any state, AEC-cleaned RMS gate, per-process JSONL transcripts.
 - `g1_brain/` **v1.1.0** — three-brain agent: **12-rule** supervisor (incl. GPT-5.5-mini Vision Risk Gate) · 7-state FSM · independent E-stop · ComboController subprocess isolation (Phase 8) · **23 LLM-callable skills** (incl. Twilio phone bridge, May 2026) · MuJoCo head-cam perception · `mock_imitate` (Phase 5, opt-in).
 - 🆕 **Memory subsystem** — Codex-native (codex daemon + Phase 1 + Phase 2 workers) · SQLite + Markdown (no embeddings) · `recall_grep/read/glob` + `ask_slow_brain` tools · session-summary auto-injection · `tools/reset_memory.py` CLI · 9 dedicated test files.
+- 🆕 **Fleet command center** (`g1_brain/fleet/`, branch `feature/multi-geo`) — **Live Command Center** (two RL G1s in one MuJoCo world, codex `gpt-5.5` brain, preemptive `LiveExecutor`, web console @ :8787, offline NL position control) + **Distributed Coordinator** (per-robot `RobotAgent` over a WebSocket bus, 1 Hz anomaly-driven closed loop, per-robot `AdmissionGate`, dashboard @ :8090) · shared `FleetPlan` contracts · 4 swappable motion backends (mock · mujoco · rl_shared · DDS) · `pytest tests/fleet`.
 - `requirements.txt` — frozen `agi` env reproducible from `python=3.11` + `pip install -r requirements.txt`.
 
 #### 🚧 In progress / refining
@@ -1691,6 +1881,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
   - [🎙️ `va-demo/` — 语音 + 视觉智能体](#%EF%B8%8F-va-demo--语音--视觉智能体)
   - [🧠 `g1_brain/` v1.1.0 — 三脑认知智能体](#-g1_brain-v110--三脑认知智能体)
   - [📞 `g1_brain/phone/` — Twilio + Realtime 电话桥](#-g1_brainphone--twilio--realtime-电话桥)
+  - [🛰️ `g1_brain/fleet/` — 多机器人舰队指挥调度中心](#%EF%B8%8F-g1_brainfleet--多机器人舰队指挥调度中心)
 - [🧰 技能目录（`g1_brain`）](#-技能目录g1_brain)
 - [🛡️ 安全监督器 — 12 条规则](#%EF%B8%8F-安全监督器--12-条规则)
 - [💾 记忆子系统（Codex 原生，v1.1.0）](#-记忆子系统codex-原生v110)
@@ -1718,6 +1909,7 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🎙️ **语音 + 视觉 Realtime 智能体** | `va-demo/` 自带"嗨 Sparky"唤醒词的 OpenAI Realtime 全双工语音智能体，可以**调用视觉**描述场景，也能**工具调用** `walk` / `gesture` / `stop` 直接驱动 RL 策略——支持 confirm / observe / active / vision-only 四种运行模式。 |
 | 🧠 **三脑认知智能体（v1.1.0）** | `g1_brain/` 不再是单一 Realtime 回路，而是 **三脑系统**：**🧠 快脑**（OpenAI Realtime 长连接，0.2–2 Hz / turn）做决策与对话；**🐢 在线慢脑**（常驻 `codex mcp-server` 子进程，`reasoning_effort=high` + `service_tier=fast` 1.5× 优先级）通过 `ask_slow_brain(query)` 工具按需触发；**💾 离线慢脑**（一次性 `codex exec --json` 跑 Phase 1 + Phase 2 worker）把每次 session 提炼到 `MEMORY.md`。外加既有的 **快反射**（50 Hz RL + 20 Hz watchdog + 5 Hz 感知，纯 Python 无 LLM）。完整审计：[`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)。 |
 | 📞 **电话桥 — 拿起电话就能遥控机器人** | `g1_brain/phone/`（2026 年 5 月新增）把 **Twilio Voice Media Streams** ⇄ 一个独立的 **OpenAI Realtime** session ⇄ 现有的 **`SafetySupervisor` + `vision_risk_gate` + `SkillServer`** 链路完整串起来。两种触发方式：CLI（`python -m g1_brain.phone.call_me`）或本地说一句 *"Hi Sparky, call me"*。电话端的 Realtime 使用 **与本地话筒完全相同的 tool schema、安全规则、DDS 通路**——`PhoneRealtimeSession` 是 `BrainRealtimeAgent` 的 200 行子类，只覆盖音频传输层，安全侧零拷贝、零新增。`/tmp/g1_brain_voice_lease`（fcntl.flock）确保本地话筒和电话不会同时驱动机器人。完整设计：[`mcp_twilio_design.md`](mcp_twilio_design.md)。 |
+| 🛰️ **多机器人舰队指挥调度中心** | `g1_brain/fleet/`（**6 200 行**，`feature/multi-geo` 分支）用一句自然语言驱动**同一个 MuJoCo 世界里两台 RL 行走的 G1** 实时协同。提供**两套共享同一份契约的指挥官**：**🅰️ Live Command Center**（`sim/command_center.py` @ :8787——codex `gpt-5.5` 大脑 + 抢占式 `LiveExecutor` + 网页俯视图，机器人无弹力带靠 RL 自平衡）和 **🅱️ Distributed Coordinator**（`coordinator/app.py` @ :8090——每机 `RobotAgent` 经 WebSocket 总线接入，1 Hz 异常驱动闭环，每机 `AdmissionGate` 是中心绕不过的最终权限）。舰队 AI 指挥官**就是单机用的同一个 MCP codex 慢脑**。自然语言位置控制（坐标 / 地标 / 相对 / "两机都"）**完全离线可用**；会合 / 接力 / 巡逻才落到 LLM。设计：[`docs/multi-architecture.md`](docs/multi-architecture.md) · [`docs/coordinator-design.md`](docs/coordinator-design.md)。 |
 | 🛡️ **12 条安全规则 + GPT-5.5 视觉风险门** | 每次工具调用都按顺序过 **12 条规则**：白名单 · FSM 关卡 · run_mode · 4 个 watchdog（lowstate / 头摄 / RL-active / USB）· 姿态检查 · 参数裁剪 · 障碍距离场景检查 · 人体距离场景检查 · **规则 12 —— GPT-5.5-mini 视觉风险门**（抓帧 + 动作语句 → `SAFE: …` / `RISK: …`，只有后者才落到 y/N 提示）· E-stop。规格见 [`g1_brain/docs/g1_v1.md`](g1_brain/docs/g1_v1.md)。 |
 | 💾 **Codex 原生记忆子系统** | 每次 session 都把对话写成 Claude-harness 风格 JSONL 到 `g1_brain/logs/conversations/`。Phase 1 通过 `codex exec` 把每条 session 提炼成 `rollout_summary` + raw-memory bullets。Phase 2（去抖动 + git diff 触发）把它们汇总成 `MEMORY.md`（≤200 行）+ `memory_summary.md`（≤80 行），后者下一次 session 自动注入为开发者指令。**4 个新 recall 工具** —— `recall_grep` · `recall_read` · `recall_glob` · `ask_slow_brain` —— 让 LLM 实时回看历史。SQLite + Markdown，**不用任何 embedding / 向量库**。设计稿：[`docs/harness-design.md`](docs/harness-design.md)。 |
 | ⚡ **21 个 LLM 可调用技能** | 8 I/O（`say`, `describe_scene`, `query_scene_state`, `recall_history`, `look_at`, `approach`, `mock_imitate`, `ask_human`）+ 4 记忆/慢脑（`recall_grep`, `recall_read`, `recall_glob`, `ask_slow_brain`）+ 6 运动（`walk`, `turn`, `gesture`, `static_pose`, `stop`, `release_arms`）+ 3 仅真机（`loco_high`, `arm_action_high`, `audio_tts_robot`）。 |
@@ -1739,6 +1931,9 @@ If this repo helped you, **a ⭐ on GitHub is the cheapest way to say thanks.**
 | 🌟 **自研交付物** | **4**（`g1_sim_demo` · `g1_real_demo` · `va-demo` · `g1_brain`） |
 | 🎮 **G1 MuJoCo demo 脚本** | 仿真 **5** + 真机 **1** ≈ 2 700 行带注释控制环 |
 | 🧠 **`g1_brain` v1.1.0 的脑数** | **3**——快脑（Realtime 在线）+ 在线慢脑（codex daemon 按需）+ 离线慢脑（codex exec Phase 1+2 后台） |
+| 🛰️ **舰队指挥中心（`g1_brain/fleet`）** | **2** 套指挥官——Live Command Center（`:8787`，codex `gpt-5.5`）+ Distributed Coordinator（`:8090`，WebSocket 总线）——共享 `FleetPlan`/`Coordination`/`SubAgentOp` 契约 · **~6 200 行** |
+| 🤖 **同一 MuJoCo 世界里的机器人** | **2** 台 RL G1，经 `MjSpec.attach`（`nq=72 · nu=58 · nv=70`）——**50 Hz** 控制 / **200 Hz** 物理，PD 每个子步重算 · 无弹力带 RL 自平衡 · 4 个可替换运动后端（mock · mujoco · rl_shared · DDS） |
+| 🌡️ **舰队异常触发器** | **5** 条边沿触发——`battery_overheat` ≥70 °C · `motor_overheat` ≥80 °C · `low_soc` ≤0.15 · `fall`（`gz>−0.85`）· `stale/offline` → 自动休眠 + 任务重分配 |
 | 🛠️ **LLM 可调用技能（`g1_brain`）** | **21**——8 I/O + 4 记忆/慢脑 + 6 运动 + 3 仅真机 |
 | 🛡️ **安全规则（`g1_brain`）** | **12**——11 条静态规则 + 1 条 GPT-5.5-mini 视觉风险门（规则 12），见 [§ 安全监督器](#%EF%B8%8F-安全监督器--12-条规则) |
 | 💾 **记忆产物** | `MEMORY.md`（≤200 行）· `memory_summary.md`（≤80 行，下一 session 自动注入）· `raw_memories.md` · `rollout_summaries/*.md` · `state.sqlite`（WAL；sessions / stage1_outputs / jobs） |
@@ -1819,6 +2014,17 @@ unitree-notes/
 │   │                                   ├ schemas.py        · dataclass、AskResult、meta 类型
 │   │                                   └ prompts/          · phase1/phase2/default_agents_md
 │   ├── 🆕 g1_brain/tools/           ·  reset_memory.py CLI —— operator 级记忆恢复
+│   ├── g1_brain/phone/              ·  📞 Twilio Media Streams ⇄ PhoneRealtimeSession 电话桥
+│   ├── 🆕 g1_brain/fleet/           ·  🛰️ 多机器人指挥调度中心（~6 200 行，feature/multi-geo）
+│   │    ├ sim/                      ·  Live Command Center :8787 —— command_center · WorldSim /
+│   │    │                              SharedG1World（MjSpec.attach）· LiveExecutor · nav · 场景脚本
+│   │    ├ coordinator/              ·  Distributed Coordinator :8090 —— app · controller · anomaly /
+│   │    │                              dispatch · gateway · registry · lease · nl_position · codex_fleet_llm
+│   │    ├ agent/                    ·  每机 RobotAgent · AdmissionGate · LocalPlanner · ThermalModel /
+│   │    │                              运动后端 {mock · dds · mujoco · rl_shared}
+│   │    ├ bus/                      ·  FleetBus / CommandTransport —— loopback + WebSocket（ws_client/server）
+│   │    ├ contracts/               ·  pydantic-v2 契约（FleetPlan · CommandEnvelope · …）+ JSON-Schema 导出
+│   │    └ harness_core/             ·  只读的每机 core 门面 + 事件扇出
 │   ├── g1_brain/mock_imitation/     ·  用户手势 → MIRRORABLE 机器人手势（Phase 5）
 │   ├── g1_brain/apps/               ·  agent_main + perception/safety/skill/estop debug
 │   ├── configs/g1_brain.yaml        ·  唯一配置 —— v1.1.0 新增 memory · audio_control ·
@@ -2438,6 +2644,130 @@ python -m g1_brain.phone.call_me --dry-run          # 凭据自检，不拨
 
 ---
 
+#### 🛰️ `g1_brain/fleet/` — 多机器人舰队指挥调度中心
+
+> **旗舰级多机器人栈**（`git@github.com:SparkyWen/unitree-notes.git`，`feature/multi-geo` 分支）。在网页控制台里敲一句 *"两机都去集合点"* / *"g1_a 去红色柱子"* / *"中间会合，然后把巡逻交给 g1_b"*，就能看到**两台 RL 行走的 G1** 在**同一个 MuJoCo 世界**里实时协同——由一个 **codex 慢脑**规划，由**每机准入门**把关。舰队**复用**单机 `g1_brain` 那套快/慢脑 + MCP 机器，把它抬到舰队规模。`g1_brain/g1_brain/fleet/` 下 **6 200 行**。
+>
+> 📂 **先读：** 🆕 [`docs/multi-architecture.md`](docs/multi-architecture.md)（运行架构，全 Mermaid 图）· 🆕 [`docs/coordinator-design.md`](docs/coordinator-design.md)（分层自治设计的来龙去脉）· 🆕 [`docs/command-center-arena-how-to-use.md`](docs/command-center-arena-how-to-use.md)（障碍/地形 demo + 自然语言位置控制）。
+
+##### 🧭 两套架构，一套契约
+
+舰队里其实有**两个**指挥官，它们共享**同一套**规划数据契约（`FleetPlan` / `Coordination` / `SubAgentOp`）和**同一套**规划大脑（`FleetCommander` / `RobotSubAgent` / `RendezvousBarrier`），但运行形态完全不同：
+
+| | 🅰️ **Live Command Center**（你跑的那个 demo） | 🅱️ **Distributed Coordinator**（production-shaped 的兄弟） |
+|---|---|---|
+| **入口** | `python -m g1_brain.fleet.sim.command_center` | `python -m g1_brain.fleet.coordinator` |
+| **机器人在哪** | **同一进程、同一个 `MjModel`**——两台 G1 | 各自**独立进程**，经网络接入 |
+| **传输** | 无——直接内存调用（线程安全方法） | **WebSocket 总线**（`bus/ws_*`）或进程内 loopback |
+| **AI 大脑** | **codex**（`CodexFleetLLM`，gpt-5.5 / xhigh / `service_tier=fast`） | OpenAI（`OpenAIFleetLLM`，gpt-4o-mini）或纯确定性 |
+| **调度器** | `LiveExecutor`（抢占式单任务） | `DispatchEngine`（能力/健康匹配 + 异常重分配） |
+| **安全闸** | 无（信任内部规划 + nav 限幅） | 每机 `AdmissionGate`（TTL · 幂等 · FSM · 能力） |
+| **你看到的** | MuJoCo 3D 窗口 + 网页俯视图 @ **:8787** | HTML 仪表盘（实时 SVG 小人 + 事件流）@ **:8090** |
+| **物理** | RL 速度策略**自平衡**（无弹力带） | 弹力带悬挂的单机物理 / mock |
+
+> 🔑 **复用的故事（为什么它住在 `g1_brain` 里）。** Live Command Center 的"AI 指挥官"*就是*单机 `ask_slow_brain()` 用的同一个 MCP codex 慢脑——`CodexFleetLLM` 驱动一个只读 `codex` 进程，`reasoning_effort=xhigh` + `service_tier=fast`。而每台机器人的每机栈就是**快/慢脑分工的微缩版**：一个确定性、实时、对电机拥有最终权限的 **`AdmissionGate` + 反射（快脑）**，加一个 **`LocalPlanner`（慢脑接缝）**——它那个可选的 `explain_hook` *永远不在控制路径上*。统领原则（见 [`docs/coordinator-design.md`](docs/coordinator-design.md)）：**AI 负责规划、解释、重规划；确定性调度器负责验证与分配；机器人本地 harness 负责准入、执行、自我保护——MCP 只是工具/上下文通道，永远不能绕过安全门进入运动控制。**
+
+##### 🅰️ Live Command Center —— `sim/command_center.py`（端口 8787）
+
+一个启动器把四样东西焊在一起，让你"边看边指挥"：
+
+```mermaid
+flowchart LR
+    OP(["操作员"])
+    subgraph PROC["command_center · 单进程"]
+        direction TB
+        WEB["网页控制台<br/>aiohttp :8787<br/>俯视图 + 聊天 + 事件流"]
+        CODEX["codex 大脑<br/>CodexFleetLLM<br/>= 舰队指挥官"]
+        EXEC["LiveExecutor<br/>抢占式驱动"]
+        WORLD["WorldSim<br/>2× RL G1 @ 50 Hz"]
+        VIEW["MuJoCo 3D 被动查看器<br/>--viewer"]
+        WEB --> CODEX
+        WEB --> EXEC
+        EXEC --> WORLD
+        WORLD --> VIEW
+    end
+    OP -->|浏览器| WEB
+    OP -->|看机器人动| VIEW
+```
+
+一次操作员请求的流向：**浏览器 `POST /command`** → `plan_mission(nl, 世界快照)`（放到线程里跑，让 codex 长达数秒的 xhigh 推理永不阻塞事件循环）→ `LiveExecutor.submit(plan)` **抢占**任何在跑的任务 → `WorldSim` 实时驱动机器人 → 浏览器里的 2D 俯视图（`/world`，~8 Hz）+ 事件流（`/events`，1 Hz）实时刷新。
+
+- 🌍 **同一个 `MjModel` 里两台 RL G1。** `SharedG1World` 用 `MjSpec.attach` 建世界，给每个 body/关节/执行器加上 `g1_a/` · `g1_b/` 前缀命名空间（实测 `nq=72, nu=58, nv=70`；每台 29 个执行器）。无 DDS——每台机器人由一个**复用的 `ComboController`**（就是 `g1_sim_rl_combo.py` 里那个）驱动，它的 publish 被重定向进共享世界。
+- ⚙️ **共享世界*那个*坑** —— **PD 力矩在每个 200 Hz 物理子步都要重算，而不是每 50 Hz 控制 tick 算一次。** 控制 **50 Hz**（`dt=0.02`），物理 **200 Hz**（`timestep=0.005`）→ **每 tick 4 子步**，`ctrl = kp·(q_target−q) − kd·dq` 在*每个*子步都用新鲜的 `q/dq` 重新推导。只在 50 Hz 算 PD，力矩相对积分器就过时了 → Kp 振荡 → 机器人摔。
+- 🧭 **无弹力带自平衡。** 不同于单机仿真，共享世界**没有弹力带**——RL 速度策略自己把每台机器人撑直（boot ramp 缩短到 0.3 s）。`nav.py` 把目标 `(x,y)` 转成机体系 `[vx, vy, wz]`，**夹到策略训练过的范围**（`vx∈[-0.5,1.0]`、`vy∈[-0.5,0.5]`、`wz∈[-1.0,1.0]`），并叠加对障碍 + 同伴的反应式排斥力，让步态永不越出分布。
+- 🤖 **`LiveExecutor` = 抢占式单任务。** 它只持有*一个*当前 `Mission`；新的 `submit()` 把它换掉并自增一个 generation id——"最新操作员意图获胜"，不做任务杂耍。它按 ~20 Hz tick，op 动词有 `navigate · await_barrier · circle · face · arms_up · hold · patrol · idle · sleep · wake`，当机器人要靠拢时（`await_barrier`/`face`）自动关掉互相躲避。
+
+```bash
+# 完整体验：codex 大脑 + 3D 窗口 + 网页控制台 + demo 场景
+conda activate agi
+python -m g1_brain.fleet.sim.command_center --viewer --scene demo
+#   网页控制台 → http://127.0.0.1:8787/
+
+# 不依赖 LLM（位置控制完全离线可用）：
+python -m g1_brain.fleet.sim.command_center --viewer --no-codex
+# 单机：--solo    回到空地板：--scene bare    绑定/端口：--host --port
+```
+
+**CLI 参数：** `--viewer`（开 MuJoCo 3D 窗口；不加则 headless）· `--scene {bare,demo}`（demo = 道具 + 地形）· `--solo`（单机 `g1_a`）· `--no-codex`（仅确定性规划器）· `--model gpt-5.5` · `--reasoning xhigh` · `--host 127.0.0.1` · `--port 8787`。
+
+##### 🗣️ 自然语言舰队控制 —— 两级（LLM 是*兜底*，不是大门）
+
+路由器（`choreographer.plan_mission`）**先**试便宜的确定性解析器，只有真正难的动词才落到 codex/`FleetCommander`。位置类指令**完全不需要 LLM**——加 `--no-codex` 照样工作：
+
+| 你说（中 / 英皆可） | 级别 | 解析为 |
+|---|---|---|
+| `g1_a 走到 2,1` · `g1_a go to 2,1` | 🟢 确定性 `nl_position` | 绝对坐标 `navigate` |
+| `去红色柱子` · `go to the blue box` · `左上角` | 🟢 确定性 `nl_position` | 命名地标 `navigate`（11 个地标 + 中/英别名） |
+| `g1_a 前进 2米` · `g1_a back 1m` | 🟢 确定性 `nl_position` | 沿当前朝向相对移动 |
+| `两机都去集合点` · `all go to center` | 🟢 确定性 `nl_position` | 每台机器人 `navigate` |
+| `顺时针绕圈` · `面对面` · `抬双手` | 🟡 确定性编队器 | `circle` / `face` / `arms_up` op 链 |
+| `中间会合，然后把巡逻交给 g1_b` · `relay / rendezvous / patrol` | 🔴 codex / `FleetCommander` | `rendezvous`/`relay` 计划 + `RendezvousBarrier` |
+
+codex 指挥官输出**一个 JSON `FleetPlan`**（或更细的每机 `ops` 编队）；一个配平花括号扫描器（`extract_plan_json`）把它从 codex 的散文里抠出来，任何解析/校验失败都**回退到确定性规划器**，所以 demo 永不会被一次 LLM 抽风搞死。机器人 id 与交接目标在执行前都对**实时 registry** 做校验。
+
+##### 🅱️ Distributed Coordinator —— `coordinator/app.py`（端口 8090）
+
+production-shaped 的兄弟：每台机器人是一个 headless 的 **`RobotAgent`**，经 **WebSocket 总线**接入中央 coordinator，coordinator 跑一个 **1 Hz 异常驱动闭环**——*中心→电机的通路从不存在。*
+
+```
+   每机 RobotAgent（独立进程）                    Coordinator（单进程）
+   ├ HarnessCore（真机）/ SimRobotHarness（仿真）     ┌──────────────────────────────┐
+   ├ AdmissionGate  ← 对电机的最终权限                 │ FleetRegistry  （谁还活着）   │
+   ├ LocalPlanner   （能力 → Posture）               │ AnomalyDetector（策略层）     │
+   ├ MotionBackend  {mock|dds|mujoco|rl_shared}      │ DispatchEngine（LLM 提议，    │
+   └ ThermalModel   （合成电池/电机 °C）              │   引擎裁决：休眠 + 重分配）    │
+            ▲   │ 心跳 / 事件 / 感知                  │ CommandGateway（幂等、可审计、│
+            │   └────────────────────────────────────►   按 trace_id 可回放）        │
+            │            WebSocket 总线（bus/ws_*）    │ LeaseManager（时限授权）     │
+            └───────────── CommandEnvelope ◄──────────┤ FleetCommander（OpenAI/确定）│
+                          (TTL · 幂等 ·               └──────────────────────────────┘
+                           safety_envelope · lease)       仪表盘 @ :8090
+```
+
+- 🔁 **闭环**（`DispatchController.tick`，1 Hz）：`AnomalyDetector.scan(registry)` *只*读北向遥测 → 出现异常时，`DispatchEngine.handle_anomaly` 生成计划（例如**休眠过热机器人 + 把它的任务重分配**给 SOC 最高的健康候选）→ `CommandGateway.issue` 盖幂等键、记 `COMMAND_ISSUED`、下发 → 机器人 `AdmissionGate` 回 accept/refuse，记为 `COMMAND_ACCEPTED`/`REFUSED`。每条命令都按 `trace_id` 关联，经 `GET /replay/{trace_id}` **可回放**。
+- 🌡️ **异常先合成、再分类。** MuJoCo 不建模热量，于是 `ThermalModel` 从真实关节力矩（`tau_est`）推导每关节电机温度、电池温度、SOC。`AnomalyDetector` **边沿触发 + 滞回**：`battery_overheat` ≥ 70 °C、`motor_overheat` ≥ 80 °C、`low_soc` ≤ 0.15、`fall`（`gravity_proj_z > −0.85`）、`stale/offline`。仪表盘上的 **🔥 注入 75 °C** 按钮能强制一次确定性过热，让你完整看到 感知→异常→调度→复位 整个循环。
+- 🛡️ **`AdmissionGate` = 中心绕不过的边界。** 每条入站 `CommandEnvelope` 按顺序检查——TTL（`EXPIRED`）· 幂等（`DUPLICATE`）· 能力支持（`UNSUPPORTED_CAPABILITY`）· FSM 合法性（`FSM_FORBIDDEN`）· 落地（`PLAN_ERROR`）——只有被接受的命令才到 `LocalPlanner.apply → backend.set_posture`。它与单机 `SafetySupervisor` 共享同一个 `RobotFsm`，但把守*另一个*入口：网络边缘，而非本地工具调用。
+- 🔌 **一台机器人，四副身体。** `MotionBackend` 协议（`set_posture · step · read_lowstate`）有**四个**可互换实现——`MockBackend`（CI）、`MujocoBackend`（headless、进程内）、`RlSharedBackend`（共享 RL 世界）、`DdsMujocoBackend`（**真机 / 独立仿真，走 `rt/lowcmd`+`rt/lowstate`**）。无论哪个，`RobotAgent` 和 `LocalPlanner` 一字不差——这正是同一套代码从 CI mock → headless MuJoCo → 真 DDS 硬件一路通吃的原因。
+- 📜 **契约即线格式。** `fleet/contracts/models.py` 是 pydantic-v2，每个模型带 `schema_version` 字面量 + `payload_hash`（`CapabilityDescriptor`、`RobotStateMsg`、`CommandEnvelope`、`AdmissionDecision` …）；`json_schema_export.py` 把它们导成 CI 产物，且 `CapabilityDescriptor` 由**真实工具目录**派生，所以"对外宣称的能力"和"实际技能"不会漂移。
+
+```bash
+# Coordinator + 仪表盘
+conda activate agi
+python -m g1_brain.fleet.coordinator --host 0.0.0.0 --port 8090
+#   仪表盘 → http://localhost:8090   （每机 SVG 小人、休眠/唤醒/注入、/chat）
+
+# Tier-1 端到端（两台 RL G1、分层调度、会合 + 接力交接）：
+python -m g1_brain.fleet.sim.scenario_rendezvous --viewer
+#   无 OPENAI_API_KEY 也能确定性跑；设了 key 就把规划走 LLM
+
+# Tier-2 异常调度（电池过热 → 安全休眠 → 任务重分配）：
+python -m g1_brain.fleet.sim.scenario_two_g1 --inject-after 6
+```
+
+> 🧪 **有测试。** 舰队有自己的 pytest 子树（`g1_brain/tests/fleet/` —— `pytest tests/fleet -k rendezvous`），覆盖总线（loopback + WS）、准入门、异常/调度闭环、租约、barrier、契约往返，以及确定性 NL 解析器。
+
+---
+
 ### 🧰 技能目录（`g1_brain`）
 
 > 暴露给快脑的 **23 个 OpenAI 工具 schema**（仿真 18 + 仅真机 3 + 电话桥 2）。权威源：[`g1_brain/g1_brain/skills/tool_schemas.py`](g1_brain/g1_brain/skills/tool_schemas.py)。每条 schema 在到达 `SkillServer` 之前都要先过 [§ 安全监督器](#%EF%B8%8F-安全监督器--12-条规则) 的 **12 条规则**。`--vision-only` 模式会裁到 8 个无动作 + 无 DDS 工具（4 I/O + 4 记忆）。
@@ -2739,6 +3069,47 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # 删整个 r
 
 > 📐 7 层参考见 [`g1_brain/docs/structure.md`](g1_brain/docs/structure.md)；逐行实现审计（带 file:line 引用）见 [`g1_brain/docs/v1_1_0_runtime.md`](g1_brain/docs/v1_1_0_runtime.md)。
 
+#### `g1_brain/fleet/` —— 双指挥官进程模型
+
+```
+            ┌───────────────────────────────────────────────────────────────┐
+            │  共享规划契约 + 大脑（两边都复用）                              │
+            │  FleetPlan · Coordination · SubAgentOp   （pydantic 契约）      │
+            │  FleetCommander · RobotSubAgent · RendezvousBarrier            │
+            └───────────────────────────────────────────────────────────────┘
+                  ▲                                            ▲
+                  │ 复用                                       │ 复用
+   ┌──────────────┴───────────────────┐        ┌──────────────┴────────────────────────┐
+   │ 🅰️ LIVE COMMAND CENTER  (:8787)  │        │ 🅱️ DISTRIBUTED COORDINATOR  (:8090)   │
+   │  sim/command_center.py           │        │  coordinator/app.py                    │
+   │                                  │        │                                        │
+   │  网页控制台（aiohttp，轮询）     │        │  仪表盘（SVG 小人、/chat）             │
+   │     │ POST /command              │        │     │ 1 Hz tick                        │
+   │     ▼                            │        │     ▼                                  │
+   │  codex 大脑  ─────────────────┐  │        │  AnomalyDetector（边沿+滞回）          │
+   │  CodexFleetLLM gpt-5.5/xhigh  │  │        │     │  电池≥70°C 电机≥80°C 摔倒        │
+   │  /fast（= MCP 慢脑）          │  │        │     ▼                                  │
+   │     │ FleetPlan / ops         │  │        │  DispatchEngine（LLM 提议，            │
+   │     ▼                         │  │        │   引擎裁决：休眠 + 重分配）            │
+   │  LiveExecutor（抢占式）       │  │        │     │                                  │
+   │     │ navigate/circle/face/   │  │        │     ▼                                  │
+   │     │ arms_up/await_barrier   │  │        │  CommandGateway（幂等 · 可审计         │
+   │     ▼                         │  │        │   · trace_id 可回放）                  │
+   │  WorldSim 50 Hz 控制 ─────────┘  │        │     │ CommandEnvelope（TTL · 租约 ·    │
+   │  SharedG1World 200 Hz 子步 PD    │        │     ▼  safety_envelope）               │
+   │  2× 复用 ComboController         │        │  ═════ WebSocket 总线（bus/ws_*）═════ │
+   │  RL 自平衡，无 DDS               │        │     ▼                                  │
+   │     │                            │        │  每机 RobotAgent                       │
+   │     ▼                            │        │   AdmissionGate（最终权限）→           │
+   │  MuJoCo 3D 查看器（--viewer）    │        │   LocalPlanner → MotionBackend         │
+   │                                  │        │   {mock|mujoco|rl_shared|dds}          │
+   └──────────────────────────────────┘        └────────────────────────────────────────┘
+     进程内 · 无安全门                            联网 · 每机门 · sim↔real
+     （信任规划 + nav 限幅）                       （中心→电机通路从不存在）
+```
+
+> 📐 运行架构（每一层，全 Mermaid 图）见 [`docs/multi-architecture.md`](docs/multi-architecture.md)；分层自治设计的来龙去脉（AI Coordinator / Swarm / Remote Bridge / 每机 harness，以及 MCP 被允许出现在哪里）见 [`docs/coordinator-design.md`](docs/coordinator-design.md)。
+
 ---
 
 ### 🔌 DDS Topic 与关节速查
@@ -2874,6 +3245,14 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # 删整个 r
 | 🆕 [`docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md`](docs/superpowers/specs/2026-05-24-twilio-realtime-phone-bridge-design.md) | 已批准设计 spec（brainstorming 产物）。 |
 | 🆕 [`docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md`](docs/superpowers/plans/2026-05-24-twilio-phone-bridge.md) | TDD 实施计划 —— 23 个任务、7 个 phase，每步都有完整代码块。 |
 
+#### 🛰️ 舰队 / 多机器人指挥调度中心（**新增，`feature/multi-geo` 分支**）
+
+| 文档 | 内容 |
+|---|---|
+| 🆕 [`docs/multi-architecture.md`](docs/multi-architecture.md) | **运行架构（全 Mermaid 图）。** §0 先把两个指挥官分清楚；§1–§9 端到端走 Live Command Center（浏览器 → codex 规划 → 抢占式 `LiveExecutor` → 50 Hz 物理）；§10 讲 Distributed Coordinator 控制面；§11 讲二者如何共享契约。 |
+| 🆕 [`docs/coordinator-design.md`](docs/coordinator-design.md) | **分层自治设计的来龙去脉** —— AI Coordinator / Swarm / Remote Bridge / 每机 harness；谁可以用 AI、谁可以碰电机；MCP 被允许出现在哪里（仅工具/上下文，永不绕过安全门）；LLM-多机器人研究提炼（SMART-LLM、能力匹配、任务分配）。 |
+| 🆕 [`docs/command-center-arena-how-to-use.md`](docs/command-center-arena-how-to-use.md) | 操作员快速上手 —— 启动参数、障碍/地形 demo 场地、以及完整的自然语言位置控制词表（坐标 / 地标 / 相对 / "两机都" / 编队），全部加 `--no-codex` 即可离线使用。 |
+
 #### 📡 上游深度笔记
 
 | 文档 | 内容 |
@@ -2954,6 +3333,7 @@ python -m g1_brain.tools.reset_memory --nuke --confirm --confirm   # 删整个 r
 - `va-demo/` —— 唤醒词门控的 Realtime 语音 + 视觉智能体（4 种运行模式）—— Hi-Sparky 任意状态可 barge-in、AEC 清洁 RMS 门、per-process JSONL transcript。
 - `g1_brain/` **v1.1.0** —— 三脑智能体：**12 条规则** supervisor（含 GPT-5.5-mini 视觉风险门）· 7 状态 FSM · 独立 E-stop · ComboController 子进程隔离（Phase 8）· **21 个 LLM 工具** · MuJoCo 头摄感知 · `mock_imitate`（Phase 5，可选）。
 - 🆕 **记忆子系统** —— Codex 原生（codex daemon + Phase 1 + Phase 2 worker）· SQLite + Markdown（无 embedding）· `recall_grep/read/glob` + `ask_slow_brain` 工具 · session 摘要自动注入 · `tools/reset_memory.py` CLI · 9 个专门测试文件。
+- 🆕 **舰队指挥调度中心**（`g1_brain/fleet/`，`feature/multi-geo` 分支）—— **Live Command Center**（同一 MuJoCo 世界两台 RL G1、codex `gpt-5.5` 大脑、抢占式 `LiveExecutor`、网页控制台 @ :8787、离线 NL 位置控制）+ **Distributed Coordinator**（每机 `RobotAgent` 经 WebSocket 总线、1 Hz 异常驱动闭环、每机 `AdmissionGate`、仪表盘 @ :8090）· 共享 `FleetPlan` 契约 · 4 个可替换运动后端（mock · mujoco · rl_shared · DDS）· `pytest tests/fleet`。
 - `requirements.txt` —— `agi` env 的逐字冻结，`python=3.11` + `pip install -r requirements.txt` 一键复现。
 
 #### 🚧 进行中 / 打磨中

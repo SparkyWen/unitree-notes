@@ -13,9 +13,12 @@ Does NOT own:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
 import logging
 import os
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -104,6 +107,91 @@ def atomic_write(path: Path, content: str) -> None:
                 pass
 
 
+def host_codex_home() -> Path:
+    """The codex home the operator's own `codex login` keeps fresh.
+
+    Honours an explicit ``$CODEX_HOME`` (rare) and otherwise defaults to
+    ``~/.codex`` — the dir the codex CLI reads/writes during normal use.
+    """
+    env = os.environ.get("CODEX_HOME")
+    return Path(env).expanduser().resolve() if env else (Path.home() / ".codex")
+
+
+def codex_access_token_expiry(auth_path: Path) -> Optional[float]:
+    """Epoch-seconds expiry of the ChatGPT access_token in a codex auth.json.
+
+    Returns None when the file is missing/unreadable or carries no decodable
+    ``exp`` claim (e.g. API-key auth). Best-effort: never raises.
+    """
+    try:
+        data = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    tok = (data.get("tokens") or {}).get("access_token") if isinstance(data, dict) else None
+    if not isinstance(tok, str) or tok.count(".") != 2:
+        return None
+    try:
+        payload = tok.split(".")[1]
+        payload += "=" * (-len(payload) % 4)  # restore base64 padding
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        exp = claims.get("exp")
+        return float(exp) if exp is not None else None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def sync_codex_auth(host_auth: Path, runtime_auth: Path, *, skew_s: float = 86400.0) -> str:
+    """Copy a fresh host codex auth.json into an isolated CODEX_HOME.
+
+    g1_brain runs codex with ``CODEX_HOME`` pointed at ``.codex_runtime`` so its
+    memory sessions/config stay isolated from the operator's ``~/.codex``. The
+    side effect is that ``.codex_runtime/auth.json`` is NEVER refreshed by
+    ``codex login`` — its access_token expires (~10-day life) and, once the
+    operator re-logs ``~/.codex``, its refresh_token is server-invalidated
+    ("refresh token was already used"), so every slow-brain call 401s forever
+    even though the operator IS logged in. We self-heal at startup by copying
+    the live host token in whenever the runtime copy is missing, expired, or
+    within ``skew_s`` of expiry (so it can't lapse mid-session).
+
+    Only copies when the host token itself is valid, so we never overwrite a
+    good runtime token with a worse one. Returns a short status string for
+    logging; never raises.
+    """
+    try:
+        if host_auth.resolve() == runtime_auth.resolve():
+            return "noop_same_path"
+    except OSError:
+        pass
+    if not host_auth.is_file():
+        return "noop_no_host_auth"
+
+    now = time.time()
+    host_exp = codex_access_token_expiry(host_auth)
+    if host_exp is not None and host_exp <= now:
+        # The operator's own login is stale too — copying it would not help.
+        return "noop_host_expired"
+
+    runtime_exp = codex_access_token_expiry(runtime_auth)
+    runtime_ok = (
+        runtime_auth.is_file()
+        and runtime_exp is not None
+        and runtime_exp > now + skew_s
+    )
+    if runtime_ok:
+        return "noop_runtime_fresh"
+
+    try:
+        runtime_auth.parent.mkdir(parents=True, exist_ok=True)
+        tmp = runtime_auth.with_suffix(runtime_auth.suffix + f".tmp.{os.getpid()}")
+        shutil.copyfile(host_auth, tmp)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, runtime_auth)
+        return "synced"
+    except OSError as e:
+        log.warning("codex auth sync failed (%s -> %s): %s", host_auth, runtime_auth, e)
+        return "error"
+
+
 class StorageLayer:
     """Owns paths, DB connection, and basic CRUD.
 
@@ -127,6 +215,7 @@ class StorageLayer:
         self.memories_dir.mkdir(parents=True, exist_ok=True)
         self.rollout_summaries_dir.mkdir(parents=True, exist_ok=True)
         self.codex_runtime_dir.mkdir(parents=True, exist_ok=True)
+        self.sync_codex_auth()
 
         self._open_db()
         self._migrate()
@@ -134,6 +223,28 @@ class StorageLayer:
         self._init_git_baseline_if_missing()
         self._write_memory_enabled_marker_if_missing()
         self._write_default_agents_md_if_missing()
+
+    def sync_codex_auth(self) -> str:
+        """Refresh the isolated codex home's auth from the operator's ~/.codex.
+
+        Keeps ask_slow_brain / phase1 / phase2 working without a manual
+        ``cp ~/.codex/auth.json .codex_runtime/`` after each ``codex login``.
+        See module-level ``sync_codex_auth`` for the full rationale.
+        """
+        status = sync_codex_auth(
+            host_codex_home() / "auth.json",
+            self.codex_runtime_dir / "auth.json",
+        )
+        if status == "synced":
+            log.info("codex auth synced into %s from host login", self.codex_runtime_dir)
+        elif status in ("noop_no_host_auth", "noop_host_expired"):
+            log.warning(
+                "codex auth NOT synced (%s) — slow brain may 401; run `codex login`",
+                status,
+            )
+        else:
+            log.debug("codex auth sync: %s", status)
+        return status
 
     def close(self) -> None:
         if self._conn is not None:

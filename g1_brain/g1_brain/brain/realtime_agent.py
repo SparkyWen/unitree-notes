@@ -45,6 +45,7 @@ from .prompts import (
     PHONE_DIAL_GUIDANCE,
     REALTIME_SYSTEM_PROMPT_BRAIN,
     REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY,
+    language_directive,
 )
 
 log = logging.getLogger(__name__)
@@ -115,6 +116,11 @@ class BrainRealtimeAgent(RealtimeAgent):
     # wiring when --enable-phone is on (or cfg.phone.enabled=true) so the
     # local Realtime model can dial out via Twilio.
     phone_enabled: bool = False
+    # ISO-639-1 reply-language lock (default English). The Realtime model
+    # otherwise mirrors whatever language it (mis)hears (Korean/Chinese drift);
+    # we append a hard language_directive() to the instructions so every reply
+    # stays in this language. Configurable via openai.language in the YAML.
+    response_language: str = "en"
 
     # ---- new hooks consumed by ConversationStateMachine + Logger ----
     # Each is invoked from the asyncio loop thread (we are already inside the
@@ -348,8 +354,10 @@ class BrainRealtimeAgent(RealtimeAgent):
         if self.phone_enabled and not self.vision_only:
             base = base + "\n\n" + PHONE_DIAL_GUIDANCE
         if self._instructions_addendum:
-            return base + "\n\n" + self._instructions_addendum
-        return base
+            base = base + "\n\n" + self._instructions_addendum
+        # Append the language lock LAST so its recency overrides any persona /
+        # memory-addendum text that might otherwise invite a language switch.
+        return base + "\n\n" + language_directive(self.response_language)
 
     def _resolve_tool_schemas(self) -> List[Dict[str, Any]]:
         # Lazy import so `g1_brain.brain` can be imported in tests that don't

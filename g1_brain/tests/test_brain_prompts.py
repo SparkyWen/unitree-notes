@@ -125,8 +125,15 @@ def test_brain_realtime_agent_uses_vision_only_prompt_when_flagged(monkeypatch):
     importlib.reload(ra_mod)
 
     # Bypass the dataclass-on-stub mismatch by constructing manually.
+    # _resolve_instructions now appends a hard language directive LAST; assert
+    # the persona body is selected by vision_only and the lock is appended.
+    en_lock = ra_mod.language_directive("en").rstrip()
     agent = ra_mod.BrainRealtimeAgent.__new__(ra_mod.BrainRealtimeAgent)
     agent.vision_only = True
-    assert agent._resolve_instructions() == REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY
+    vis = agent._resolve_instructions()
+    assert vis.startswith(REALTIME_SYSTEM_PROMPT_BRAIN_VISION_ONLY)
+    assert vis.rstrip().endswith(en_lock)
     agent.vision_only = False
-    assert agent._resolve_instructions() == REALTIME_SYSTEM_PROMPT_BRAIN
+    full = agent._resolve_instructions()
+    assert full.startswith(REALTIME_SYSTEM_PROMPT_BRAIN)
+    assert full.rstrip().endswith(en_lock)

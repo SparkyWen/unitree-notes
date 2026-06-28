@@ -153,6 +153,11 @@ class RealtimeAgent:
     on_response_audio_delta: Optional[Callable[[], None]] = None
     on_response_done: Optional[Callable[[], None]] = None
     vision_only: bool = False
+    # Optional ISO-639-1 hint for the input-audio transcription model. None
+    # (default) lets Whisper auto-detect — which produces foreign-language
+    # transcripts on accented/short audio and feeds reply-language drift.
+    # g1_brain passes "en" to anchor transcripts (and thus replies) to English.
+    transcribe_language: Optional[str] = None
 
     def __post_init__(self):
         self._uplink_enabled = asyncio.Event()
@@ -202,6 +207,17 @@ class RealtimeAgent:
     def _resolve_tool_schemas(self) -> List[Dict[str, Any]]:
         return _build_tool_schemas(vision_only=self.vision_only)
 
+    def _transcription_cfg(self) -> Dict[str, Any]:
+        """Input-audio transcription config; pin language when configured.
+
+        Shared by this class and PhoneRealtimeSession so the ``language`` hint
+        is applied consistently across both session shapes.
+        """
+        cfg: Dict[str, Any] = {"model": "gpt-4o-mini-transcribe"}
+        if self.transcribe_language:
+            cfg["language"] = self.transcribe_language
+        return cfg
+
     async def _session_update(self, ws):
         # GA shape (gpt-realtime). The beta shape — top-level voice /
         # input_audio_format / output_audio_format / input_audio_transcription /
@@ -218,7 +234,7 @@ class RealtimeAgent:
                 "audio": {
                     "input": {
                         "format": {"type": "audio/pcm", "rate": 24000},
-                        "transcription": {"model": "gpt-4o-mini-transcribe"},
+                        "transcription": self._transcription_cfg(),
                         "turn_detection": None,
                     },
                     "output": {

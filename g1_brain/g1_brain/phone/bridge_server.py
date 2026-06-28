@@ -186,6 +186,10 @@ def _build_phone_session(
         transport=transport,
         dialer=dialer,
         call_sid=call_sid,
+        # Lock the call to one language (English by default) — both the reply
+        # directive and the input-transcription hint — so it can't drift.
+        response_language=phone_cfg.language,
+        transcribe_language=phone_cfg.language,
         # Defense in depth: phone-side model must not be able to place a
         # recursive outbound call. The _resolve_tool_schemas filter in
         # PhoneRealtimeSession also removes start_phone_call from the list,

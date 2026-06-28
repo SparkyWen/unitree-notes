@@ -449,10 +449,20 @@ memory:
   # Drop stage1 outputs unused for this long when picking Phase2 inputs.
   phase2_max_unused_days: 30
 
-  # Resource contention: when true, Phase1/Phase2 will NOT start new codex work
-  # while a conversation turn is active (state != IDLE). An in-flight job still
-  # finishes; nothing new starts until the operator is idle. Stops codex from
-  # stealing the GIL/CPU from audio/VAD/wake mid-conversation.
+  # Process ALL memory at shutdown, nothing mid-session. When true the Phase1
+  # polling loop and the historical backfill are never started and on_plan_done
+  # does not enqueue — so there is zero codex churn (no GIL/CPU contention, no
+  # distracting `phase2: ...` log spam) while you are running. The current
+  # session's extraction + consolidation runs once, at shutdown, in stop().
+  # Historical backlog from other sessions is NOT processed in-process under
+  # this mode. Set false to restore the old incremental (between-turns)
+  # behaviour. (The ask_slow_brain daemon is on-demand and unaffected.)
+  defer_until_shutdown: true
+  # Resource contention (only consulted when defer_until_shutdown is false):
+  # when true, Phase1/Phase2 will NOT start new codex work while a conversation
+  # turn is active (state != IDLE). An in-flight job still finishes; nothing new
+  # starts until the operator is idle. Stops codex from stealing the GIL/CPU
+  # from audio/VAD/wake mid-conversation.
   defer_when_conversation_active: true
   # Historical backfill is deferred off the synchronous startup path and waits
   # this long before enqueueing. It must clear the whole boot-warmup window:

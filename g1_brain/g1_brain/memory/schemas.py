@@ -121,6 +121,18 @@ class MemoryConfig:
     # while a turn is in progress (state != IDLE) — an in-flight job still
     # finishes, but nothing new starts until the operator is idle again.
     defer_when_conversation_active: bool = True
+    # Stronger than defer_when_conversation_active: when True, NO Phase1/Phase2/
+    # backfill processing runs mid-session at all. The Phase1 polling loop and
+    # the historical backfill are never started, and on_plan_done does not
+    # enqueue. The full extraction+consolidation for the CURRENT session runs
+    # once, at shutdown, in stop(). The operator asked for this because the
+    # mid-session codex churn (GIL/CPU) is distracting and starves audio/VAD —
+    # they want it "all handled at once at the end". Historical backlog (other
+    # sessions' JSONL) is intentionally NOT processed in-process under this
+    # mode; it is picked up by a future run that has it off, or via a manual
+    # pass. The ask_slow_brain daemon is unaffected (it is on-demand, not
+    # background processing).
+    defer_until_shutdown: bool = True
     # Historical backfill only enqueues Phase1 jobs, but we still keep it off
     # the synchronous start() path and let startup settle first so it can't
     # pile onto the perception-model-load stall at boot. The window the worker

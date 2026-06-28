@@ -218,7 +218,10 @@ async def test_on_plan_done_enqueues_phase1(tmp_path: Path) -> None:
 
     mem = MemorySubsystem(
         robot_root=robot_root, rollout_path=rollout,
-        session_id="abc", cfg={"phase1_debounce_s": 0},
+        # This test exercises the incremental (mid-session) enqueue path, so
+        # opt OUT of the shutdown-only default.
+        session_id="abc", cfg={"phase1_debounce_s": 0,
+                               "defer_until_shutdown": False},
         conversations_dir=rollout.parent,
     )
     # Don't actually run codex
@@ -235,6 +238,82 @@ async def test_on_plan_done_enqueues_phase1(tmp_path: Path) -> None:
         assert status in ("pending", "leased", "done")
     finally:
         await mem.stop()
+
+
+@pytest.mark.asyncio
+async def test_defer_until_shutdown_no_midsession_work(tmp_path: Path) -> None:
+    """With defer_until_shutdown (the default), start() must NOT spin up the
+    Phase1 loop or the backfill task, and on_plan_done must NOT enqueue —
+    nothing heavy runs mid-session."""
+    robot_root = tmp_path / "robot"
+    rollout = tmp_path / "logs" / "d.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text('{"uuid":"1","session_id":"defe","turn_id":"t-0001","timestamp":"T","type":"user","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}\n')
+
+    mem = MemorySubsystem(
+        robot_root=robot_root, rollout_path=rollout,
+        session_id="defe", cfg={"phase1_debounce_s": 0},  # defer_until_shutdown defaults True
+        conversations_dir=rollout.parent,
+    )
+    mem.daemon._bin = "/does/not/exist/codex"  # keep daemon from spawning real codex
+
+    await mem.start()
+    try:
+        # Phase1 polling loop never started, backfill never scheduled.
+        assert mem.phase1._task is None
+        assert mem._backfill_task is None
+
+        # on_plan_done is a no-op: no job enqueued (status_of returns None).
+        await mem.on_plan_done()
+        assert mem.jobs.status_of(JOB_KIND_PHASE1, "defe") is None
+    finally:
+        await mem.stop()
+
+
+@pytest.mark.asyncio
+async def test_defer_until_shutdown_flushes_current_session_on_stop(tmp_path: Path) -> None:
+    """Deferred mode must still extract + consolidate the CURRENT session once,
+    at shutdown, via stop()."""
+    robot_root = tmp_path / "robot"
+    rollout = tmp_path / "logs" / "sess-beadfeed.jsonl"
+    _write_jsonl(rollout, [
+        {"uuid": "1", "session_id": "beadfeed", "turn_id": "t-0001",
+         "timestamp": "T", "type": "user",
+         "message": {"role": "user",
+                     "content": [{"type": "text", "text": "remember the toolbox"}]}},
+    ])
+    phase1_response = json.dumps({
+        "raw_memory": "- toolbox is under the bench",
+        "rollout_summary": "Toolbox location.",
+        "rollout_slug": "toolbox",
+    })
+    phase2_response = json.dumps({
+        "memory_md": "# Memory\n\n- toolbox under the bench",
+        "memory_summary_md": "Toolbox under bench.",
+    })
+
+    mem = MemorySubsystem(
+        robot_root=robot_root, rollout_path=rollout,
+        session_id="beadfeed", cfg={"phase1_debounce_s": 0},
+        conversations_dir=rollout.parent,
+    )
+    scripted = _ScriptedCodex(phase1=phase1_response, phase2=phase2_response)
+    mem.codex_exec = scripted
+    mem.phase1._codex = scripted
+    mem.phase2._codex = scripted
+
+    await mem.start()
+    # No mid-session processing happened.
+    assert scripted.phase1_calls == 0
+    assert scripted.phase2_calls == 0
+
+    # Shutdown drives exactly one current-session pass.
+    await mem.stop()
+    assert scripted.phase1_calls >= 1
+    assert scripted.phase2_calls >= 1
+    memory_md = robot_root / "memories" / "MEMORY.md"
+    assert memory_md.exists()
+    assert "toolbox" in memory_md.read_text().lower()
 
 
 @pytest.mark.asyncio

@@ -165,22 +165,35 @@ class MemorySubsystem:
         except Exception:  # noqa: BLE001
             log.exception("upsert_session failed; memory will run degraded")
 
-        # Phase1 worker
-        try:
-            await self.phase1.start()
-        except Exception:  # noqa: BLE001
-            log.exception("phase1 worker start failed")
+        if self.cfg.defer_until_shutdown:
+            # Operator opted for "process everything at the end": do NOT start
+            # the Phase1 polling loop and do NOT schedule the historical
+            # backfill. Nothing heavy runs mid-session; the current session is
+            # extracted+consolidated once in stop(). on_plan_done is a no-op
+            # under this mode (see below). The ask_slow_brain daemon still
+            # starts (it is on-demand, not background churn).
+            log.info(
+                "memory: defer_until_shutdown=True — Phase1/Phase2/backfill "
+                "will NOT run mid-session; the current session is processed "
+                "once at shutdown"
+            )
+        else:
+            # Phase1 worker
+            try:
+                await self.phase1.start()
+            except Exception:  # noqa: BLE001
+                log.exception("phase1 worker start failed")
 
-        # Backfill: any historical JSONL in conversations_dir that isn't
-        # already represented in sessions/stage1_outputs gets queued for
-        # Phase1 so future recalls can hit summaries, not just raw grep.
-        # Deferred OFF the synchronous start() path: it only enqueues jobs (the
-        # heavy Phase1 processing is gated by the busy_gate), and running it at
-        # boot piled onto the perception-model-load GIL stall.
-        try:
-            self._backfill_task = asyncio.create_task(self._deferred_backfill())
-        except Exception:  # noqa: BLE001
-            log.exception("historical backfill scheduling failed (non-fatal)")
+            # Backfill: any historical JSONL in conversations_dir that isn't
+            # already represented in sessions/stage1_outputs gets queued for
+            # Phase1 so future recalls can hit summaries, not just raw grep.
+            # Deferred OFF the synchronous start() path: it only enqueues jobs
+            # (the heavy Phase1 processing is gated by the busy_gate), and
+            # running it at boot piled onto the perception-model-load GIL stall.
+            try:
+                self._backfill_task = asyncio.create_task(self._deferred_backfill())
+            except Exception:  # noqa: BLE001
+                log.exception("historical backfill scheduling failed (non-fatal)")
 
         # Daemon starts in background; failures are non-fatal
         try:
@@ -242,9 +255,14 @@ class MemorySubsystem:
         except Exception:  # noqa: BLE001
             log.exception("phase1 force-run on shutdown failed")
         try:
-            await self.phase2.trigger_after_phase1(self.session_id)
+            # Force a consolidation pass, bypassing the busy-gate. The state
+            # machine's .state may not read IDLE at this point in shutdown
+            # (sm.stop runs just before memory.stop), so trigger_after_phase1
+            # would log "conversation active; deferring" and SKIP the final
+            # consolidation entirely. run_once_now is the un-gated path.
+            await self.phase2.run_once_now()
         except Exception:  # noqa: BLE001
-            log.exception("phase2 final trigger failed")
+            log.exception("phase2 final consolidation on shutdown failed")
         try:
             await self.phase1.stop()
         except Exception:  # noqa: BLE001
@@ -274,6 +292,10 @@ class MemorySubsystem:
         Schedules Phase1 for the current session with debounce.
         """
         if not self._started or self._stopping:
+            return
+        if self.cfg.defer_until_shutdown:
+            # All Phase1/Phase2 work is deferred to stop(); enqueuing here would
+            # just pile up jobs nothing drains until shutdown. No-op.
             return
         debounce_until = now_ms() + int(self.cfg.phase1_debounce_s * 1000)
         try:

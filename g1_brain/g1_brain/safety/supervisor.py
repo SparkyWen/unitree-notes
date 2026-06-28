@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import threading
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Set, Tuple
 
@@ -108,78 +109,68 @@ def _clip(v: float, lo: float, hi: float) -> float:
     return v
 
 
-async def _confirm_in_terminal(
-    tool: str,
-    sanitized: Dict[str, Any],
-    risk_reason: Optional[str] = None,
-) -> bool:
-    """Single-keypress y/N confirm prompt.
+# Operator decision budget for the y/N confirm prompt. MUST stay below
+# ``audio_control.plan_watchdog_s`` (default 30 s): if the confirm outlives
+# the plan watchdog, the plan drains to IDLE while the prompt's stdin reader
+# is still blocked — and the next turn's Enter-to-commit watcher then collides
+# with that orphaned reader (the "I pressed Enter but it's stuck" bug). The
+# vision-risk latency is already spent BEFORE this prompt is printed, so this
+# budget only needs to cover the human decision, not the GPT round-trip.
+CONFIRM_TIMEOUT_S = 20.0
 
-    Earlier versions used readline() in canonical (line-buffered) mode and
-    asked the operator to type ``y`` + Enter. Two real-world failures
-    forced the rewrite to single-keypress cbreak mode:
 
-      1. Stale arrow keys queued in stdin's line buffer would be returned
-         by the next readline() instead of the operator's ``y``: the line
-         ``"\\x1b[C\\n"`` strips/lowers to ``"\\x1b[c"``, which is not in
-         the accepted set, and the call was silently declined while the
-         operator's ``y`` queued for a never-coming next prompt. We used
-         to mitigate with tcflush before readline; cbreak mode avoids the
-         line buffer entirely.
-      2. Operators typed ``y`` but forgot Enter (the prompt does not
-         visually advertise that line-mode requires it). The 10 s timeout
-         then fired with the user's ``y`` still sitting unconfirmed —
-         "operator declined in confirm mode" with no way to recover.
+def _read_one_keypress(should_stop: "threading.Event") -> str:
+    """Read a single keypress (cbreak) or one line (fallback). Cancellable.
 
-    Timeout was bumped from 15 s -> 60 s after a vision_gate=RISK call
-    used up ~14 s of vision latency, leaving the operator under one
-    second to read the printed ``[RISK]`` reason and decide before the
-    prompt declined itself. The timeout must also stay below
-    ``audio_control.plan_watchdog_s`` so the conversation state machine
-    does not force plan_done while the operator is still deciding.
+    Runs in a worker thread. The blocking read is broken into short
+    ``select`` waits so the caller can cancel it via ``should_stop`` — a
+    plain blocking ``sys.stdin.read(1)`` here used to ORPHAN the thread on
+    timeout, which (1) left the TTY in cbreak mode and stole the operator's
+    next Enter (the "pressed Enter but it's stuck" report), and (2) as a
+    non-daemon thread blocked on read, wedged process exit so Ctrl-C did
+    nothing. Polling ``should_stop`` guarantees we always reach the
+    ``finally`` that restores the original TTY state and that the thread
+    terminates promptly once the confirm coroutine is done.
 
-    cbreak mode delivers each keypress as soon as it arrives, so ``y``
-    accepts immediately, ``n`` (and any other key) declines immediately,
-    and there is no readline-versus-stale-bytes race. We still strip
-    leading escape sequences (arrow keys = ESC + ``[`` + final byte) so a
-    stray right-arrow before the actual ``y`` does not get treated as a
-    decline. Falls back to line mode + readline if termios/tty are not
-    importable (piped stdin, Windows, CI).
+    Falls back to line mode + readline if termios/tty are not importable or
+    stdin is not a real TTY (piped stdin, Windows, CI).
     """
-    header = f"\n[g1_brain confirm] execute {tool}({sanitized}) ?\n"
-    if risk_reason:
-        header += f"[RISK] {risk_reason}\n"
-    msg = header + "press y to accept, any other key to decline: "
-    print(msg, end="", flush=True, file=sys.stderr)
+    try:
+        import termios  # noqa: WPS433 — POSIX-only
+        import tty       # noqa: WPS433 — POSIX-only
+    except (ImportError, OSError, AttributeError, ValueError):
+        return sys.stdin.readline()
 
-    def _read_one_keypress() -> str:
-        # Try cbreak (per-keypress) mode. If we cannot enter cbreak (not a
-        # TTY, no termios/tty modules), fall through to legacy line mode.
-        try:
-            import termios  # noqa: WPS433 — POSIX-only
-            import tty       # noqa: WPS433 — POSIX-only
-        except (ImportError, OSError, AttributeError, ValueError):
-            return sys.stdin.readline()
+    try:
+        fd = sys.stdin.fileno()
+        old_attr = termios.tcgetattr(fd)
+    except (OSError, AttributeError, ValueError, termios.error):
+        # stdin is not a real TTY (piped input, sub-process). Read a line
+        # and let the caller's strip+lower logic handle it.
+        return sys.stdin.readline()
 
-        try:
-            fd = sys.stdin.fileno()
-            old_attr = termios.tcgetattr(fd)
-        except (OSError, AttributeError, ValueError, termios.error):
-            # stdin is not a real TTY (piped input, sub-process). Read a
-            # line and let the caller's strip+lower logic handle it.
-            return sys.stdin.readline()
+    import select  # noqa: WPS433 — POSIX-only
 
-        try:
-            tty.setcbreak(fd)
-            # Discard anything queued *before* the prompt was printed so
-            # accidental keystrokes from between prompts cannot decline
-            # the call.
-            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    try:
+        tty.setcbreak(fd)
+        # Discard anything queued *before* the prompt was printed so
+        # accidental keystrokes from between prompts cannot decline the call.
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
 
+        while not should_stop.is_set():
+            try:
+                ready, _, _ = select.select([fd], [], [], 0.15)
+            except (OSError, ValueError):
+                # fd went away under us (terminal detached / shutdown).
+                return ""
+            if not ready:
+                continue
             ch = sys.stdin.read(1)
-            # If the keypress is the start of an escape sequence (arrow
-            # key etc.), drain the rest of the sequence and read one more
-            # real character so we do not treat ``\x1b[C`` as decline.
+            if ch == "":
+                return ""  # EOF on stdin
+            # If the keypress is the start of an escape sequence (arrow key
+            # etc.), drain the rest of the sequence and read one more real
+            # character so we do not treat ``\x1b[C`` as decline.
             if ch == "\x1b":
                 # ESC then ``[`` then final byte (e.g. ``A``/``B``/``C``/``D``).
                 second = sys.stdin.read(1)
@@ -191,20 +182,66 @@ async def _confirm_in_terminal(
             # canonical mode.
             print(ch, file=sys.stderr, flush=True)
             return ch
-        finally:
-            try:
-                termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
-            except Exception:  # noqa: BLE001 — best effort restore
-                pass
+        return ""  # cancelled before any keypress (timeout / turn ended)
+    finally:
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_attr)
+        except Exception:  # noqa: BLE001 — best effort restore
+            pass
 
+
+async def _confirm_in_terminal(
+    tool: str,
+    sanitized: Dict[str, Any],
+    risk_reason: Optional[str] = None,
+    *,
+    timeout_s: float = CONFIRM_TIMEOUT_S,
+) -> bool:
+    """Single-keypress y/N confirm prompt.
+
+    cbreak mode delivers each keypress as soon as it arrives, so ``y``
+    accepts immediately, ``n`` (and any other key) declines immediately, and
+    there is no readline-versus-stale-bytes race. Leading escape sequences
+    (arrow keys = ESC + ``[`` + final byte) are stripped so a stray
+    right-arrow before the actual ``y`` is not treated as a decline. Falls
+    back to line mode + readline if termios/tty are not importable.
+
+    The keypress read runs in a worker thread but is *cancellable*: on
+    timeout (or when this coroutine is cancelled because the turn was torn
+    down) we set ``should_stop`` and briefly await the reader so it restores
+    the TTY and releases stdin BEFORE we return. That closes the window in
+    which an orphaned reader would (a) steal the operator's next
+    Enter-to-commit keystroke and (b) keep a non-daemon thread blocked on
+    stdin so the process could not exit. See ``CONFIRM_TIMEOUT_S``.
+    """
+    header = f"\n[g1_brain confirm] execute {tool}({sanitized}) ?\n"
+    if risk_reason:
+        header += f"[RISK] {risk_reason}\n"
+    msg = header + "press y to accept, any other key to decline: "
+    print(msg, end="", flush=True, file=sys.stderr)
+
+    should_stop = threading.Event()
     loop = asyncio.get_event_loop()
+    fut = loop.run_in_executor(None, _read_one_keypress, should_stop)
+    raw = ""
     try:
-        raw = await asyncio.wait_for(
-            loop.run_in_executor(None, _read_one_keypress), timeout=60.0
-        )
+        # shield: a wait_for timeout cancels the *wrapper*, not the executor
+        # future, so the reader thread keeps running until we set should_stop
+        # in the finally below — at which point it exits cleanly.
+        raw = await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s)
     except asyncio.TimeoutError:
-        print("[g1_brain confirm] timed out, declining.", file=sys.stderr)
-        return False
+        print("[g1_brain confirm] timed out, declining.", file=sys.stderr, flush=True)
+        raw = ""
+    finally:
+        # Always tell the reader to stop and give it a moment to restore the
+        # TTY + free stdin before returning. Guarantees the thread can never
+        # outlive this call and eat the operator's next keystroke.
+        should_stop.set()
+        if not fut.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(fut), timeout=1.0)
+            except Exception:  # noqa: BLE001 — Timeout/Cancelled/etc; thread is daemonless but bounded
+                pass
     raw = (raw or "").strip().lower()
     return raw in ("y", "yes")
 

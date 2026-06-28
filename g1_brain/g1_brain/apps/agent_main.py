@@ -52,6 +52,15 @@ log = logging.getLogger("g1_brain")
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "g1_brain" / "configs" / "g1_brain.yaml"
 
+# Force-quit backstop. After the FIRST Ctrl-C we begin a graceful shutdown
+# (subsystems stop, the current session's memory is flushed). If that wedges,
+# a daemon watchdog hard-exits the process after this many seconds. It is sized
+# ABOVE the bounded graceful-shutdown budget (notably memory.stop's 30 s
+# current-session flush) so a normal shutdown finishes first — this only fires
+# on a genuine hang. Operators who don't want to wait press Ctrl-C a SECOND
+# time for an immediate exit (see _install_shutdown_signals).
+_FORCE_EXIT_AFTER_SIGNAL_S = 45.0
+
 
 # ---------------------------------------------------------------------------
 # Path / logging / config helpers
@@ -1747,6 +1756,81 @@ def _drain_pending_tasks(loop: asyncio.AbstractEventLoop, timeout: float = 5.0) 
         pass
 
 
+def _install_shutdown_signals(
+    loop: asyncio.AbstractEventLoop,
+    stop_evt: asyncio.Event,
+    *,
+    grace_s: float = _FORCE_EXIT_AFTER_SIGNAL_S,
+    exit_fn=None,
+    spawn_watchdog: bool = True,
+    install: bool = True,
+):
+    """Install SIGINT/SIGTERM handlers with force-quit escalation.
+
+    Why NOT ``loop.add_signal_handler``: that routes the signal *through* the
+    event loop, so when the loop is starved/blocked (heavy GIL contention, a
+    stuck coroutine, a subsystem hang) the callback never runs AND Python's
+    default KeyboardInterrupt is suppressed — i.e. Ctrl-C does absolutely
+    nothing. That is the exact "^C^C^C and it just keeps logging" wedge the
+    operator hit. A plain low-level handler runs in the main thread the moment
+    the GIL is free and can ``os._exit`` on the second press regardless of loop
+    health.
+
+    Escalation:
+      * 1st signal → request graceful shutdown (set ``stop_evt`` via the loop)
+        and arm a daemon watchdog that force-exits after ``grace_s`` if the
+        graceful path wedges.
+      * 2nd (or later) signal → force-exit immediately.
+
+    Returns ``(handler, state)`` so the escalation can be unit-tested without
+    delivering real signals (pass ``install=False`` to skip ``signal.signal``).
+    """
+    _exit = exit_fn if exit_fn is not None else os._exit
+    state = {"count": 0}
+
+    def _watchdog() -> None:
+        deadline = time.monotonic() + grace_s
+        while time.monotonic() < deadline:
+            time.sleep(0.25)
+        print(
+            "\n[g1_brain] shutdown is taking too long — forcing exit now.",
+            file=sys.stderr, flush=True,
+        )
+        _exit(130)
+
+    def _handle(*_):
+        state["count"] += 1
+        if state["count"] == 1:
+            log.warning(
+                "signal received — shutting down "
+                "(press Ctrl-C again to force-quit immediately)"
+            )
+            try:
+                loop.call_soon_threadsafe(stop_evt.set)
+            except RuntimeError:
+                # Loop already closed/closing — nothing graceful left to do.
+                _exit(130)
+                return
+            if spawn_watchdog:
+                threading.Thread(
+                    target=_watchdog,
+                    name="g1-force-exit-watchdog",
+                    daemon=True,
+                ).start()
+        else:
+            print("\n[g1_brain] force-quit.", file=sys.stderr, flush=True)
+            _exit(130)
+
+    if install:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                signal.signal(sig, _handle)
+            except (ValueError, OSError):
+                # Not the main thread (shouldn't happen for main()); best effort.
+                pass
+    return _handle, state
+
+
 def main() -> int:
     _ensure_sibling_repos_on_path()
     args = parse_args()
@@ -1769,15 +1853,10 @@ def main() -> int:
 
     stop_evt = asyncio.Event()
 
-    def _on_signal(*_):
-        log.info("signal received, shutting down")
-        loop.call_soon_threadsafe(stop_evt.set)
-
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
-            loop.add_signal_handler(sig, _on_signal)
-        except NotImplementedError:
-            signal.signal(sig, lambda *_: stop_evt.set())
+    # 1st Ctrl-C → graceful shutdown (+ a watchdog backstop); 2nd Ctrl-C →
+    # immediate os._exit. Plain low-level handler so it works even when the
+    # event loop is wedged. See _install_shutdown_signals.
+    _install_shutdown_signals(loop, stop_evt)
 
     main_task = loop.create_task(_run(args))
 
@@ -1810,4 +1889,14 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    _rc = main()
+    # Hard exit, bypassing interpreter atexit. Normal interpreter shutdown
+    # joins the ThreadPoolExecutor's non-daemon worker threads; any stray
+    # thread still blocked on a syscall (e.g. a confirm-prompt stdin reader
+    # that didn't get to unwind) would wedge that join forever and the process
+    # would hang AFTER printing its shutdown logs — looking like "Ctrl-C did
+    # nothing". The bounded graceful shutdown already ran inside _run()'s
+    # finally, so a hard exit here is safe and guarantees the process dies.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(int(_rc))

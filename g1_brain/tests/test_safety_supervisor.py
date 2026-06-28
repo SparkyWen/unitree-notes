@@ -7,6 +7,7 @@ to exercise one rule.
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 from unittest.mock import AsyncMock
@@ -611,13 +612,30 @@ class _FakeTty:
 
 
 class _FakeStdin:
-    """Simulates one keypress at a time; supports escape sequences."""
+    """Simulates one keypress at a time; supports escape sequences.
+
+    ``fileno()`` is backed by a real OS pipe pre-loaded with the sequence
+    bytes so the cancellable cbreak reader's ``select.select`` reports the
+    fd readable immediately; ``read``/``readline`` still serve from the
+    in-memory buffer so the parse logic is exercised deterministically.
+    """
 
     def __init__(self, sequence):
         self._buf = list(sequence)
+        self._r, self._w = os.pipe()
+        # Always leave at least one byte so select() reports "readable".
+        os.write(self._w, (sequence or "\x00").encode("latin-1", "ignore") or b"\x00")
 
     def fileno(self):
-        return 0
+        return self._r
+
+    def close(self):
+        for fd in (getattr(self, "_r", None), getattr(self, "_w", None)):
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     def read(self, n):
         out = []
@@ -710,6 +728,48 @@ async def test_confirm_in_terminal_survives_no_termios(monkeypatch):
     monkeypatch.setitem(_sys.modules, "termios", None)
     monkeypatch.setattr(sup_mod.sys, "stdin", _FakeStdin("y\n"))
     assert await sup_mod._confirm_in_terminal("walk", {}) is True
+
+
+@pytest.mark.asyncio
+async def test_confirm_in_terminal_times_out_and_restores_tty(monkeypatch):
+    """A confirm with no answer must (a) decline on timeout and (b) restore
+    the TTY and terminate the reader thread on the cancellation path — never
+    orphan a stdin reader that would eat the operator's next Enter or block
+    process exit (the 'pressed Enter but it's stuck' / 'Ctrl-C does nothing'
+    regression)."""
+    from g1_brain.safety import supervisor as sup_mod
+
+    fake_term = _FakeTermios()
+    fake_tty = _FakeTty()
+    monkeypatch.setitem(__import__("sys").modules, "termios", fake_term)
+    monkeypatch.setitem(__import__("sys").modules, "tty", fake_tty)
+
+    # An empty pipe: select() never reports readable, so the reader thread
+    # can only exit via should_stop — the cancellation path under test.
+    r, w = os.pipe()
+
+    class _SilentStdin:
+        def fileno(self):
+            return r
+
+        def read(self, _n):
+            return ""
+
+        def readline(self):
+            return ""
+
+    monkeypatch.setattr(sup_mod.sys, "stdin", _SilentStdin())
+    try:
+        ok = await sup_mod._confirm_in_terminal("walk", {}, timeout_s=0.2)
+    finally:
+        os.close(r)
+        os.close(w)
+
+    assert ok is False
+    # Entered cbreak and then restored the original TTY state on the way out
+    # (proves the finally ran — i.e. the reader thread terminated, not orphaned).
+    assert fake_tty.cbreak_calls == 1
+    assert fake_term.tcsetattr_calls == 1
 
 
 # Rule 12: vision risk gate ----------------------------------------------

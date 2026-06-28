@@ -188,6 +188,12 @@ openai:
   tts_voice: "alloy"
   realtime_voice: "alloy"
   vision_detail: "auto"          # OpenAI accepts low/high/auto/original
+  # Reply-language lock (ISO-639-1). The Realtime model otherwise mirrors
+  # whatever language it (mis)hears and drifts into Korean/Chinese on English
+  # commands. "en" appends a hard "respond in English only" directive to the
+  # instructions AND pins the input-audio transcription to English. Set to
+  # "zh" (etc.) to switch, or extend the directive map in brain/prompts.py.
+  language: "en"
 
 audio:
   samplerate: 24000
@@ -240,7 +246,11 @@ wakeword:
   # mic; raise toward 400 if keyboard / fan starts triggering transcribes.
   rms_threshold: 300
   cooldown_s: 2.0
-  language: null
+  # ISO-639-1 hint for the wake-word transcription. null = auto-detect, which
+  # mis-transcribed normal English into Korean/Chinese ("아이") and fed the
+  # reply-language drift. "en" pins the wake ASR to English. The wake phrase
+  # is "Hi Sparky"; the Chinese variants below remain matchable as text.
+  language: "en"
   phrases:
     - "hi sparky"
     - "hey sparky"
@@ -421,9 +431,14 @@ memory:
   enabled: true
   root_dir: "~/.unitree/g1_brain"
 
-  # Phase1 / Phase2 LLM extraction — empty string = use Codex subscription default
-  phase1_model: ""
-  phase2_model: ""
+  # Phase1 / Phase2 LLM extraction model. Must be set explicitly: these run via
+  # `codex exec --ignore-user-config`, which discards ~/.codex/config.toml, and
+  # an empty value lets codex fall back to its built-in default `gpt-5.3-codex`
+  # — REJECTED on this ChatGPT account ("not supported when using Codex with a
+  # ChatGPT account", 400). gpt-5.5 is this account's working model (same default
+  # the fleet commander uses). Surfaces as a misleading "codex 401/exec rc=1".
+  phase1_model: "gpt-5.5"
+  phase2_model: "gpt-5.5"
   # Debounce window after plan_done before enqueueing Phase1. Keeps a
   # chatty user from re-triggering extraction on every turn.
   phase1_debounce_s: 30
@@ -448,8 +463,12 @@ memory:
   # past the point the operator is talking.
   backfill_delay_s: 90
 
-  # ask_slow_brain persistent Codex daemon (codex mcp-server)
-  slow_brain_model: ""
+  # ask_slow_brain persistent Codex daemon (codex mcp-server). This path DOES
+  # read ~/.codex/config.toml (mcp-server rejects --ignore-user-config), so it
+  # has been working off config.toml's model. Pin it explicitly anyway so the
+  # slow brain doesn't break if that file changes, and stays on the account's
+  # working model rather than the rejected gpt-5.3-codex default.
+  slow_brain_model: "gpt-5.5"
   # 45 s was too short for xhigh deliberation; 90 s is the default/ceiling.
   # Supervisor clamps per-call timeout_s requests to [3, 90].
   ask_default_timeout_s: 90

@@ -1317,6 +1317,10 @@ async def _run(args: argparse.Namespace) -> int:
                     "OPENAI_REALTIME_MODEL", cfg["openai"]["realtime_model"]
                 ),
                 voice=cfg["openai"]["realtime_voice"],
+                # Reply-language lock + input-transcription hint (default English).
+                # Stops the Realtime model mirroring a mis-detected language.
+                response_language=cfg["openai"].get("language", "en"),
+                transcribe_language=cfg["openai"].get("language", "en"),
                 mic=mic,
                 speaker=speaker,
                 camera=camera_hub,

@@ -33,6 +33,9 @@ class PhoneConfig(BaseModel):
     tool_timeout_s: float = 5.0
     realtime_model: str = "gpt-realtime"
     realtime_voice: str = "alloy"
+    # ISO-639-1 reply/transcription language lock for the phone session.
+    # Defaults to English so a call never drifts into another language.
+    language: str = "en"
     greeting: str = "Hi, this is Sparky. What would you like me to do?"
 
     @field_validator("public_bridge_url")

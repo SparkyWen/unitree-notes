@@ -143,7 +143,7 @@ class PhoneRealtimeSession(BrainRealtimeAgent):
                 "audio": {
                     "input": {
                         "format": {"type": "audio/pcm", "rate": 24000},
-                        "transcription": {"model": "gpt-4o-mini-transcribe"},
+                        "transcription": self._transcription_cfg(),
                         "turn_detection": {
                             "type": "server_vad",
                             "threshold": 0.5,
